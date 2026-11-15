@@ -104,6 +104,7 @@ export function browserPanel(name = '') {
     <div class="panel-title"><span>${esc(name || 'Your life: browser')}</span>${status}</div>
     <p>Arise can keep a private log of the sites you visit, what you search, and your time on each site in this browser. The extension seals it right away, so only your Arise can read it.</p>
     ${s.error ? `<p class="error small" role="alert">${esc(s.error)}</p>` : ''}
+    ${s.error && !s.hello ? '<div class="row"><button class="btn small primary" data-act="bl-reload">Reload this page</button></div>' : ''}
     ${body}
     ${links.map(linkRow).join('')}
     ${
@@ -117,6 +118,9 @@ export function browserPanel(name = '') {
 // Returns true when it handled the action.
 export async function handleAction(act, el) {
   switch (act) {
+    case 'bl-reload':
+      location.reload();
+      return true;
     case 'bl-copy-page':
       try {
         await navigator.clipboard.writeText(el.dataset.v);

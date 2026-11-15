@@ -52,6 +52,7 @@ export interface Api {
     query(q: { url?: string[]; active?: boolean; lastFocusedWindow?: boolean }): Promise<Tab[]>;
     sendMessage(tabId: number, msg: unknown): Promise<unknown>;
     create(p: { url: string }): Promise<Tab>;
+    reload(tabId: number): Promise<void>;
     onActivated: Evt<(info: { tabId: number; windowId: number }) => void>;
     onUpdated: Evt<(tabId: number, change: { url?: string; status?: string; audible?: boolean }, tab: Tab) => void>;
   };
