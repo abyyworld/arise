@@ -1791,6 +1791,7 @@ function renderSettings() {
           <div class="panel-title"><span>Backup</span></div>
           <p>${SYNC.configured ? 'With an account (see Account) your data syncs by itself. Without one, your' : 'Your'} log is saved on this device only. You can also save a backup here and load it on another device to combine them.</p>
           <p class="muted small">Keep backups in Filen, iCloud Drive or Dropbox: <button class="link" data-act="hub-go" data-v="connect" data-step="connections" data-to="hubFiles">Your files</button>.</p>
+          ${FILES.state().error ? `<p class="error small">${esc(FILES.state().error)}</p>` : ''}
           <div class="row"><button class="btn primary" data-act="export">Save backup</button><button class="btn ghost" data-act="import">Load backup</button></div>
         </section>
         <section class="panel">

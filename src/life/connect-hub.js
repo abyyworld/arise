@@ -253,11 +253,8 @@ export async function handleAction(act, el, { go } = {}) {
   if (act.startsWith('files-')) {
     try {
       if (act === 'files-pick' && (await FILES.pick())) toast('Done. Arise backs up to that folder from now on.');
-      if (act === 'files-now' && (await FILES.backupNow())) toast('Backed up.');
-      if (act === 'files-allow') {
-        filesAccess = await FILES.access(true);
-        if (filesAccess === 'granted') await FILES.backupNow();
-      }
+      if (act === 'files-now' && (await FILES.backupNow({ ask: true }))) toast('Backed up.');
+      if (act === 'files-allow' && (await FILES.backupNow({ ask: true }))) toast('Allowed. Backed up.');
       if (act === 'files-ext' && (await FILES.saveExtension())) toast('The extension is in your folder, in Arise.');
       if (act === 'files-forget' && globalThis.confirm?.("Stop backing up to that folder? What's in it stays there.")) {
         await FILES.forget();
@@ -393,8 +390,9 @@ function filesPart() {
     <p class="muted small">${st.last ? `Last backup ${esc(when(st.last))}.` : 'No backup yet.'}${st.ext ? ` The extension was put there ${esc(when(st.ext))}.` : ''}</p>
     ${st.error ? `<p class="error small">${esc(st.error)}</p>` : ''}
     ${filesAccess === 'prompt' ? '<p class="small">Your browser asks again after a restart. Allow it, and pick "Allow on every visit" if it offers that.</p>' : ''}
+    ${filesAccess === 'denied' ? `<p class="error small">${esc(FILES.BLOCKED)}</p>` : ''}
     <div class="row">
-      ${filesAccess === 'prompt' ? '<button class="btn small primary" data-act="files-allow">Allow again</button>' : '<button class="btn small primary" data-act="files-now">Back up now</button>'}
+      ${filesAccess === 'prompt' ? '<button class="btn small primary" data-act="files-allow">Allow again</button>' : filesAccess === 'denied' ? '<button class="btn small primary" data-act="files-pick">Pick it again</button>' : '<button class="btn small primary" data-act="files-now">Back up now</button>'}
       <button class="btn small ghost" data-act="files-ext">Put the extension there</button>
       <button class="btn small ghost" data-act="files-pick">Another folder</button>
       <button class="link danger-link" data-act="files-forget">Stop</button>

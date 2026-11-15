@@ -19,8 +19,19 @@ class Dir {
     }
     return this.dirs.get(n)!;
   }
+  failWrites = false;
+  aborted = 0;
   async getFileHandle(n: string) {
-    return { createWritable: async () => ({ write: async (d: unknown) => void this.files.set(n, d), close: async () => {} }) };
+    return {
+      createWritable: async () => ({
+        write: async (d: unknown) => {
+          if (this.failWrites) throw new Error('Not enough space.');
+          this.files.set(n, d);
+        },
+        close: async () => {},
+        abort: async () => void this.aborted++,
+      }),
+    };
   }
   async *entries() {
     for (const k of [...this.files.keys(), ...this.dirs.keys()]) yield [k, null];
@@ -95,8 +106,12 @@ describe('your files', () => {
     expect(await F.access()).toBe('prompt');
     vi.setSystemTime(new Date(2026, 10, 17, 9));
     expect(await F.backupIfDue()).toBe(false);
-    expect(await F.access(true)).toBe('granted');
-    expect(await F.backupIfDue()).toBe(true);
+    expect(F.state().error).toBe(F.PAUSED); // said, so it doesn't stop quietly
+    expect(await F.backupNow({ ask: true })).toBe(true); // a tap asks
+    expect(F.state().error).toBe('');
+    filen.perm = 'denied';
+    expect(await F.access(true)).toBe('denied');
+    await expect(F.backupNow({ ask: true })).rejects.toThrow('blocked');
   });
 
   it('puts the browser extension there for the other computers, and stops when asked', async () => {
@@ -111,6 +126,19 @@ describe('your files', () => {
     await F.forget();
     expect(F.state().name).toBe('');
     expect(await F.access()).toBe('none');
+  });
+
+  it('says when the folder is full, and leaves no half-written file', async () => {
+    const F = await load();
+    const filen = new Dir('Filen');
+    (window as { showDirectoryPicker?: unknown }).showDirectoryPicker = async () => filen;
+    await F.pick();
+    const backups = filen.dirs.get('Arise')!.dirs.get('backups')!;
+    backups.failWrites = true;
+    vi.setSystemTime(new Date(2026, 10, 18, 9));
+    expect(await F.backupIfDue()).toBe(false);
+    expect(F.state().error).toBe('Not enough space.');
+    expect(backups.aborted).toBe(1);
   });
 
   it('keeps the newest backups by name', async () => {

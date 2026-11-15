@@ -74,15 +74,18 @@ const listeners = new Set();
 export const onChange = (cb) => (listeners.add(cb), () => listeners.delete(cb));
 const changed = () => listeners.forEach((cb) => cb());
 
-// 'granted', 'prompt' (needs a tap to allow again), or 'none' (no folder picked).
+// 'granted', 'prompt' (needs a tap to allow again), 'denied' (blocked: pick the folder again) or
+// 'none' (no folder picked). `ask` only from a tap.
 export async function access(ask = false) {
   const h = await getFolder();
   if (!h) return 'none';
   const opts = { mode: 'readwrite' };
   let p = (await h.queryPermission?.(opts)) || 'granted';
-  if (p !== 'granted' && ask) p = (await h.requestPermission?.(opts)) || 'denied';
-  return p === 'granted' ? 'granted' : 'prompt';
+  if (p === 'prompt' && ask) p = (await h.requestPermission?.(opts)) || 'denied';
+  return p === 'granted' ? 'granted' : p === 'denied' ? 'denied' : 'prompt';
 }
+export const PAUSED = 'Backups are paused until you allow the folder again: Setup and connections, Your files.';
+export const BLOCKED = 'Your browser blocked that folder. Pick it again.';
 
 // Asks for a folder (from a tap). False when the Player closed the picker.
 export async function pick() {
@@ -115,8 +118,13 @@ async function ariseFolder(h, ...parts) {
 async function writeFile(dir, name, data) {
   const f = await dir.getFileHandle(name, { create: true });
   const w = await f.createWritable();
-  await w.write(data);
-  await w.close();
+  try {
+    await w.write(data);
+    await w.close();
+  } catch (err) {
+    await w.abort?.().catch(() => {}); // (so no half-written temporary file is left to sync)
+    throw err;
+  }
 }
 
 // ---------- backups
@@ -134,10 +142,17 @@ export function oldBackups(names, keep = KEEP) {
 }
 
 // Writes today's backup (and lets the oldest go). Throws when it can't; says so in state().
-export async function backupNow() {
+// `ask`: from a tap, so the browser may ask for permission again.
+export async function backupNow({ ask = false } = {}) {
   const h = await getFolder();
   if (!h) return false;
-  if ((await access()) !== 'granted') return false;
+  const a = await access(ask);
+  if (a !== 'granted') {
+    setState({ error: a === 'denied' ? BLOCKED : PAUSED });
+    changed();
+    if (ask) throw new Error(a === 'denied' ? BLOCKED : "The folder wasn't allowed, so nothing was saved.");
+    return false;
+  }
   try {
     const dir = await ariseFolder(h, 'backups');
     await writeFile(dir, backupName(S.todayKey()), JSON.stringify(S.exportData(), null, 2));
