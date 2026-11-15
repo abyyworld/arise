@@ -46,6 +46,7 @@ import * as TODOS from './todos-ui.js';
 import * as ALERTS from './todo-alerts.js';
 import * as ATMO from './atmosphere.js';
 import * as TOP from './life/top-sites.js';
+import * as FILES from './files-folder.js';
 import { initInsight } from './life/insight';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -1789,6 +1790,8 @@ function renderSettings() {
         <section class="panel">
           <div class="panel-title"><span>Backup</span></div>
           <p>${SYNC.configured ? 'With an account (see Account) your data syncs by itself. Without one, your' : 'Your'} log is saved on this device only. You can also save a backup here and load it on another device to combine them.</p>
+          <p class="muted small">Keep backups in Filen, iCloud Drive or Dropbox: <button class="link" data-act="hub-go" data-v="connect" data-step="connections" data-to="hubFiles">Your files</button>.</p>
+          ${FILES.state().error ? `<p class="error small">${esc(FILES.state().error)}</p>` : ''}
           <div class="row"><button class="btn primary" data-act="export">Save backup</button><button class="btn ghost" data-act="import">Load backup</button></div>
         </section>
         <section class="panel">
@@ -2604,6 +2607,7 @@ SENSE.initLife(); // the iPhone app only: Apple Health, motion, calendar, places
 ANDROID.initAndroidLife();
 WR.initWebReminders();
 ATMO.initAtmosphere();
+FILES.initFiles();
 // The atmosphere menu closes with a tap anywhere else, or Escape.
 document.addEventListener('click', (e) => {
   if (!atmoOpen || e.target?.closest?.('.hero-tools')) return;

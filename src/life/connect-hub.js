@@ -30,6 +30,8 @@ import { SOURCE_NAMES } from './tiers';
 import { items as setupItems, progress, STEPS as ALL_STEPS, STEP_OF } from './setup';
 import * as SYS from '../system.js';
 import * as APPLOCK from '../app-lock.js';
+import * as FILES from '../files-folder.js';
+import { toast } from '../ui.js';
 
 export const VIEW = 'connect';
 export const LEAD = "Connect what you use, and Arise writes your days from it. Everything stays private: it's read on your devices and only leaves them encrypted.";
@@ -248,6 +250,23 @@ export async function handleAction(act, el, { go } = {}) {
     if (!globalThis.document?.activeElement?.closest?.('.wiz-pager')) refocus('.wiz-pager button:not([disabled])');
     return true;
   }
+  if (act.startsWith('files-')) {
+    try {
+      if (act === 'files-pick' && (await FILES.pick())) toast('Done. Arise backs up to that folder from now on.');
+      if (act === 'files-now' && (await FILES.backupNow({ ask: true }))) toast('Backed up.');
+      if (act === 'files-allow' && (await FILES.backupNow({ ask: true }))) toast('Allowed. Backed up.');
+      if (act === 'files-ext' && (await FILES.saveExtension())) toast('The extension is in your folder, in Arise.');
+      if (act === 'files-forget' && globalThis.confirm?.("Stop backing up to that folder? What's in it stays there.")) {
+        await FILES.forget();
+        toast('Stopped.');
+      }
+    } catch (err) {
+      toast(err?.message || "That didn't work. Try again.");
+    }
+    filesAccess = null;
+    repaintFiles();
+    return true;
+  }
   if (act === 'hub-check') {
     history = null;
     if (ME.links().some((l) => l.web)) void ME.checkConnector();
@@ -332,9 +351,60 @@ function connectHTML(s) {
   if (s === 'review') return setupPanel();
   return `<div class="cols hub">
       <div class="col">${phonePart()}${CONNECT.settingsPanel('Accounts')}</div>
-      <div class="col">${computerPart()}${historyPart()}${appsPart()}</div>
+      <div class="col">${computerPart()}${historyPart()}${filesPart()}${appsPart()}</div>
     </div>`;
 }
+
+// Your files: a synced folder of the Player's own (files-folder.js), or the share sheet.
+let filesAccess = null; // 'granted' | 'prompt' | 'none', once checked
+const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+function filesPart() {
+  const NOTE = "A backup isn't locked, like Save backup in Settings: Filen keeps it encrypted; in another folder, keep it private.";
+  if (!FILES.supported()) {
+    return `<section class="panel" id="hubFiles">
+    <div class="panel-title">${icon('note')}<span>Your files</span></div>
+    <p class="small">Keep a backup in Filen, iCloud Drive or another app on your phone: tap Save backup and pick it in the list.</p>
+    <div class="row"><button class="btn small primary" data-act="export">Save backup</button></div>
+    <p class="muted small">${esc(NOTE)} On a computer in Chrome, Edge, Brave or Arc, Arise can back up to a folder by itself.</p>
+  </section>`;
+  }
+  const st = FILES.state();
+  if (filesAccess === null) {
+    filesAccess = 'none';
+    void FILES.access().then((a) => {
+      filesAccess = a;
+      repaintFiles();
+    });
+  }
+  if (!st.name) {
+    return `<section class="panel" id="hubFiles">
+    <div class="panel-title">${icon('note')}<span>Your files</span>${chip('Not set up')}</div>
+    <p class="small">Keep Arise's backups, and the browser extension, in your own synced folder: Filen, iCloud Drive, Dropbox or OneDrive. Arise writes to it; that folder's own app puts it on your other devices. Arise never signs in to any of them.</p>
+    <div class="row"><button class="btn small primary" data-act="files-pick">Pick a folder</button></div>
+    <p class="muted small">${esc(NOTE)}</p>
+  </section>`;
+  }
+  return `<section class="panel" id="hubFiles">
+    <div class="panel-title">${icon('note')}<span>Your files</span>${chip('Connected', true)}</div>
+    <p class="small">Backing up to <b>${esc(st.name)}</b>, in a folder called Arise, once a day while Arise is open. The newest 7 are kept.</p>
+    <p class="muted small">${st.last ? `Last backup ${esc(when(st.last))}.` : 'No backup yet.'}${st.ext ? ` The extension was put there ${esc(when(st.ext))}.` : ''}</p>
+    ${st.error ? `<p class="error small">${esc(st.error)}</p>` : ''}
+    ${filesAccess === 'prompt' ? '<p class="small">Your browser asks again after a restart. Allow it, and pick "Allow on every visit" if it offers that.</p>' : ''}
+    ${filesAccess === 'denied' ? `<p class="error small">${esc(FILES.BLOCKED)}</p>` : ''}
+    <div class="row">
+      ${filesAccess === 'prompt' ? '<button class="btn small primary" data-act="files-allow">Allow again</button>' : filesAccess === 'denied' ? '<button class="btn small primary" data-act="files-pick">Pick it again</button>' : '<button class="btn small primary" data-act="files-now">Back up now</button>'}
+      <button class="btn small ghost" data-act="files-ext">Put the extension there</button>
+      <button class="btn small ghost" data-act="files-pick">Another folder</button>
+      <button class="link danger-link" data-act="files-forget">Stop</button>
+    </div>
+    <p class="muted small">${esc(NOTE)}</p>
+  </section>`;
+}
+function repaintFiles() {
+  const el = globalThis.document?.getElementById('hubFiles');
+  if (el) el.outerHTML = filesPart();
+}
+FILES.onChange(() => repaintFiles());
 
 // AI apps and other apps, from What Arise knows.
 function appsPart() {

@@ -51,14 +51,15 @@ function getIt() {
     return `<a class="btn primary" href="${esc(store)}" target="_blank" rel="noopener">Add the Arise extension</a>
       <p class="muted small">Then reload this page and press "Link this browser".</p>`;
   }
-  return `<p class="label">Add the extension (4 steps)</p>
-    <ol class="small">
-      <li><a href="${esc(EXTENSION_ZIP)}" download>Download the extension</a> and unzip it.</li>
-      <li>Open <b>${EDGE ? 'edge://extensions' : 'chrome://extensions'}</b> in a new tab and turn on Developer mode.</li>
-      <li>Press "Load unpacked" and pick the unzipped folder.</li>
-      <li>Reload this page and press "Link this browser".</li>
+  const page = EDGE ? 'edge://extensions' : 'chrome://extensions';
+  return `<a class="btn primary" href="${esc(EXTENSION_ZIP)}" download>Download the extension</a>
+    <p class="label">Then add it (3 steps)</p>
+    <ol class="small ext-steps">
+      <li>Unzip the file you downloaded.</li>
+      <li>Open <b>${page}</b> in a new tab <button class="link" data-act="bl-copy-page" data-v="${page}">copy it</button>, and turn on Developer mode.</li>
+      <li>Press "Load unpacked", pick the unzipped folder, then reload this page and press "Link this browser".</li>
     </ol>
-    <p class="muted small">Works in Chrome, Edge, Brave and Arc.</p>`;
+    <p class="muted small">Works in Chrome, Edge, Brave and Arc. On your other computers: keep a copy in Filen or another synced folder with Your files, in Setup and connections.</p>`;
 }
 
 function linkRow(r) {
@@ -116,6 +117,14 @@ export function browserPanel(name = '') {
 // Returns true when it handled the action.
 export async function handleAction(act, el) {
   switch (act) {
+    case 'bl-copy-page':
+      try {
+        await navigator.clipboard.writeText(el.dataset.v);
+        toast('Copied. Paste it in a new tab.');
+      } catch {
+        toast(`Type ${el.dataset.v} in a new tab.`);
+      }
+      return true;
     case 'bl-check':
       el.disabled = true;
       await BL.detect();

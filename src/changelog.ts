@@ -4,6 +4,14 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.26.0',
+    notes: [
+      'Your files: on a computer, give Arise your Filen folder (or iCloud Drive, Dropbox, OneDrive) once, and it keeps a backup there every day, the newest 7. That folder\'s own app puts it on your other devices. Arise never signs in to any of them. In Setup and connections, Connections.',
+      'Put the browser extension in that folder too, ready for your other computers. Adding the extension is clearer: download it, then three short steps.',
+      'On a phone, Save backup lets you pick Filen or another app straight away.',
+    ],
+  },
+  {
     version: '1.25.0',
     notes: [
       'Your most-visited sites on Today, one tap away. Counted from the sites you visit (with the browser extension, a Chrome history import or the Mac helper), on this device only.',

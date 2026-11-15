@@ -1150,3 +1150,6 @@
 [data-theme='arise'] .site-text { display: grid; min-width: 0; }
 [data-theme='arise'] .site-text b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-theme='arise'] .site-text small { color: var(--muted); }
+/* Inside a setup step, the panels go in one column, so nothing ends up narrow or leaves a gap. */
+[data-theme='arise'] .wiz-body .cols.hub { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+[data-theme='arise'] .wiz-body .cols.hub > .col { display: contents; }
