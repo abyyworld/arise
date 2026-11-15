@@ -74,7 +74,7 @@ describe('the Connect screen', () => {
     expect(text('h1')).toBe('Connect');
     expect(text('.kicker')).toBe('Setup and connections');
     expect(text('.hub-lead')).toBe("Connect what you use, and Arise writes your days from it. Everything stays private: it's read on your devices and only leaves them encrypted.");
-    expect(titles()).toEqual(['Your phone', 'Accounts', 'This computer', 'Your history', 'AI apps']);
+    expect(titles()).toEqual(['Your phone', 'Accounts', 'This computer', 'Your history', 'Your files', 'AI apps']);
 
     expect(text('#hub-iphone')).toBe('iPhone Needs the iPhone app Health, sleep, steps, workouts, calendar, places and Shortcuts need the Arise app on your iPhone. How to get it');
     expect($('#hub-iphone a')!.getAttribute('href')).toBe(HUB.IPHONE_HOW);
@@ -141,13 +141,28 @@ describe('the Connect screen', () => {
     localStorage.clear();
   });
 
+  it('offers your own synced folder, like Filen, for backups: by itself on a computer, by the share sheet elsewhere', async () => {
+    await screen();
+    expect(text('#hubFiles')).toContain('Keep a backup in Filen, iCloud Drive or another app on your phone');
+    expect($('#hubFiles [data-act="export"]')).not.toBeNull();
+    (window as { showDirectoryPicker?: unknown }).showDirectoryPicker = async () => ({});
+    try {
+      await screen();
+      expect(text('#hubFiles')).toContain('Your files Not set up');
+      expect(text('#hubFiles')).toContain('Arise never signs in to any of them.');
+      expect($('#hubFiles [data-act="files-pick"]')).not.toBeNull();
+    } finally {
+      delete (window as { showDirectoryPicker?: unknown }).showDirectoryPicker;
+    }
+  });
+
   it('keeps one plain page in the System look', async () => {
     document.documentElement.dataset.theme = 'system';
     try {
       await screen('account');
       expect($('.wiz')).toBeNull();
       expect($('#hubSetup')).not.toBeNull();
-      expect(titles()).toEqual(['Your phone', 'Accounts', 'This computer', 'Your history', 'AI apps']);
+      expect(titles()).toEqual(['Your phone', 'Accounts', 'This computer', 'Your history', 'Your files', 'AI apps']);
     } finally {
       delete document.documentElement.dataset.theme;
     }
@@ -172,7 +187,7 @@ describe('the Connect screen', () => {
   it("in the iPhone app: the iPhone's own switches, and this computer says where", async () => {
     phone('ios', ['AriseSense']);
     await screen();
-    expect(titles()).toEqual(['Your phone', 'Accounts', 'This computer', 'Your history', 'AI apps']);
+    expect(titles()).toEqual(['Your phone', 'Accounts', 'This computer', 'Your history', 'Your files', 'AI apps']);
     expect($('#hubPhone')).toBeNull();
     expect([...document.querySelectorAll<HTMLElement>('#lifePanel [data-act="life-toggle"]')].map((b) => b.dataset.src)).toEqual(['health', 'motion', 'calendar', 'places', 'shortcuts']);
     expect($('#browserPanel')).toBeNull();
