@@ -384,6 +384,18 @@ describe('Connect in the app', () => {
     expect(text('#browserPanel .panel-title')).toBe('Browser Off');
   });
 
+  it('offers to reload the page when the extension was added after it opened', async () => {
+    await boot('connect');
+    await toStep('connections');
+    const BL = await import('./browser-link');
+    BL.status.checked = true;
+    BL.status.hello = null;
+    BL.status.error = "The Arise extension isn't in this browser yet, or this page needs a reload after adding it.";
+    const box = document.createElement('div');
+    box.innerHTML = (await import('./browser-ui.js')).browserPanel('Browser');
+    expect(box.querySelector('[data-act="bl-reload"]')?.textContent).toBe('Reload this page');
+  });
+
   it("leaves the Me tab's own Your life panel alone when the iPhone panel redraws", async () => {
     await boot('progress');
     const mine = $('#lifePanel')!;

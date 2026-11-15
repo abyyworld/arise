@@ -4,6 +4,12 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.26.1',
+    notes: [
+      'Adding the browser extension: Arise pages already open refresh by themselves once it\'s added, and if Arise still can\'t see it, a Reload this page button is right there. The extension now points to Setup and connections.',
+    ],
+  },
+  {
     version: '1.26.0',
     notes: [
       'Your files: on a computer, give Arise your Filen folder (or iCloud Drive, Dropbox, OneDrive) once, and it keeps a backup there every day, the newest 7. That folder\'s own app puts it on your other devices. Arise never signs in to any of them. In Setup and connections, Connections.',

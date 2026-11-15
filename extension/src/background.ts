@@ -109,7 +109,18 @@ async function start() {
 
 // ---------- listeners (all at the top, so a sleeping service worker wakes for them)
 
-api.runtime.onInstalled.addListener(() => void start());
+api.runtime.onInstalled.addListener((d) => {
+  void start();
+  // Just added: Arise pages open since before can't see it until they load again, so they do.
+  if (d?.reason === 'install') void reloadArise();
+});
+
+async function reloadArise() {
+  try {
+    const tabs = await api.tabs.query({ url: ARISE.map((a) => `${a}*`) });
+    for (const t of tabs) if (typeof t.id === 'number') await api.tabs.reload(t.id).catch(() => {});
+  } catch {}
+}
 api.runtime.onStartup.addListener(() => void start());
 api.alarms.onAlarm.addListener((a) => {
   if (a.name === TICK) void tick();

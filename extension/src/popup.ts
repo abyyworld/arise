@@ -74,7 +74,7 @@ function view(s: PopupState): Node[] {
   if (!s.linked) {
     return [
       h('p', {}, 'Not linked yet.'),
-      h('p', {}, 'Open Arise, go to Settings, then "Your life: browser", and press "Link this browser".'),
+      h('p', {}, 'Open Arise, then Setup and connections, Connections, and press "Link this browser" under Browser.'),
       button('open', 'Open Arise', 'primary block'),
       h('p', { class: 'small muted' }, "Until it's linked, nothing is recorded."),
       skipBox(s, `${BEFORE} ${ALWAYS}`),
@@ -150,7 +150,7 @@ main.addEventListener('click', async (e) => {
       if (s && inWindow) return window.close();
       break;
     case 'open':
-      await api.tabs.create({ url: `${ARISE[0]}#settings` });
+      await api.tabs.create({ url: `${ARISE[0]}#connect` });
       return window.close();
     case 'pause':
     case 'resume':
