@@ -314,8 +314,16 @@ jobs:
               echo "::error::$FILE on the release has SHA-256 $GOT, but install.sh says $WANT."
               exit 1
             fi
-            gh attestation verify "$FILE" --repo "$REPO" \
-              --signer-workflow "$REPO/.github/workflows/mac-helper.yml" \
-              --source-ref refs/heads/main --deny-self-hosted-runners
+            if [ "$BUILD" = 12 ]; then
+              # Built before the repo was renamed from physical-improvement-tracker-app: its record
+              # names the workflow by the old name (mac-helper/install.sh does the same).
+              gh attestation verify "$FILE" --owner "${REPO%%/*}" \
+                --signer-workflow "${REPO%%/*}/physical-improvement-tracker-app/.github/workflows/mac-helper.yml" \
+                --source-ref refs/heads/main --deny-self-hosted-runners
+            else
+              gh attestation verify "$FILE" --repo "$REPO" \
+                --signer-workflow "$REPO/.github/workflows/mac-helper.yml" \
+                --source-ref refs/heads/main --deny-self-hosted-runners
+            fi
           done
           echo "Build b$BUILD: the checksums match, and this workflow built it from main." >> "$GITHUB_STEP_SUMMARY"

@@ -3,6 +3,9 @@
 
 // Where Arise lives. The extension talks only to pages under it.
 export const ARISE_URL = 'https://abyyworld.github.io/arise/';
+// Its old address, where home-screen copies made before the move still run (a full copy kept by the
+// physical-improvement-tracker-app repo, docs/LAUNCH.md, The old address).
+export const OLD_URL = 'https://abyyworld.github.io/physical-improvement-tracker-app/';
 // A development build also talks to Arise's own dev server (npm run dev, npx vite preview).
 export const DEV_URLS = ['http://localhost/', 'http://127.0.0.1/'];
 // Firefox's id for the extension, and where it checks for updates of a copy signed by Mozilla.
@@ -15,7 +18,7 @@ export const TARGETS = ['chrome', 'edge', 'firefox'];
 const matchOf = (prefix) => `${prefix}*`;
 
 // The addresses the extension's code knows as Arise's.
-export const ariseUrls = ({ dev = false } = {}) => (dev ? [ARISE_URL, ...DEV_URLS] : [ARISE_URL]);
+export const ariseUrls = ({ dev = false } = {}) => (dev ? [ARISE_URL, OLD_URL, ...DEV_URLS] : [ARISE_URL, OLD_URL]);
 
 export function manifestFor(base, target, { dev = false } = {}) {
   const m = structuredClone(base);

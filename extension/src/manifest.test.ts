@@ -3,7 +3,7 @@
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { ARISE_URL, DEV_URLS, GECKO_ID, TARGETS, UPDATES_URL, ariseUrls, manifestFor, updatesJson } from '../../scripts/extension-manifest.mjs';
+import { ARISE_URL, DEV_URLS, OLD_URL, GECKO_ID, TARGETS, UPDATES_URL, ariseUrls, manifestFor, updatesJson } from '../../scripts/extension-manifest.mjs';
 
 const base = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
 const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
@@ -26,16 +26,17 @@ describe('the manifest', () => {
     for (const t of TARGETS) expect(manifestFor(base, t).incognito).toBe('not_allowed');
   });
 
-  it("runs its content script on Arise's pages only (and localhost in a development build)", () => {
+  it("runs its content script on Arise's pages only, at its address and its old one (and localhost in a development build)", () => {
+    expect(OLD_URL).toBe('https://abyyworld.github.io/physical-improvement-tracker-app/');
     for (const t of TARGETS) {
       const m = manifestFor(base, t);
-      expect(m.content_scripts).toEqual([{ matches: [`${ARISE_URL}*`], js: ['content.js'], run_at: 'document_start', all_frames: false }]);
+      expect(m.content_scripts).toEqual([{ matches: [`${ARISE_URL}*`, `${OLD_URL}*`], js: ['content.js'], run_at: 'document_start', all_frames: false }]);
     }
     const dev = manifestFor(base, 'chrome', { dev: true });
-    expect(dev.content_scripts[0].matches).toEqual([`${ARISE_URL}*`, ...DEV_URLS.map((u) => `${u}*`)]);
+    expect(dev.content_scripts[0].matches).toEqual([`${ARISE_URL}*`, `${OLD_URL}*`, ...DEV_URLS.map((u) => `${u}*`)]);
     expect(dev.name).toContain('development');
-    expect(ariseUrls()).toEqual([ARISE_URL]);
-    expect(ariseUrls({ dev: true })).toEqual([ARISE_URL, ...DEV_URLS]);
+    expect(ariseUrls()).toEqual([ARISE_URL, OLD_URL]);
+    expect(ariseUrls({ dev: true })).toEqual([ARISE_URL, OLD_URL, ...DEV_URLS]);
   });
 
   it('fits each browser', () => {

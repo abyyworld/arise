@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Arise",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A private log of the sites you visit and what you search, for your Arise app. Sealed in the browser, so only your Arise can read it.",
   "homepage_url": "https://abyyworld.github.io/arise/",
   "icons": {
@@ -21,11 +21,23 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["history", "tabs", "idle", "alarms", "storage", "unlimitedStorage"],
+  "permissions": [
+    "history",
+    "tabs",
+    "idle",
+    "alarms",
+    "storage",
+    "unlimitedStorage"
+  ],
   "content_scripts": [
     {
-      "matches": ["https://abyyworld.github.io/arise/*"],
-      "js": ["content.js"],
+      "matches": [
+        "https://abyyworld.github.io/arise/*",
+        "https://abyyworld.github.io/physical-improvement-tracker-app/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_start",
       "all_frames": false
     }
