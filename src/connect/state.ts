@@ -3,8 +3,8 @@
 // in a backup, and gone with "Erase all data". Like everything read from storage, it's rebuilt
 // field by field on the way in (see clean), so a bad value can't break the app.
 
-export type ServiceId = 'google' | 'microsoft' | 'steam' | 'psn';
-export const SERVICES: readonly ServiceId[] = ['google', 'microsoft', 'steam', 'psn'];
+export type ServiceId = 'google' | 'microsoft' | 'steam' | 'psn' | 'github';
+export const SERVICES: readonly ServiceId[] = ['google', 'microsoft', 'steam', 'psn', 'github'];
 
 export interface Auth {
   token?: string; // an access token, or Steam's API key

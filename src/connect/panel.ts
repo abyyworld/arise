@@ -8,6 +8,7 @@ import * as G from './google';
 import * as MS from './microsoft';
 import * as STEAM from './steam';
 import * as PSN from './psn';
+import * as GH from './github';
 import * as OAUTH from './oauth';
 import { ConnectError, isNative } from './http';
 import { INFO, available, busy, deleteData, disconnect, finish, linked, syncNow, initEngine } from './engine';
@@ -144,6 +145,20 @@ function connectSheet(id: ServiceId) {
       <p class="muted small">The key stays on this phone. You can cancel it on that Steam page any time.</p>
       <p class="error small" id="acctErr" role="alert" hidden></p>
       <button class="btn primary block" data-act="acct-go" data-s="steam">Connect Steam</button>`);
+  } else if (id === 'github') {
+    const st = load('github');
+    openSheet(`<p class="kicker">Your life</p><h2 class="display sheet-title">Connect GitHub</h2>
+      <p>${esc(INFO.github.reads)}</p>
+      <ol class="changes">
+        <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">a new fine-grained token on GitHub ${icon('ext')}</a>. Name it Arise.</li>
+        <li>Under Repository access, pick <b>Only select repositories</b> and choose the ones Arise may read.</li>
+        <li>Under Permissions, set <b>Contents</b> to <b>Read-only</b>. Nothing else. Then generate it and copy it.</li>
+      </ol>
+      <label class="field"><span class="k">The token</span><input id="acctKey" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…"></label>
+      <label class="field"><span class="k">Repositories to read, one per line</span><textarea id="acctRepos" rows="3" autocomplete="off" spellcheck="false" placeholder="my-goals-and-networks&#10;my-portfolio">${esc(GH.reposOf(st).map((r) => (r.startsWith(`${st.user}/`) ? r.slice(st.user.length + 1) : r)).join('\n'))}</textarea></label>
+      <p class="muted small">The token can only read those repositories, and it stays on this device. What Arise gets goes into your life log, end-to-end encrypted, and only the private AI or the AI on your device reads it, unless you allow the less private ones. You can cancel the token on GitHub any time.</p>
+      <p class="error small" id="acctErr" role="alert" hidden></p>
+      <button class="btn primary block" data-act="acct-go" data-s="github">Connect GitHub</button>`);
   } else {
     openSheet(`<p class="kicker">Your life</p><h2 class="display sheet-title">Connect PlayStation</h2>
       <p><span class="tag">Unofficial: Sony could block it</span></p>
@@ -259,6 +274,38 @@ async function connectSteam(button: HTMLButtonElement) {
   }
 }
 
+async function connectGithub(button: HTMLButtonElement) {
+  const token = ($<HTMLInputElement>('#acctKey')?.value || '').trim();
+  const asked = $<HTMLTextAreaElement>('#acctRepos')?.value || '';
+  if (!GH.validToken(token)) return err('That isn\'t a GitHub token. Copy it again: it starts with github_pat_.');
+  if (!asked.trim()) return err('Write at least one repository, like my-goals-and-networks.');
+  button.disabled = true;
+  err('');
+  try {
+    const login = await GH.whoami(token);
+    const repos = GH.repoList(asked, login);
+    if (!repos.length) throw new ConnectError('other', "Those don't look like repository names. Write them like my-portfolio.");
+    const checked: string[] = [];
+    for (const r of repos) checked.push(await GH.checkRepo(token, r));
+    const st = load('github');
+    // Another GitHub account starts afresh.
+    if (st.user !== login) {
+      st.cursors = {};
+      st.last = 0;
+    }
+    st.auth = { token };
+    st.user = login;
+    st.account = login;
+    st.cursors.repos = checked.join(',');
+    closeSheet();
+    toast(`GitHub is linked: ${checked.length} ${checked.length === 1 ? 'repository' : 'repositories'}. Reading them…`);
+    linked('github', st);
+  } catch (e) {
+    err(e instanceof ConnectError ? e.message : "Couldn't reach GitHub. Try again.");
+    button.disabled = false;
+  }
+}
+
 async function connectPsn(button: HTMLButtonElement) {
   const code = PSN.npssoFrom($<HTMLInputElement>('#acctKey')?.value || '');
   if (!PSN.validNpsso(code)) return err('The code is 64 letters and numbers. Copy the part after "npsso".');
@@ -298,6 +345,7 @@ export async function handleAction(act: string, el: HTMLElement): Promise<boolea
         if (id === 'microsoft' && isNative()) await signInDevice(parts);
         else signInWeb(id, parts, load(id).user);
       } else if (id === 'steam') await connectSteam(el as HTMLButtonElement);
+      else if (id === 'github') await connectGithub(el as HTMLButtonElement);
       else await connectPsn(el as HTMLButtonElement);
       return true;
     }
@@ -313,7 +361,7 @@ export async function handleAction(act: string, el: HTMLElement): Promise<boolea
       if (isService(id) && confirm(`Disconnect ${INFO[id].name}? Arise stops getting new things from it. What it already got stays until you delete it.`)) {
         disconnect(id);
         refresh();
-        toast(`${INFO[id].name} is disconnected.${id === 'steam' ? ' You can also cancel the key on the Steam page.' : ''}`);
+        toast(`${INFO[id].name} is disconnected.${id === 'steam' ? ' You can also cancel the key on the Steam page.' : id === 'github' ? ' You can also delete the token on GitHub, under Settings, Developer settings.' : ''}`);
       }
       return true;
     case 'acct-del': {

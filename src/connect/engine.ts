@@ -9,6 +9,7 @@ import * as G from './google';
 import * as MS from './microsoft';
 import * as STEAM from './steam';
 import * as PSN from './psn';
+import * as GH from './github';
 import * as IDS from './ids';
 import { ConnectError, isNative, nativeHttp } from './http';
 import { redirectUri, returnError, takeReturn, cancel as cancelSignIn, type Done } from './oauth';
@@ -44,6 +45,7 @@ export const INFO: Record<ServiceId, Info> = {
   },
   steam: { name: 'Steam', reads: 'Which games you play, and for how long.', gap: STEAM.GAP },
   psn: { name: 'PlayStation', reads: 'Which games you play, for how long, and the trophies you get.', unofficial: true, gap: PSN.GAP },
+  github: { name: 'GitHub', reads: 'In the repositories you pick: your own commits, and the Markdown files at the top (like README or your goals), so Arise knows what you build and plan.', gap: GH.GAP },
 };
 
 // Whether it can be used here: 'ok', 'setup' (the owner hasn't registered Arise with it yet),
@@ -53,6 +55,7 @@ export function available(id: ServiceId): Where {
   const native = isNative();
   if (id === 'google') return !G.configured() ? 'setup' : native ? 'web' : 'ok';
   if (id === 'microsoft') return !MS.configured() ? 'setup' : native && !nativeHttp() ? 'web' : 'ok';
+  if (id === 'github') return 'ok'; // (GitHub's API allows requests from web pages)
   return nativeHttp() ? 'ok' : 'iphone';
 }
 
@@ -62,7 +65,7 @@ let hooks = { render: () => {}, toast: (_msg: string) => {} };
 const running = new Map<ServiceId, { p: Promise<void>; gen: number }>();
 // Bumped by signing in, disconnecting and forgetting. A sync still running from before stops at
 // its next step (sink.ts, goOn) and can't write its old state back.
-const generation: Record<ServiceId, number> = { google: 0, microsoft: 0, steam: 0, psn: 0 };
+const generation: Record<ServiceId, number> = { google: 0, microsoft: 0, steam: 0, psn: 0, github: 0 };
 
 export const busy = (id: ServiceId) => running.has(id);
 
@@ -74,6 +77,7 @@ async function runSync(st: SvcState, id: ServiceId, save: () => void, now: numbe
   if (id === 'google') return G.sync(st, ctx, now);
   if (id === 'microsoft') return MS.sync(st, ctx, now);
   if (id === 'steam') return STEAM.sync(st, ctx, now);
+  if (id === 'github') return GH.sync(st, ctx, now);
   return PSN.sync(st, ctx, now);
 }
 
