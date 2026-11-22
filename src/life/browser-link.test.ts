@@ -13,7 +13,7 @@ import * as R from '../../extension/src/lib/recorder';
 import { parseRequest } from '../../extension/src/lib/pairing';
 import { newKeyPair, sealBatch } from '../../extension/src/lib/seal';
 
-const ARISE = 'https://abyyworld.github.io/physical-improvement-tracker-app/';
+const ARISE = 'https://abyyworld.github.io/arise/';
 const ORIGIN = 'https://abyyworld.github.io';
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;

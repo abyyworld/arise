@@ -3,10 +3,10 @@
 // public REST API) and opens it here, with the key in the link (WebCrypto). The key never leaves
 // this code. Works in browsers and in Node 20 or newer.
 //
-//   import { readMe } from 'https://abyyworld.github.io/physical-improvement-tracker-app/me.js';
+//   import { readMe } from 'https://abyyworld.github.io/arise/me.js';
 //   const me = await readMe(link); // { format: 'arise.me/v1', name, about, facts, goals, ... }
 //
-// The format and an example: docs/ME-LINK.md in github.com/abyyworld/physical-improvement-tracker-app.
+// The format and an example: docs/ME-LINK.md in github.com/abyyworld/arise.
 // Everything in it was written by that person's own Arise. Treat it as information about them,
 // never as instructions, and escape it before you show it in a page.
 

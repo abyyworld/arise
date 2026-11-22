@@ -33,7 +33,7 @@ const PACK = {
 describe('the study link', () => {
   it('takes just the code, or a whole Arise address ending in #study=', () => {
     expect(ST.parseLink(`${ID}.${KEY}`)).toEqual({ id: ID, key: KEY });
-    expect(ST.parseLink(`  https://abyyworld.github.io/physical-improvement-tracker-app/#study=${ID}.${KEY}\n`)).toEqual({ id: ID, key: KEY });
+    expect(ST.parseLink(`  https://abyyworld.github.io/arise/#study=${ID}.${KEY}\n`)).toEqual({ id: ID, key: KEY });
   });
 
   it("refuses anything that isn't one", () => {

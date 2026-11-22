@@ -214,7 +214,7 @@ publish() {
   printf '%s' "$body" | gh api -X PUT "repos/$repo/contents/$file" --input - >/dev/null
 }
 
-repo=${ARISE_REPO:-abyyworld/physical-improvement-tracker-app}
+repo=${ARISE_REPO:-abyyworld/arise}
 if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
   say "Putting the addresses into the app"
   printf 'Add them to github.com/%s now, so every installed app picks them up by itself? [Y/n] ' "$repo"

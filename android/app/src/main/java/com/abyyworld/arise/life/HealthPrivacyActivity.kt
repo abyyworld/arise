@@ -19,6 +19,6 @@ class HealthPrivacyActivity : Activity() {
     }
 
     companion object {
-        const val PRIVACY_URL = "https://abyyworld.github.io/physical-improvement-tracker-app/privacy.html"
+        const val PRIVACY_URL = "https://abyyworld.github.io/arise/privacy.html"
     }
 }

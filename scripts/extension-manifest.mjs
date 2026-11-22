@@ -2,7 +2,7 @@
 // Used by scripts/build-extension.mjs, and checked by extension/src/manifest.test.ts.
 
 // Where Arise lives. The extension talks only to pages under it.
-export const ARISE_URL = 'https://abyyworld.github.io/physical-improvement-tracker-app/';
+export const ARISE_URL = 'https://abyyworld.github.io/arise/';
 // A development build also talks to Arise's own dev server (npm run dev, npx vite preview).
 export const DEV_URLS = ['http://localhost/', 'http://127.0.0.1/'];
 // Firefox's id for the extension, and where it checks for updates of a copy signed by Mozilla.

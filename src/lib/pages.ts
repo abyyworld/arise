@@ -16,7 +16,7 @@ export const OWN_PAGE_FILES = ['privacy.html', 'me.js'];
 
 // The website. A link the iPhone app makes (to a shared goal) points here, since its own pages
 // are only on the phone.
-export const SITE_URL = 'https://abyyworld.github.io/physical-improvement-tracker-app/';
+export const SITE_URL = 'https://abyyworld.github.io/arise/';
 
 // The privacy policy on the website. The web app links to its own copy (./privacy.html). In the
 // iPhone app that copy would open inside the app with no way back, so it links here instead,

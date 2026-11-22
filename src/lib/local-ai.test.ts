@@ -434,7 +434,7 @@ describe('setting it up', () => {
   it("gives the one command for a Mac, with another copy of Arise's address only when needed", async () => {
     const L = await load();
     expect(L.SITE_ORIGIN).toBe('https://abyyworld.github.io');
-    expect(L.setupCommand('https://abyyworld.github.io')).toBe('curl -fsSL https://raw.githubusercontent.com/abyyworld/physical-improvement-tracker-app/main/scripts/local-ai-mac.sh | bash');
+    expect(L.setupCommand('https://abyyworld.github.io')).toBe('curl -fsSL https://raw.githubusercontent.com/abyyworld/arise/main/scripts/local-ai-mac.sh | bash');
     expect(L.setupCommand('http://localhost:5173')).toBe(L.setupCommand()); // Ollama lets localhost in already
     expect(L.setupCommand('https://arise.example.com')).toBe(`${L.setupCommand()} -s -- https://arise.example.com`);
     expect(L.setupCommand('https://evil.example.com; rm -rf ~')).toBe(L.setupCommand());

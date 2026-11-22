@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { browserName, recordable, siteOf, siteTimeEvent, visitEvent, visitKey } from './events';
 
-const ctx = { own: ['mywork.example'], arise: ['https://abyyworld.github.io/physical-improvement-tracker-app/'], browser: 'Chrome on macOS' };
+const ctx = { own: ['mywork.example'], arise: ['https://abyyworld.github.io/arise/'], browser: 'Chrome on macOS' };
 const T = Date.UTC(2026, 9, 17, 12, 0, 0) + 0.375; // Chrome's visit times have fractions of a ms
 
 describe('visits and searches', () => {
@@ -74,7 +74,7 @@ describe('visits and searches', () => {
       'https://mychart.hospital.org/MyChart/',
       'https://accounts.google.com/signin',
       'https://www.mywork.example/payroll',
-      'https://abyyworld.github.io/physical-improvement-tracker-app/#settings',
+      'https://abyyworld.github.io/arise/#settings',
       'http://localhost:5173/',
       'http://192.168.0.1/admin',
       'chrome://history/',

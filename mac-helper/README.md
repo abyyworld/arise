@@ -5,7 +5,7 @@ Lets Arise, open in Chrome or Edge on your Mac, add your calls (including missed
 Install or update it by pasting this in Terminal (it needs macOS 13.5 or newer):
 
 ```
-cd "$(mktemp -d)" && curl -fsSL https://github.com/abyyworld/physical-improvement-tracker-app/archive/refs/heads/main.tar.gz | tar xz && bash physical-improvement-tracker-app-main/mac-helper/install.sh
+cd "$(mktemp -d)" && curl -fsSL https://github.com/abyyworld/arise/archive/refs/heads/main.tar.gz | tar xz && bash arise-main/mac-helper/install.sh
 ```
 
 Then give Full Disk Access to `~/.arise-helper/bin/arise-helper` (System Settings, Privacy & Security, Full Disk Access) and enter the pairing code in Arise. The installer opens that page and shows the steps.

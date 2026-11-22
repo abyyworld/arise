@@ -45,7 +45,7 @@ const calls = (home: string) => {
   }
 };
 
-const RELEASE = 'https://github.com/abyyworld/physical-improvement-tracker-app/releases/download/mac-helper-latest';
+const RELEASE = 'https://github.com/abyyworld/arise/releases/download/mac-helper-latest';
 
 // A pretend Mac, with build 7 of the helper on the release page and an installer that names it.
 function fakeMac({ pins = true }: { pins?: boolean } = {}) {
@@ -431,7 +431,7 @@ describe('install.sh on a Mac', () => {
     const r = ok.run({ FAKE_GH: 'ok' });
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/GitHub's record says Arise's own workflow built it/);
-    expect(calls(ok.home)).toMatch(/gh attestation verify \S+arise-helper-macos-arm64-b7\.zip --repo abyyworld\/physical-improvement-tracker-app --signer-workflow abyyworld\/physical-improvement-tracker-app\/\.github\/workflows\/mac-helper\.yml --source-ref refs\/heads\/main/);
+    expect(calls(ok.home)).toMatch(/gh attestation verify \S+arise-helper-macos-arm64-b7\.zip --repo abyyworld\/arise --signer-workflow abyyworld\/arise\/\.github\/workflows\/mac-helper\.yml --source-ref refs\/heads\/main/);
     const bad = fakeMac();
     const no = bad.run({ FAKE_GH: 'bad' });
     expect(no.status).toBe(1);

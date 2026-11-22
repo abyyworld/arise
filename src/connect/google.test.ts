@@ -159,11 +159,11 @@ describe('turning Google answers into life events', () => {
 
 describe('signing in to Google', () => {
   it('asks for read-only access, with no secret, back to Arise', () => {
-    const u = new URL(G.authUrl({ state: 's1', parts: ['calendar', 'mail'], hint: 'me@example.com', redirect: 'https://abyyworld.github.io/physical-improvement-tracker-app/' }));
+    const u = new URL(G.authUrl({ state: 's1', parts: ['calendar', 'mail'], hint: 'me@example.com', redirect: 'https://abyyworld.github.io/arise/' }));
     expect(u.origin + u.pathname).toBe('https://accounts.google.com/o/oauth2/v2/auth');
     expect(u.searchParams.get('response_type')).toBe('token');
     expect(u.searchParams.get('scope')).toBe('https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly');
-    expect(u.searchParams.get('redirect_uri')).toBe('https://abyyworld.github.io/physical-improvement-tracker-app/');
+    expect(u.searchParams.get('redirect_uri')).toBe('https://abyyworld.github.io/arise/');
     expect(u.searchParams.get('login_hint')).toBe('me@example.com');
     expect(u.searchParams.has('client_secret')).toBe(false);
   });

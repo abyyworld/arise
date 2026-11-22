@@ -9,7 +9,7 @@ import * as R from './recorder';
 import { newKeyPair, openBatch, type SealedBatch } from './seal';
 import { HOUR, MINUTE } from './time';
 
-const ARISE = 'https://abyyworld.github.io/physical-improvement-tracker-app/';
+const ARISE = 'https://abyyworld.github.io/arise/';
 const ORIGIN = 'https://abyyworld.github.io';
 const DAY = 24 * HOUR;
 const START = new Date(2026, 9, 17, 14, 5).getTime();
@@ -158,7 +158,7 @@ describe('reading the history', () => {
     visit('https://old.example/from-long-ago', START - 95 * DAY, 'Too old');
     visit('https://secure.chase.com/dashboard', START - DAY, 'Chase');
     visit('https://example.org/reloaded', START - DAY, 'Reloaded', { transition: 'reload' });
-    visit('https://abyyworld.github.io/physical-improvement-tracker-app/#today', START - DAY, 'Arise');
+    visit('https://abyyworld.github.io/arise/#today', START - DAY, 'Arise');
     const l = await link();
     await R.tick(env, null);
     const { events } = await collect(l);

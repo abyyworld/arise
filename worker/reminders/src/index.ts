@@ -262,7 +262,7 @@ const DAY = 86_400_000;
 const STALE = 14 * DAY;
 // How long a push service keeps trying to deliver to a device that's off or offline.
 const TTL: Record<Kind, number> = { morning: 4 * 3600, evening: 2 * 3600, recap: 4 * 3600, checkin: 2 * 3600 };
-const DEFAULT_CONTACT = 'https://github.com/abyyworld/physical-improvement-tracker-app';
+const DEFAULT_CONTACT = 'https://github.com/abyyworld/arise';
 
 const random = (n: number) => toB64url(globalThis.crypto.getRandomValues(new Uint8Array(n)));
 const hash = async (token: string) => toB64url(new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', te.encode(token))));

@@ -85,7 +85,7 @@ function goals(S: Device['S']) {
   S.setLog(today(), { t: 'my private journal' });
 }
 
-const link = (l: { id: string; key: string }) => `https://abyyworld.github.io/physical-improvement-tracker-app/#me=${l.id}.${l.key}`;
+const link = (l: { id: string; key: string }) => `https://abyyworld.github.io/arise/#me=${l.id}.${l.key}`;
 const read = (l: { id: string; key: string }) => readMe(link(l), { fetch: restFetch as typeof fetch, projectId: 'p', apiKey: 'k' });
 const page = (l: { id: string }) => cloud.docs.get(`shares/${l.id}`);
 const OFF = { v: 1, off: true };

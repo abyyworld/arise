@@ -360,9 +360,12 @@ describe('Settings, AI coach', () => {
     expect(words(manage)).toBe('Manage subscription');
     expect(manage.href).toBe(PAID.portal);
     expect(row.querySelector('[data-act="plan-checkout"]')).toBeNull();
-    proxy({ plan: () => new Response(JSON.stringify({ ...PAID, renewsAt: null, endsAt: '2026-11-18T10:00:00.000000Z' })) });
+    // (An end date still to come, whatever day the test runs: one that has passed shows no plan.)
+    const endsAt = new Date(Date.now() + 7 * 86_400_000).toISOString();
+    proxy({ plan: () => new Response(JSON.stringify({ ...PAID, renewsAt: null, endsAt })) });
     await PLAN.refreshPlan();
-    expect(words(div(UI.planRowHTML()).querySelector('p'))).toBe(`Arise Private · ends ${renews}`);
+    const ends = new Date(endsAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    expect(words(div(UI.planRowHTML()).querySelector('p'))).toBe(`Arise Private · ends ${ends}`);
   });
 
   it('puts the plan under the private AI, and opening the checkout makes the app look for it on return', async () => {

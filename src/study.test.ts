@@ -95,7 +95,7 @@ describe('Study', () => {
     expect(location.hash).toBe('#study');
     expect(S.state.study.link).toBe(`${ID}.${key}`);
     await until(() => !!$('.st-module'));
-    expect(fetched[0]).toBe(`https://raw.githubusercontent.com/abyyworld/physical-improvement-tracker-app/study-packs/${ID}.json`);
+    expect(fetched[0]).toBe(`https://raw.githubusercontent.com/abyyworld/arise/study-packs/${ID}.json`);
     expect(text('.st-module')).toContain('0 of 2 known');
     click('#tabs [data-v="today"]');
     expect(text('.st-today')).toContain('Databases · Class test 2 in 6 days');
@@ -103,7 +103,7 @@ describe('Study', () => {
 
   it('plays a round: a miss comes back at the end, the first answer counts, and the round earns XP and the day', async () => {
     const S = await boot('#settings', profile);
-    ($('#studyLink') as HTMLInputElement).value = `https://abyyworld.github.io/physical-improvement-tracker-app/#study=${ID}.${key}`;
+    ($('#studyLink') as HTMLInputElement).value = `https://abyyworld.github.io/arise/#study=${ID}.${key}`;
     click('[data-act="study-link"]');
     await until(() => text('#studyPanel').includes('2 questions'));
     click('#tabs [data-v="today"]');

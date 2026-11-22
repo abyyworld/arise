@@ -93,16 +93,16 @@ describe('cleaning addresses', () => {
   });
 
   it("matches Arise's own addresses, with any port on localhost", () => {
-    const arise = ['https://abyyworld.github.io/physical-improvement-tracker-app/', 'http://localhost/'];
-    expect(matchesPrefix('https://abyyworld.github.io/physical-improvement-tracker-app/#settings', arise)).toBe(true);
-    expect(matchesPrefix('https://abyyworld.github.io/physical-improvement-tracker-app/index.html', arise)).toBe(true);
+    const arise = ['https://abyyworld.github.io/arise/', 'http://localhost/'];
+    expect(matchesPrefix('https://abyyworld.github.io/arise/#settings', arise)).toBe(true);
+    expect(matchesPrefix('https://abyyworld.github.io/arise/index.html', arise)).toBe(true);
     expect(matchesPrefix('http://localhost:4173/', arise)).toBe(true);
     expect(matchesPrefix('http://localhost:5173/some/page', arise)).toBe(true);
     // Another site on the same GitHub Pages host is not Arise.
     expect(matchesPrefix('https://abyyworld.github.io/other-project/', arise)).toBe(false);
-    expect(matchesPrefix('http://abyyworld.github.io/physical-improvement-tracker-app/', arise)).toBe(false);
+    expect(matchesPrefix('http://abyyworld.github.io/arise/', arise)).toBe(false);
     expect(matchesPrefix('https://localhost/', arise)).toBe(false);
-    expect(matchesPrefix('https://evil.example/physical-improvement-tracker-app/', arise)).toBe(false);
+    expect(matchesPrefix('https://evil.example/arise/', arise)).toBe(false);
     expect(matchesPrefix('not a url', arise)).toBe(false);
   });
 });

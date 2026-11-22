@@ -28,7 +28,7 @@ export interface Done {
 
 const MAX_AGE = 15 * 60_000;
 
-// Arise's address, where the answer comes back: https://…/physical-improvement-tracker-app/
+// Arise's address, where the answer comes back: https://…/arise/
 export function redirectUri(href = location.href): string {
   const u = new URL('./', href);
   return u.origin + u.pathname;

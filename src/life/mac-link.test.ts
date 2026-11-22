@@ -86,8 +86,8 @@ afterEach(() => vi.useRealTimers());
 describe('where it works', () => {
   it('installs with one command from GitHub', async () => {
     const { mac } = await load();
-    expect(mac.INSTALL_COMMAND).toContain('github.com/abyyworld/physical-improvement-tracker-app/archive/refs/heads/main.tar.gz');
-    expect(mac.INSTALL_COMMAND).toContain('bash physical-improvement-tracker-app-main/mac-helper/install.sh');
+    expect(mac.INSTALL_COMMAND).toContain('github.com/abyyworld/arise/archive/refs/heads/main.tar.gz');
+    expect(mac.INSTALL_COMMAND).toContain('bash arise-main/mac-helper/install.sh');
   });
 
   it('is for a browser on a Mac, not an iPad or an iPhone', async () => {

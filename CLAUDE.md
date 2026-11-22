@@ -1,6 +1,6 @@
 # Arise: notes for working on this repo
 
-Arise is a private, self-updating coach for your whole life: it writes your days down, asks how you are, shows what helps, and has goals when you want them (fitness has a full workout plan). Live at https://abyyworld.github.io/physical-improvement-tracker-app/. Version is in `package.json`. README.md is the user guide, `docs/LAUNCH.md` the owner's setup steps and the roadmap, `public/privacy.html` the privacy policy.
+Arise is a private, self-updating coach for your whole life: it writes your days down, asks how you are, shows what helps, and has goals when you want them (fitness has a full workout plan). Live at https://abyyworld.github.io/arise/. Version is in `package.json`. README.md is the user guide, `docs/LAUNCH.md` the owner's setup steps and the roadmap, `public/privacy.html` the privacy policy.
 
 ## Commands
 
@@ -42,7 +42,7 @@ Claude can't reach Firebase, Cloudflare or Tinfoil from a cloud session, so chan
 The one command that does both, straight from GitHub:
 
 ```
-cd "$(mktemp -d)" && curl -sL https://github.com/abyyworld/physical-improvement-tracker-app/archive/refs/heads/main.tar.gz | tar xz && cd physical-improvement-tracker-app-* && bash scripts/setup-workers.sh && npx -y firebase-tools@13.35.1 login && npx -y firebase-tools@13.35.1 deploy --only firestore:rules --project arise-a7349 && echo "All set."
+cd "$(mktemp -d)" && curl -sL https://github.com/abyyworld/arise/archive/refs/heads/main.tar.gz | tar xz && cd arise-* && bash scripts/setup-workers.sh && npx -y firebase-tools@13.35.1 login && npx -y firebase-tools@13.35.1 deploy --only firestore:rules --project arise-a7349 && echo "All set."
 ```
 
 ## Open items (October 2026)

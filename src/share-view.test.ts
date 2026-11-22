@@ -47,7 +47,7 @@ let touched: string[] = [];
 
 // Opens the page at `hash`, as a browser with nothing of Arise in it.
 async function open(hash: string) {
-  history.replaceState(null, '', `/physical-improvement-tracker-app/${hash}`);
+  history.replaceState(null, '', `/arise/${hash}`);
   vi.resetModules();
   const view = await import('./share-view');
   return view.shown;
@@ -108,7 +108,7 @@ describe("a friend's view of a shared goal", () => {
     // Nothing to tap that changes anything: just the way to get Arise.
     expect(document.querySelectorAll('#app button, #app input, #app [data-act]')).toHaveLength(0);
     const get = [...document.querySelectorAll('#app a')];
-    expect(get.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([['Get Arise', '/physical-improvement-tracker-app/']]);
+    expect(get.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([['Get Arise', '/arise/']]);
     expect(document.getElementById('tabs')!.hidden).toBe(true);
     expect(document.body.dataset.view).toBe('share');
   });
@@ -175,7 +175,7 @@ describe("a friend's view of a shared goal", () => {
 describe('opening the site with a share link', () => {
   it('shows only the shared page: no app, no intro, nothing saved', async () => {
     const ref = await shared(snapshot());
-    history.replaceState(null, '', `/physical-improvement-tracker-app/#share=${ref.id}.${ref.key}`);
+    history.replaceState(null, '', `/arise/#share=${ref.id}.${ref.key}`);
     vi.resetModules();
     await import('./main');
     await vi.waitFor(() => expect(text()).toContain('Run a half marathon'));
@@ -208,7 +208,7 @@ describe('opening a me link in a browser', () => {
 
   it('shows exactly what an app with it reads, and keeps nothing on the device', async () => {
     const ref = await linked(ME_PAYLOAD);
-    history.replaceState(null, '', `/physical-improvement-tracker-app/#me=${ref.id}.${ref.key}`);
+    history.replaceState(null, '', `/arise/#me=${ref.id}.${ref.key}`);
     vi.resetModules();
     await import('./main');
     await vi.waitFor(() => expect(text()).toContain('I run on Sunday mornings.'));
