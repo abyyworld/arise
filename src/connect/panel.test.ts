@@ -175,6 +175,31 @@ describe('the web app, set up', () => {
     expect(JSON.parse(localStorage.getItem(PENDING)!).mode).toBe('redirect');
   });
 
+  it('connects GitHub on the web with a read-only token and the repositories to read', async () => {
+    const token = `github_pat_${'Ab12'.repeat(20)}`;
+    net.on(/api\.github\.com\/user$/, { body: { login: 'sam' } });
+    net.on(/api\.github\.com\/repos\/sam\/my-portfolio$/, { body: { full_name: 'sam/my-portfolio' } });
+    net.on(/api\.github\.com\/repos\/sam\/secret$/, { status: 404, body: { message: 'Not Found' } });
+    net.on(/\/commits\?/, { body: [] });
+    net.on(/\/contents\/$/, { body: [] });
+    show();
+    expect(buttons('github')).toEqual(['Connect']); // on the web too
+    await tap('acct-connect', { s: 'github' });
+    expect(document.querySelector('.sheet-body')!.textContent).toContain('Contents to Read-only');
+    document.querySelector<HTMLInputElement>('#acctKey')!.value = 'hunter2';
+    await tap('acct-go', { s: 'github' });
+    expect(document.querySelector('#acctErr')!.textContent).toContain("isn't a GitHub token");
+    document.querySelector<HTMLInputElement>('#acctKey')!.value = token;
+    document.querySelector<HTMLTextAreaElement>('#acctRepos')!.value = 'my-portfolio\nsecret';
+    await tap('acct-go', { s: 'github' });
+    await vi.waitFor(() => expect(document.querySelector('#acctErr')!.textContent).toContain("sam/secret isn't open to this key"));
+    expect(load('github').on).toBe(false);
+    document.querySelector<HTMLTextAreaElement>('#acctRepos')!.value = 'my-portfolio';
+    await tap('acct-go', { s: 'github' });
+    await vi.waitFor(() => expect(load('github').last).toBeGreaterThan(0));
+    expect(load('github')).toMatchObject({ on: true, account: 'sam', user: 'sam', cursors: expect.objectContaining({ repos: 'sam/my-portfolio' }) });
+  });
+
   it('disconnects after asking', async () => {
     net.on(/revoke/, { body: '' });
     save('google', { ...blank(), on: true, parts: ['mail'], count: 4, auth: { token: 't' } });

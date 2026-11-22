@@ -4,6 +4,13 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.28.0',
+    notes: [
+      'Link GitHub: pick the repositories Arise may read, with a read-only key you make for just those. Your commits go into your days, and the notes and goals you keep there (like README or goals files) into what Arise knows. In Setup and connections, Connections, Accounts.',
+      'The key stays on your device, and what Arise reads stays private: only the private AI or the AI on your device reads it, unless you allow the less private ones.',
+    ],
+  },
+  {
     version: '1.27.0',
     notes: [
       'Arise has a shorter address: abyyworld.github.io/arise. Your data, your account and your settings stay as they are, and old links and home-screen icons still open Arise.',
