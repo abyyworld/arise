@@ -67,11 +67,13 @@ describe('GitHub', () => {
     // The key goes only to GitHub, as a bearer token.
     expect(net.calls.every((c) => c.url.startsWith('https://api.github.com/') && c.headers.authorization === `Bearer ${TOKEN}`)).toBe(true);
     // Where it left off survives a reload (state.ts keeps only safe keys).
+    // Next time from two weeks before this sync: a merged branch brings commits with older dates.
     const kept = clean(JSON.parse(JSON.stringify(st)));
-    expect(kept.cursors[GH.cursorKey('since', 'sam/my-portfolio')]).toBe('2026-11-21T18:29:00.000Z');
+    const back = new Date(NOW - 14 * 86_400_000).toISOString();
+    expect(kept.cursors[GH.cursorKey('since', 'sam/my-portfolio')]).toBe(back);
     net.calls.length = 0;
     await GH.sync(kept, ctx, NOW + 3600_000);
-    expect(new URL(net.urls().find((u) => u.includes('my-portfolio/commits'))!).searchParams.get('since')).toBe('2026-11-21T18:29:00.000Z');
+    expect(new URL(net.urls().find((u) => u.includes('my-portfolio/commits'))!).searchParams.get('since')).toBe(back);
     expect(life.list().filter((e) => e.meta?.sha)).toHaveLength(2); // the same commit again is kept once
   });
 
@@ -89,6 +91,22 @@ describe('GitHub', () => {
       .on(/\/repos\/sam\/my-goals-and-networks\/contents\/goals\.md/, { body: { content: b64('- Run a full marathon') } });
     await GH.sync(st, ctx, NOW + 7200_000);
     expect(life.list().find((e) => e.title.endsWith('goals.md'))!.detail).toBe('- Run a full marathon');
+  });
+
+  it('keeps one place per repository, forgets dropped ones, and takes any file name', async () => {
+    net
+      .on(/\/repos\/sam\/my-goals-and-networks\/contents\/$/, { body: [{ type: 'file', name: 'My goals ✓.md', path: 'My goals ✓.md', sha: 'x1', size: 10 }] })
+      .on(/\/contents\/My%20goals/, { body: { content: b64('Ünïcode goals') } });
+    const st = user();
+    st.cursors['since:0000000000000000'] = 'old';
+    await GH.sync(st, ctx, NOW);
+    expect(Object.keys(st.cursors).sort()).toEqual(['repos', GH.cursorKey('docs', 'sam/my-goals-and-networks'), GH.cursorKey('docs', 'sam/my-portfolio'), GH.cursorKey('since', 'sam/my-goals-and-networks'), GH.cursorKey('since', 'sam/my-portfolio')].sort());
+    const note = life.list().find((e) => e.kind === 'note')!;
+    expect(note).toMatchObject({ title: 'my-goals-and-networks: My goals ✓.md', detail: 'Ünïcode goals', tier: 3 });
+    // Its id is one the life log takes (printable ASCII).
+    expect(note.id).toMatch(/^other:github:doc:[0-9a-f]{16}$/);
+    const { cleanLifeEvent } = await import('../lib/validate');
+    expect(cleanLifeEvent(note)).not.toBeNull();
   });
 
   it('says what to do when GitHub refuses', async () => {

@@ -15,15 +15,18 @@
 
 import type { LifeEvent } from '../life/types';
 import { ConnectError, arr, obj, request, retryAfter, text, type Res } from './http';
-import { goOn, hand } from './sink';
+import { goOn, hand, hash } from './sink';
 import type { SvcState } from './state';
 
 const API = 'https://api.github.com';
 export const GAP = 30 * 60_000;
 const FIRST_DAYS = 90;
+// Each sync looks back this far again: commits merged later keep their older dates, and the same
+// commit twice is kept once (its id).
+const LOOKBACK = 14 * 86_400_000;
 const MAX_REPOS = 12;
 const MAX_DOCS = 12; // Markdown files per repository
-const MAX_DOC = 20_000; // characters kept of one file
+const MAX_DOC = 3900; // characters kept of one file (the life log keeps 4,000 of a detail)
 const PAGES = 5; // of 100 commits, per repository per sync
 
 export interface Ctx {
@@ -82,8 +85,9 @@ export async function checkRepo(token: string, full: string): Promise<string> {
 
 const firstLine = (m: string) => m.split('\n')[0].trim();
 const shortRepo = (full: string) => full.split('/')[1] || full;
-// A key for where a sync left off (state.ts allows letters, digits, _ : . - and 64 of them).
-export const cursorKey = (...parts: string[]) => parts.join(':').replace(/[^\w:.-]/g, '_').slice(0, 64);
+// Where a sync left off, one of each per repository (state.ts keeps 60, with keys of letters,
+// digits and _ : . -, so a repository is named by a hash).
+export const cursorKey = (kind: 'since' | 'docs', full: string) => `${kind}:${hash(full.toLowerCase())}`;
 
 export function commitEvent(full: string, c: Record<string, unknown>): LifeEvent | null {
   const sha = text(c.sha, 64);
@@ -126,14 +130,17 @@ async function commits(token: string, login: string, full: string, since: string
 export function docEvent(full: string, path: string, body: string, at: number): LifeEvent {
   const kept = body.length > MAX_DOC ? `${body.slice(0, MAX_DOC)}\n\n(The rest is in the repository.)` : body;
   return {
-    id: `other:github:doc:${full}:${path}`,
+    // (A hash: a file's name may have spaces or letters the life log's ids don't take.)
+    id: `other:github:doc:${hash(`${full.toLowerCase()}/${path}`)}`,
     source: 'other',
     kind: 'note',
     at,
     title: `${shortRepo(full)}: ${path}`,
     detail: kept,
-    url: `https://github.com/${full}/blob/HEAD/${path}`,
-    tier: 2,
+    url: `https://github.com/${full}/blob/HEAD/${encodeURI(path)}`,
+    // What people keep in their own repositories can be personal (a journal, plans): sensitive,
+    // so only the private AI and the AI on the device read it.
+    tier: 3,
     meta: { app: 'github', repo: full, file: path },
   };
 }
@@ -143,6 +150,16 @@ const decode = (b64: string) => {
   return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
 };
 
+// The blob sha of each file as last read, for one repository.
+function seenDocs(st: SvcState, full: string): Record<string, string> {
+  try {
+    const v = JSON.parse(st.cursors[cursorKey('docs', full)] || '{}');
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+
 async function docs(token: string, full: string, st: SvcState, now: number): Promise<LifeEvent[]> {
   goOn('github');
   const { data } = await get(token, `/repos/${full}/contents/`, full);
@@ -151,11 +168,16 @@ async function docs(token: string, full: string, st: SvcState, now: number): Pro
     .filter((f) => f.type === 'file' && /\.(md|markdown|txt)$/i.test(text(f.name, 200)) && Number(f.size) > 0 && Number(f.size) < 500_000)
     .slice(0, MAX_DOCS);
   const out: LifeEvent[] = [];
+  const seen = seenDocs(st, full);
+  const next: Record<string, string> = {};
   for (const f of files) {
     const path = text(f.path, 200);
     const sha = text(f.sha, 64);
-    const key = cursorKey('doc', full, path);
-    if (!path || st.cursors[key] === sha) continue; // unchanged since last time
+    if (!path) continue;
+    if (seen[path] === sha) {
+      next[path] = sha; // unchanged since last time
+      continue;
+    }
     goOn('github');
     const { data: file } = await get(token, `/repos/${full}/contents/${encodeURIComponent(path)}`, full);
     const content = text(obj(file).content, 1_000_000);
@@ -168,8 +190,9 @@ async function docs(token: string, full: string, st: SvcState, now: number): Pro
     }
     if (!body) continue;
     out.push(docEvent(full, path, body, now));
-    st.cursors[key] = sha;
+    next[path] = sha;
   }
+  st.cursors[cursorKey('docs', full)] = JSON.stringify(next);
   return out;
 }
 
@@ -181,14 +204,17 @@ export async function sync(st: SvcState, ctx: Ctx, now = Date.now()) {
   const token = st.auth.token || '';
   const login = st.user;
   if (!validToken(token) || !login) throw new ConnectError('auth', 'Connect GitHub again.');
-  for (const full of reposOf(st)) {
+  const repos = reposOf(st);
+  // Only the repositories still picked keep a place.
+  const keep = new Set(['repos', ...repos.flatMap((r) => [cursorKey('since', r), cursorKey('docs', r)])]);
+  for (const k of Object.keys(st.cursors)) if (!keep.has(k)) delete st.cursors[k];
+  for (const full of repos) {
     const key = cursorKey('since', full);
     const since = st.cursors[key] || new Date(now - FIRST_DAYS * 86_400_000).toISOString();
-    const found = await commits(token, login, full, since);
-    await hand('github', found);
-    // Next time, from the newest commit (a little before, in case clocks differ: ids keep it once).
-    const newest = found.reduce((m, e) => Math.max(m, e.at), 0);
-    st.cursors[key] = new Date(Math.max(Date.parse(since) || 0, newest - 60_000)).toISOString();
+    await hand('github', await commits(token, login, full, since));
+    // Next time from a while before this sync (GitHub's `since` goes by when a commit landed, and
+    // a merged branch brings older ones), never from a date still to come.
+    st.cursors[key] = new Date(Math.max(Date.parse(since) || 0, now - LOOKBACK)).toISOString();
     ctx.save();
     await hand('github', await docs(token, full, st, now), { replace: true });
     ctx.save();

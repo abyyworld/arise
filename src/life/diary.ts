@@ -352,7 +352,8 @@ function intro(events: readonly LifeEvent[], day: string, own: Own | null, { voi
   const games = uniq(play.map(gameOf));
   const listenMin = runs(of('listen'), () => 'm').reduce((n, r) => n + (runEnd(r) - r[0].at) / 60000, 0);
   const shows = uniq(of('watch').filter((e) => e.source !== 'youtube').map((e) => showOf(e.title)));
-  const notes = inDay.filter((e) => e.kind === 'note' && !e.id.startsWith('arise:journal:'));
+  // (Not the journal, and not the files read from the Player's GitHub repositories.)
+  const notes = inDay.filter((e) => e.kind === 'note' && !e.id.startsWith('arise:journal:') && !e.id.startsWith('other:github:doc:'));
   const searches = of('search');
   const bits: string[] = [];
   if (sleep.length) bits.push(`slept ${duration(minutesOf(sleep.at(-1)!))}`);
