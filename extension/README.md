@@ -20,7 +20,7 @@ Get the zips: on your Mac, in a copy of the repo, `npm ci && npm run ext:build`.
    - alarms: looks for new visits every minute.
    - storage, unlimitedStorage: keeps sealed data until Arise collects it.
    - content script on Arise's site: talks to Arise's page, nowhere else.
-   Data: tick "Web history" and "User activity". Privacy policy: `https://abyyworld.github.io/physical-improvement-tracker-app/privacy.html`.
+   Data: tick "Web history" and "User activity". Privacy policy: `https://abyyworld.github.io/arise/privacy.html`.
 5. Distribution: Visibility **Unlisted**. Submit for review.
 6. Once it's live, put its address in `EXTENSION_STORES.chrome` in `src/life/browser-config.ts`.
 

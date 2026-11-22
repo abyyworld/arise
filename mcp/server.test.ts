@@ -36,7 +36,7 @@ async function fakeLink(p: ME.MePayload) {
   const ref = await newShareRef();
   const { sealed } = await ME.sealMe(ref, p);
   cloud.docs.set(`shares/${ref.id}`, { owner: 'uid1', iv: sealed.iv, ct: sealed.ct, v: 1, updated: p.updated });
-  return { ref, link: ME.meLink('https://abyyworld.github.io/physical-improvement-tracker-app/', ref) };
+  return { ref, link: ME.meLink('https://abyyworld.github.io/arise/', ref) };
 }
 const server = (link: string, now = () => Date.now()) => createServer({ link, now, read: (l: string) => readMe(l, { fetch: restFetch as typeof fetch, projectId: 'p', apiKey: 'k' }) });
 type Reply = { id?: unknown; result?: Record<string, unknown> & { tools?: { name: string }[]; content?: { type: string; text: string }[]; isError?: boolean }; error?: { code: number } };
@@ -131,7 +131,7 @@ describe('the MCP server', () => {
     const missing = await call(server(''), 'about_me');
     expect(missing.isError).toBe(true);
     expect(missing.content![0].text).toContain("ARISE_ME_LINK isn't set.");
-    const broken = await call(server('https://abyyworld.github.io/physical-improvement-tracker-app/#me=nope'), 'my_goals');
+    const broken = await call(server('https://abyyworld.github.io/arise/#me=nope'), 'my_goals');
     expect(broken.content![0].text).toContain("isn't a whole Arise me link");
 
     let t = 0;

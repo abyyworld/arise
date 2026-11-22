@@ -8,7 +8,7 @@ import type { PopupRequest, PopupState } from './lib/recorder';
 const ext = vi.hoisted(() => ({ state: null as unknown as PopupState, sent: [] as PopupRequest[] }));
 
 vi.mock('./api', () => ({
-  ARISE: ['https://abyyworld.github.io/physical-improvement-tracker-app/'],
+  ARISE: ['https://abyyworld.github.io/arise/'],
   api: {
     runtime: {
       sendMessage: async ({ msg }: { msg: PopupRequest }) => {

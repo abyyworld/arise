@@ -6,7 +6,7 @@ It's private by design: synced data is end-to-end encrypted, and the AI runs in 
 
 ## Get the app
 
-**[Open Arise](https://abyyworld.github.io/physical-improvement-tracker-app/)**: one link for every phone, tablet and computer.
+**[Open Arise](https://abyyworld.github.io/arise/)**: one link for every phone, tablet and computer.
 
 <img src="docs/qr-web-app.svg" alt="QR code that opens Arise" width="160">
 
@@ -37,11 +37,11 @@ Want daily notifications? In the app on your Home Screen (iOS 16.4 or later), go
 
 ### The iPhone app (optional)
 
-The same app as a real iPhone app, with daily notifications. It needs a Mac or Windows PC to install: [download Arise.ipa](https://github.com/abyyworld/physical-improvement-tracker-app/releases/download/ios-latest/Arise.ipa) and follow [the iPhone app steps](#the-iphone-app). It updates itself too.
+The same app as a real iPhone app, with daily notifications. It needs a Mac or Windows PC to install: [download Arise.ipa](https://github.com/abyyworld/arise/releases/download/ios-latest/Arise.ipa) and follow [the iPhone app steps](#the-iphone-app). It updates itself too.
 
 ### The Android app (optional)
 
-The same app as a real Android app. It can also note your calls, notifications, app use, Health Connect and calendar for your life log, each only if you turn it on (Settings, **Your life · Android**). On your phone, [download Arise.apk](https://github.com/abyyworld/physical-improvement-tracker-app/releases/download/android-latest/Arise.apk), open it and tap **Install** (Android asks once to let your browser install apps). It updates itself too.
+The same app as a real Android app. It can also note your calls, notifications, app use, Health Connect and calendar for your life log, each only if you turn it on (Settings, **Your life · Android**). On your phone, [download Arise.apk](https://github.com/abyyworld/arise/releases/download/android-latest/Arise.apk), open it and tap **Install** (Android asks once to let your browser install apps). It updates itself too.
 
 ### The Mac helper (optional)
 
@@ -80,11 +80,11 @@ The iPhone app (Arise.ipa) updates itself. If yours is an early one (Settings ha
 
 ### Found a problem?
 
-[Open an issue](https://github.com/abyyworld/physical-improvement-tracker-app/issues/new) and say which device and browser you used, what you tapped, what you expected and what happened. A screenshot helps a lot.
+[Open an issue](https://github.com/abyyworld/arise/issues/new) and say which device and browser you used, what you tapped, what you expected and what happened. A screenshot helps a lot.
 
 ### Privacy
 
-The full policy is on the website: [Arise privacy policy](https://abyyworld.github.io/physical-improvement-tracker-app/privacy.html) (`public/privacy.html`). In short:
+The full policy is on the website: [Arise privacy policy](https://abyyworld.github.io/arise/privacy.html) (`public/privacy.html`). In short:
 
 - Everything you enter is saved on your device: your life check-in and daily check-ins, workouts, weigh-ins and body measurements, your goals and intro answers, settings, and your AI coach chats.
 - With an account, an encrypted copy is kept in the cloud so it can sync. It's encrypted on your device before it leaves, and the database itself refuses anything that isn't encrypted. An email account picks one of two ways back in after a forgotten password, and that decides who else could read it (you can switch in Settings, **Account**, **More**):
@@ -270,7 +270,7 @@ Each service has a recommended model. On Gemini that's the newest stable Flash m
 **On a Mac**, one command does it all. Settings, **AI coach**, **Your computer's AI** shows it with a Copy button. Open Terminal, paste it and press Return:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/abyyworld/physical-improvement-tracker-app/main/scripts/local-ai-mac.sh | bash
+curl -fsSL https://raw.githubusercontent.com/abyyworld/arise/main/scripts/local-ai-mac.sh | bash
 ```
 
 It installs Ollama (with ollama.com's own installer) if it isn't there, lets Arise's website talk to it (it adds Arise to `OLLAMA_ORIGINS`, now and at every login, keeping anything already there), starts Ollama again, and downloads a model that fits the Mac's memory: `qwen2.5:7b` below 24 GB of memory (about 5 GB to download), `qwen2.5:14b` from 24 GB (about 9 GB), `qwen2.5:32b` from 48 GB (about 20 GB) and `qwen2.5:72b` from 96 GB (about 47 GB). To pick another: `curl ... | ARISE_MODEL=llama3.1:8b bash`. Running it again changes nothing that's already right. The script is [scripts/local-ai-mac.sh](scripts/local-ai-mac.sh).
@@ -313,9 +313,9 @@ The same app, wrapped as a real iPhone app with [Capacitor](https://capacitorjs.
 
 It updates itself like the web app (see [Updates](#updates)): every deploy also publishes the new version for it, and it downloads that, checks it and switches to it. You only install a new Arise.ipa when Settings, **App updates** asks you to.
 
-Every push to `main` that changes the app builds it on GitHub (see `.github/workflows/ios.yml`) and puts `Arise.ipa` on the [ios-latest release](https://github.com/abyyworld/physical-improvement-tracker-app/releases/tag/ios-latest). The file isn't signed yet. An iPhone only installs apps signed with an Apple ID, so you sign it with your own when you install it. The free way:
+Every push to `main` that changes the app builds it on GitHub (see `.github/workflows/ios.yml`) and puts `Arise.ipa` on the [ios-latest release](https://github.com/abyyworld/arise/releases/tag/ios-latest). The file isn't signed yet. An iPhone only installs apps signed with an Apple ID, so you sign it with your own when you install it. The free way:
 
-1. [Download Arise.ipa](https://github.com/abyyworld/physical-improvement-tracker-app/releases/download/ios-latest/Arise.ipa).
+1. [Download Arise.ipa](https://github.com/abyyworld/arise/releases/download/ios-latest/Arise.ipa).
 2. Install [Sideloadly](https://sideloadly.io) on a Mac or Windows PC. On Windows you also need iTunes and iCloud from Apple's website (not the Microsoft Store versions).
 3. Plug in your iPhone, unlock it and tap Trust.
 4. Drag `Arise.ipa` into Sideloadly, type your Apple ID and press Start.

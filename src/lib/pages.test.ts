@@ -9,7 +9,7 @@ import { OWN_PAGE_FILES, OWN_PAGES, PRIVACY_URL } from './pages';
 const PUBLIC = new URL('../../public/', import.meta.url);
 // What Workbox's NavigationRoute matches its denylist against: the path and the query.
 const passesThrough = (address: string) => {
-  const u = new URL(address, 'https://abyyworld.github.io/physical-improvement-tracker-app/');
+  const u = new URL(address, 'https://abyyworld.github.io/arise/');
   return OWN_PAGES.some((re) => re.test(u.pathname + u.search));
 };
 
@@ -21,7 +21,7 @@ describe('navigations the service worker leaves alone', () => {
   });
 
   it("lets the browser extension's files through: they're downloads", () => {
-    for (const a of ['extension/arise-chrome.zip', './extension/arise-firefox.xpi', 'extension/updates.json', '/physical-improvement-tracker-app/extension/arise-chrome.zip?v=2']) {
+    for (const a of ['extension/arise-chrome.zip', './extension/arise-firefox.xpi', 'extension/updates.json', '/arise/extension/arise-chrome.zip?v=2']) {
       expect(passesThrough(a), a).toBe(true);
     }
     for (const a of ['extension/', './#extension', 'extension-notes.zip', 'extension/sub/file.zip']) expect(passesThrough(a), a).toBe(false);
@@ -46,14 +46,14 @@ describe('navigations the service worker leaves alone', () => {
   });
 
   it('links the iPhone app to the published copy', () => {
-    expect(PRIVACY_URL).toMatch(/^https:\/\/abyyworld\.github\.io\/physical-improvement-tracker-app\/privacy\.html$/);
+    expect(PRIVACY_URL).toMatch(/^https:\/\/abyyworld\.github\.io\/arise\/privacy\.html$/);
   });
 
   // App makers load it from the site (docs/ME-LINK.md): opened in a tab it's the file, not the
   // app, and it's always the newest.
   it('lets the reader for me links through, and never keeps an old copy of it', () => {
     expect(readdirSync(PUBLIC)).toContain('me.js');
-    for (const a of ['me.js', './me.js', '/physical-improvement-tracker-app/me.js', 'me.js?v=2', 'https://abyyworld.github.io/physical-improvement-tracker-app/me.js']) {
+    for (const a of ['me.js', './me.js', '/arise/me.js', 'me.js?v=2', 'https://abyyworld.github.io/arise/me.js']) {
       expect(passesThrough(a), a).toBe(true);
     }
     // A me link itself opens the app's page (main.ts), which shows what's in it.
@@ -76,7 +76,7 @@ describe('the privacy policy page', () => {
 
   it('says when it was last updated and how to get in touch', () => {
     expect(text).toMatch(/Last updated: \d{1,2} [A-Z][a-z]+ \d{4}/);
-    expect(html).toContain('https://github.com/abyyworld/physical-improvement-tracker-app/issues');
+    expect(html).toContain('https://github.com/abyyworld/arise/issues');
   });
 
   // Sections by their headings, so a check can't pass on words from somewhere else on the page.

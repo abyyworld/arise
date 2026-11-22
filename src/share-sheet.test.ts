@@ -35,7 +35,7 @@ describe('Share progress, on the Goals tab', () => {
     window.scrollTo = () => {};
     localStorage.setItem('pit-data-v1', JSON.stringify({ sessions: [], goals: [goal], settings: { name: 'Akbar Juraev' }, profile: { onboarded: true } }));
     document.body.innerHTML = '<nav id="tabs"></nav><main id="app"></main><div id="restbar" hidden></div><div id="sheet" hidden><div class="sheet-panel"><button class="sheet-close" data-act="sheet-close"></button><div class="sheet-body"></div></div></div><div id="toast"></div><input type="file" id="importFile" hidden>';
-    history.replaceState(null, '', '/physical-improvement-tracker-app/#goals');
+    history.replaceState(null, '', '/arise/#goals');
     await import('./app.js');
     const S = await import('./store');
     const SYNC = await import('./sync');
@@ -65,7 +65,7 @@ describe('Share progress, on the Goals tab', () => {
     tap('[data-act="share-make"]');
     await vi.waitFor(() => expect(link()).toBeTruthy());
     const first = S.goalById('g1')!.share!;
-    expect(link()).toBe(`${location.origin}/physical-improvement-tracker-app/#share=${first.id}.${first.key}`);
+    expect(link()).toBe(`${location.origin}/arise/#share=${first.id}.${first.key}`);
     expect(shares()).toEqual([`shares/${first.id}`]);
     expect(await opened(first)).toMatchObject({ title: 'Learn Spanish', name: 'Akbar' });
     expect($('[data-act="g-share"]')!.textContent).toContain('Shared with a link');

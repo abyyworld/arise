@@ -78,9 +78,9 @@ describe('the Connect screen', () => {
 
     expect(text('#hub-iphone')).toBe('iPhone Needs the iPhone app Health, sleep, steps, workouts, calendar, places and Shortcuts need the Arise app on your iPhone. How to get it');
     expect($('#hub-iphone a')!.getAttribute('href')).toBe(HUB.IPHONE_HOW);
-    expect(HUB.IPHONE_HOW).toBe('https://github.com/abyyworld/physical-improvement-tracker-app#the-iphone-app');
+    expect(HUB.IPHONE_HOW).toBe('https://github.com/abyyworld/arise#the-iphone-app');
     expect(text('#hub-android')).toBe('Android Needs the Android app Calls, missed calls, notifications, app use and Health Connect need the Arise app on your Android phone. Get the Android app');
-    expect($('#hub-android a')!.getAttribute('href')).toBe('https://github.com/abyyworld/physical-improvement-tracker-app/releases/download/android-latest/Arise.apk');
+    expect($('#hub-android a')!.getAttribute('href')).toBe('https://github.com/abyyworld/arise/releases/download/android-latest/Arise.apk');
     expect(text('#hubPhone')).toContain("iPhones don't let any app read missed calls or other apps' notifications. The Mac helper can, if your iPhone passes calls and notifications to your Mac.");
 
     // The accounts, as in Settings, and nothing for the owner to do.

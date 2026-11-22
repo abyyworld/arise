@@ -25,7 +25,7 @@ export type Switch = (typeof SWITCHES)[number];
 
 // The one command that installs the helper (or updates it), in Terminal on the Mac.
 export const INSTALL_COMMAND =
-  'cd "$(mktemp -d)" && curl -fsSL https://github.com/abyyworld/physical-improvement-tracker-app/archive/refs/heads/main.tar.gz | tar xz && bash physical-improvement-tracker-app-main/mac-helper/install.sh';
+  'cd "$(mktemp -d)" && curl -fsSL https://github.com/abyyworld/arise/archive/refs/heads/main.tar.gz | tar xz && bash arise-main/mac-helper/install.sh';
 export const UNINSTALL_COMMAND = 'bash ~/.arise-helper/arise-helper.sh uninstall';
 // The program that gets Full Disk Access: the helper's one signed program.
 export const HELPER_PATH_HINT = '~/.arise-helper/bin/arise-helper';

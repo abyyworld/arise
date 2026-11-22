@@ -636,7 +636,7 @@ async function refused(res: Response, at: LocalModel, deps: AskDeps): Promise<Er
 // Arise's website. The Mac setup lets it in; a copy of Arise at another address is added to it.
 export const SITE_ORIGIN = new URL(SITE_URL).origin;
 // The one command for a Mac (Terminal). It's scripts/local-ai-mac.sh in this repo.
-export const SETUP_SCRIPT = 'https://raw.githubusercontent.com/abyyworld/physical-improvement-tracker-app/main/scripts/local-ai-mac.sh';
+export const SETUP_SCRIPT = 'https://raw.githubusercontent.com/abyyworld/arise/main/scripts/local-ai-mac.sh';
 const ownOrigin = (origin: string) => (/^https:\/\/[a-z0-9.-]{1,200}(:\d{1,5})?$/i.test(origin) && origin !== SITE_ORIGIN ? origin : '');
 
 export function setupCommand(origin = ''): string {

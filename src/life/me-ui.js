@@ -20,9 +20,9 @@ const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
 
 const KEEPS = "The app you give this link to can read what's in it and keep a copy.";
 const SEALED = "It's end-to-end encrypted: the key is in the link, so nobody else can read it, not the people who run Arise and not Google, who host it.";
-const DOCS = 'https://github.com/abyyworld/physical-improvement-tracker-app/blob/main/docs/ME-LINK.md';
-const MCP = 'https://github.com/abyyworld/physical-improvement-tracker-app/blob/main/mcp/README.md';
-const WEB_HOW = 'https://github.com/abyyworld/physical-improvement-tracker-app/blob/main/mcp/README.md#claude-chatgpt-and-gemini-on-the-web';
+const DOCS = 'https://github.com/abyyworld/arise/blob/main/docs/ME-LINK.md';
+const MCP = 'https://github.com/abyyworld/arise/blob/main/mcp/README.md';
+const WEB_HOW = 'https://github.com/abyyworld/arise/blob/main/mcp/README.md#claude-chatgpt-and-gemini-on-the-web';
 
 // Before the web connector can be turned on for an app: what it costs, in plain words.
 export const WEB_WHY = [

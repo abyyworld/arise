@@ -80,7 +80,7 @@ describe('sharing a file from the iPhone app', () => {
   });
 
   it("hands a shared goal's link to the share sheet, where cancelling is fine", async () => {
-    const url = `https://abyyworld.github.io/physical-improvement-tracker-app/#share=${'a'.repeat(22)}.${'b'.repeat(43)}`;
+    const url = `https://abyyworld.github.io/arise/#share=${'a'.repeat(22)}.${'b'.repeat(43)}`;
     const app = fakeApp();
     const N = await load();
     expect(N.canShareLink()).toBe(true);

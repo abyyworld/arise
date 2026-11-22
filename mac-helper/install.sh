@@ -52,7 +52,7 @@ dir=${ARISE_HELPER_HOME:-$HOME/.arise-helper}
 label=io.github.abyyworld.arise-helper
 agent="$HOME/Library/LaunchAgents/$label.plist"
 bin="$dir/bin/arise-helper"
-repo=${ARISE_REPO:-abyyworld/physical-improvement-tracker-app}
+repo=${ARISE_REPO:-abyyworld/arise}
 self="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/$(basename "${BASH_SOURCE[0]:-$0}")"
 uid=$(id -u)
 service="gui/$uid/$label"
@@ -227,7 +227,14 @@ gh_checks() {
 if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
   if ! gh_checks; then
     echo "(This gh is too old to check GitHub's record of where the helper was built. Its checksum matched.)"
-  elif gh attestation verify "$tmp/$file" --repo "$repo" --signer-workflow "$repo/.github/workflows/mac-helper.yml" --source-ref refs/heads/main >"$tmp/gh.txt" 2>&1; then
+  elif if [ "$helper_build" = 12 ]; then
+    # Build 12 was made before the repo was renamed (physical-improvement-tracker-app, now arise):
+    # its record names the workflow by the old name, so it's checked by owner and that workflow.
+    # The next build is made under the new name and checked by the repo again.
+    gh attestation verify "$tmp/$file" --owner "${repo%%/*}" --signer-workflow "${repo%%/*}/physical-improvement-tracker-app/.github/workflows/mac-helper.yml" --source-ref refs/heads/main >"$tmp/gh.txt" 2>&1
+  else
+    gh attestation verify "$tmp/$file" --repo "$repo" --signer-workflow "$repo/.github/workflows/mac-helper.yml" --source-ref refs/heads/main >"$tmp/gh.txt" 2>&1
+  fi; then
     echo "GitHub's record says Arise's own workflow built it."
   else
     fail "GitHub's record of where the helper was built didn't check out, so it wasn't used. gh said:

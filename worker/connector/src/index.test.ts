@@ -25,7 +25,7 @@ function fakeEnv(limits = { link: true, ip: true }) {
   const objects = new Map<string, { feed: Feed; data: Map<string, unknown>; alarm: number }>();
   const env: Env & { objects: typeof objects } = {
     ALLOWED_ORIGINS: 'https://abyyworld.github.io,capacitor://localhost',
-    SITE: 'https://abyyworld.github.io/physical-improvement-tracker-app/',
+    SITE: 'https://abyyworld.github.io/arise/',
     PER_LINK: { limit: async () => ({ success: limits.link }) },
     PER_IP: { limit: async () => ({ success: limits.ip }) },
     objects,

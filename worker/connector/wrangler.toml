@@ -11,7 +11,7 @@ enabled = false
 # The Arise app's addresses: the website, the iPhone app, the Android app and a local copy. Only
 # these may read an app's log back (with the token only Arise can make).
 ALLOWED_ORIGINS = "https://abyyworld.github.io,capacitor://localhost,https://localhost,http://localhost:5173"
-SITE = "https://abyyworld.github.io/physical-improvement-tracker-app/"
+SITE = "https://abyyworld.github.io/arise/"
 
 # An AI app asks a few times for one answer; 60 a minute per link is plenty, and stops a copied
 # address from being used to run up the cloud's reads.

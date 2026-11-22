@@ -31,8 +31,8 @@ describe('the link', () => {
     const ref = await L.newShareRef();
     expect(ref.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(ref.key).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    const link = L.shareLink('https://abyyworld.github.io/physical-improvement-tracker-app/#goals', ref);
-    expect(link).toBe(`https://abyyworld.github.io/physical-improvement-tracker-app/#share=${ref.id}.${ref.key}`);
+    const link = L.shareLink('https://abyyworld.github.io/arise/#goals', ref);
+    expect(link).toBe(`https://abyyworld.github.io/arise/#share=${ref.id}.${ref.key}`);
     const hash = new URL(link).hash;
     expect(L.isShareHash(hash)).toBe(true);
     expect(L.parseShareHash(hash)).toEqual({ id: ref.id, key: ref.key });

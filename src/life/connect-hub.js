@@ -36,8 +36,8 @@ import { toast } from '../ui.js';
 export const VIEW = 'connect';
 export const LEAD = "Connect what you use, and Arise writes your days from it. Everything stays private: it's read on your devices and only leaves them encrypted.";
 // The README's steps for installing the iPhone app, and the newest Android app.
-export const IPHONE_HOW = 'https://github.com/abyyworld/physical-improvement-tracker-app#the-iphone-app';
-export const ANDROID_APK = 'https://github.com/abyyworld/physical-improvement-tracker-app/releases/download/android-latest/Arise.apk';
+export const IPHONE_HOW = 'https://github.com/abyyworld/arise#the-iphone-app';
+export const ANDROID_APK = 'https://github.com/abyyworld/arise/releases/download/android-latest/Arise.apk';
 
 // Where it stands, next to its name. (The space keeps them apart when read aloud.)
 const chip = (text, on = false) => ` <span class="tag status${on ? ' on' : ''}">${esc(text)}</span>`;

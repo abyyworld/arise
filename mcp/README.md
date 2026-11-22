@@ -12,9 +12,9 @@ Tools: `about_me` (your first name, About me and facts), `my_goals` (your goals,
 2. Get the server. It needs Node 20 or newer, and nothing else. Use a copy of this repo, or save these three files in one folder:
 
    ```
-   curl -O https://raw.githubusercontent.com/abyyworld/physical-improvement-tracker-app/main/mcp/server.mjs
-   curl -O https://raw.githubusercontent.com/abyyworld/physical-improvement-tracker-app/main/mcp/core.mjs
-   curl -o me.mjs https://abyyworld.github.io/physical-improvement-tracker-app/me.js
+   curl -O https://raw.githubusercontent.com/abyyworld/arise/main/mcp/server.mjs
+   curl -O https://raw.githubusercontent.com/abyyworld/arise/main/mcp/core.mjs
+   curl -o me.mjs https://abyyworld.github.io/arise/me.js
    ```
 
 3. Claude Desktop: Settings, Developer, Edit Config. Add this to `claude_desktop_config.json`, with the full path to `server.mjs` and your link. Then restart Claude Desktop.
@@ -25,7 +25,7 @@ Tools: `about_me` (your first name, About me and facts), `my_goals` (your goals,
        "arise": {
          "command": "node",
          "args": ["/full/path/to/server.mjs"],
-         "env": { "ARISE_ME_LINK": "https://abyyworld.github.io/physical-improvement-tracker-app/#me=PASTE-THE-REST" }
+         "env": { "ARISE_ME_LINK": "https://abyyworld.github.io/arise/#me=PASTE-THE-REST" }
        }
      }
    }

@@ -1,6 +1,6 @@
 # Arise: notes for working on this repo
 
-Arise is a private, self-updating coach for your whole life: it writes your days down, asks how you are, shows what helps, and has goals when you want them (fitness has a full workout plan). Live at https://abyyworld.github.io/physical-improvement-tracker-app/. Version is in `package.json`. README.md is the user guide, `docs/LAUNCH.md` the owner's setup steps and the roadmap, `public/privacy.html` the privacy policy.
+Arise is a private, self-updating coach for your whole life: it writes your days down, asks how you are, shows what helps, and has goals when you want them (fitness has a full workout plan). Live at https://abyyworld.github.io/arise/. Version is in `package.json`. README.md is the user guide, `docs/LAUNCH.md` the owner's setup steps and the roadmap, `public/privacy.html` the privacy policy.
 
 ## Commands
 
@@ -42,7 +42,7 @@ Claude can't reach Firebase, Cloudflare or Tinfoil from a cloud session, so chan
 The one command that does both, straight from GitHub:
 
 ```
-cd "$(mktemp -d)" && curl -sL https://github.com/abyyworld/physical-improvement-tracker-app/archive/refs/heads/main.tar.gz | tar xz && cd physical-improvement-tracker-app-* && bash scripts/setup-workers.sh && npx -y firebase-tools@13.35.1 login && npx -y firebase-tools@13.35.1 deploy --only firestore:rules --project arise-a7349 && echo "All set."
+cd "$(mktemp -d)" && curl -sL https://github.com/abyyworld/arise/archive/refs/heads/main.tar.gz | tar xz && cd arise-* && bash scripts/setup-workers.sh && npx -y firebase-tools@13.35.1 login && npx -y firebase-tools@13.35.1 deploy --only firestore:rules --project arise-a7349 && echo "All set."
 ```
 
 ## Open items (October 2026)
@@ -50,6 +50,7 @@ cd "$(mktemp -d)" && curl -sL https://github.com/abyyworld/physical-improvement-
 - **Owner: run the command above once for 1.3**, if it hasn't been run since 1.3 went live. The rules for email-reset accounts and share links, and the free AI (its Workers AI binding and second model), need it. Until then those three don't work.
 - **Owner: run the command above once more after the Android app is merged**, even if it ran for 1.3. The AI server only accepts the Android app's address (`https://localhost`, in `worker/ai-proxy/wrangler.toml`) once it's deployed again. Until then every AI question from the Android app is refused ("This origin may not use the Arise AI."). Also add the Android signing key once (`docs/LAUNCH.md`, Signing the Android app).
 - **Owner: run the command above once for 1.18** (AI apps on the web). It deploys the new connector Worker (`worker/connector`). Until then Arise says the connector isn't answering, and Claude or ChatGPT on the web can't reach it.
+- **Renamed to `abyyworld/arise` (1.27).** The old name is a small repo that keeps the old address working (`docs/LAUNCH.md`, The old address); don't delete it or turn off its Mirror workflow. When Google or Microsoft sign-in is set up (`src/connect-config.ts`), register `https://abyyworld.github.io/arise/` as the redirect address.
 - **Owner: Tinfoil credit.** The private AI answers "out of credit" until the Tinfoil account has billing credit.
 - **Owner: delete an obsolete old account** in the Firebase console (Authentication, Users, ⋮, Delete account). The owner knows which one.
 - **Firebase App Check: on hold.** reCAPTCHA doesn't run inside the iPhone app (`capacitor://localhost`) and App Attest needs a paid Apple account; also never enforce it for Firestore, or share links break (see `docs/LAUNCH.md`).

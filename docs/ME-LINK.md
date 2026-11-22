@@ -7,7 +7,7 @@ A me link lets your app know someone from their Arise app: their name, goals, ro
 In a `<script type="module">`:
 
 ```js
-import { readMe } from 'https://abyyworld.github.io/physical-improvement-tracker-app/me.js';
+import { readMe } from 'https://abyyworld.github.io/arise/me.js';
 
 const link = localStorage.getItem('ariseLink') || prompt('Paste your Arise me link');
 try {
@@ -44,4 +44,4 @@ try {
 
 ## How it works
 
-The link is `https://abyyworld.github.io/physical-improvement-tracker-app/#me=<id>.<key>`: a random 128-bit id and a 256-bit AES-GCM key, both base64url. The part after `#` never reaches a server. Arise's cloud (Firestore) keeps `shares/<id>` as `{ owner, iv, ct, v: 1, updated }`, readable by anyone through the public REST API: `ct` is the gzipped JSON above, sealed with the key (AES-256-GCM, the base64 `iv`, additional data `me/<id>`). Nobody without the link can read it, not even the people who run Arise. When the link is turned off, the document becomes `{ v: 1, off: true }` for good. Opening the link in a browser shows what's in it.
+The link is `https://abyyworld.github.io/arise/#me=<id>.<key>`: a random 128-bit id and a 256-bit AES-GCM key, both base64url. The part after `#` never reaches a server. Arise's cloud (Firestore) keeps `shares/<id>` as `{ owner, iv, ct, v: 1, updated }`, readable by anyone through the public REST API: `ct` is the gzipped JSON above, sealed with the key (AES-256-GCM, the base64 `iv`, additional data `me/<id>`). Nobody without the link can read it, not even the people who run Arise. When the link is turned off, the document becomes `{ v: 1, off: true }` for good. Opening the link in a browser shows what's in it.

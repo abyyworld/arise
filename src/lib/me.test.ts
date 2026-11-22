@@ -152,7 +152,7 @@ describe('sealing and reading a me link', () => {
     const ref = await newShareRef();
     const { sealed, payload } = await ME.sealMe(ref, p);
     cloud.docs.set(`shares/${ref.id}`, { owner: 'uid1', iv: sealed.iv, ct: sealed.ct, v: 1, updated: p.updated });
-    return { ref, link: ME.meLink('https://abyyworld.github.io/physical-improvement-tracker-app/#today', ref), sealed, payload };
+    return { ref, link: ME.meLink('https://abyyworld.github.io/arise/#today', ref), sealed, payload };
   };
   const read = (link: string) => readMe(link, { fetch: restFetch as typeof fetch, projectId: 'p', apiKey: 'k' });
   const stored = (id: string) => cloud.docs.get(`shares/${id}`) as unknown as C.Sealed;
@@ -160,7 +160,7 @@ describe('sealing and reading a me link', () => {
   it('opens with the reader app makers use, exactly as sent', async () => {
     const p = ME.buildMe(SRC, choice(ALL, 3), 1_792_224_000_000);
     const { ref, link } = await put(p);
-    expect(link).toBe(`https://abyyworld.github.io/physical-improvement-tracker-app/#me=${ref.id}.${ref.key}`);
+    expect(link).toBe(`https://abyyworld.github.io/arise/#me=${ref.id}.${ref.key}`);
     expect(await read(link)).toEqual(p);
     // The #me= part alone, or just the id and key, work too.
     expect(await read(`#me=${ref.id}.${ref.key}`)).toEqual(p);
@@ -177,7 +177,7 @@ describe('sealing and reading a me link', () => {
       () => 'read',
       (err: MeLinkError) => err.code,
     );
-    expect(await code('https://abyyworld.github.io/physical-improvement-tracker-app/#me=short.key')).toBe('bad-link');
+    expect(await code('https://abyyworld.github.io/arise/#me=short.key')).toBe('bad-link');
     // Another key: it doesn't open.
     const other = await newShareRef();
     expect(await code(`#me=${ref.id}.${other.key}`)).toBe('bad-data');

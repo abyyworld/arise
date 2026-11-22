@@ -56,7 +56,7 @@ describe("Your computer's AI in Settings", () => {
     await vi.waitFor(() => expect(text(card())).toContain("Ollama is running, but doesn't let Arise in yet."));
     expect(card()?.getAttribute('aria-pressed')).toBe('true');
     expect(text($('#localAI'))).toContain('Ollama is running, but only answers apps it trusts. Run the command below once');
-    const command = 'curl -fsSL https://raw.githubusercontent.com/abyyworld/physical-improvement-tracker-app/main/scripts/local-ai-mac.sh | bash';
+    const command = 'curl -fsSL https://raw.githubusercontent.com/abyyworld/arise/main/scripts/local-ai-mac.sh | bash';
     expect(text($('#localCmd'))).toBe(command);
     expect(text($('#localAI'))).toContain('setx OLLAMA_ORIGINS "https://abyyworld.github.io"');
     // Windows and Linux: added to the addresses already there, never in place of them.

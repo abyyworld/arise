@@ -2,7 +2,7 @@
 # Arise: AI on this Mac, with Ollama, so the coach can answer without anything leaving it.
 # Settings, AI coach, Your computer's AI shows this command:
 #
-#   curl -fsSL https://raw.githubusercontent.com/abyyworld/physical-improvement-tracker-app/main/scripts/local-ai-mac.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/abyyworld/arise/main/scripts/local-ai-mac.sh | bash
 #
 # 1. Installs Ollama with ollama.com's own installer, if it isn't here yet.
 # 2. Lets Arise's website (and the Arise iPhone app, on a Mac that runs it) talk to Ollama: adds

@@ -124,7 +124,7 @@ describe('turning Graph answers into life events', () => {
 describe('signing in to Microsoft', () => {
   it('uses PKCE (RFC 7636 test vector) with no client secret', async () => {
     expect(await challenge('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk')).toBe('E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
-    const u = new URL(MS.authUrl({ state: 's', challenge: 'E9M', redirect: 'https://abyyworld.github.io/physical-improvement-tracker-app/' }));
+    const u = new URL(MS.authUrl({ state: 's', challenge: 'E9M', redirect: 'https://abyyworld.github.io/arise/' }));
     expect(u.origin + u.pathname).toBe('https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
     expect(Object.fromEntries(u.searchParams)).toMatchObject({ client_id: 'client-123', response_type: 'code', response_mode: 'fragment', code_challenge: 'E9M', code_challenge_method: 'S256', scope: 'offline_access User.Read Mail.Read Calendars.Read' });
     // Only what the parts picked need.

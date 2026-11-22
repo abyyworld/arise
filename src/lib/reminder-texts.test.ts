@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { journalDayFor, notificationFor, parsePush, showReminder, writeTexts, type Texts } from './reminder-texts';
 
-const SCOPE = 'https://abyyworld.github.io/physical-improvement-tracker-app/';
+const SCOPE = 'https://abyyworld.github.io/arise/';
 const texts: Texts = {
   days: {
     '2026-10-09': {

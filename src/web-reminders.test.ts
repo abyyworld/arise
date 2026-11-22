@@ -9,7 +9,7 @@ import { CACHE, readTexts } from './lib/reminder-texts';
 vi.mock('./lib/firebase', () => import('./test/fake-firebase'));
 
 const SERVER = 'https://arise-reminders.example.workers.dev';
-const SCOPE = 'https://abyyworld.github.io/physical-improvement-tracker-app/';
+const SCOPE = 'https://abyyworld.github.io/arise/';
 const VAPID_BYTES = Uint8Array.from({ length: 65 }, (_, i) => (i ? i : 4));
 const VAPID = Buffer.from(VAPID_BYTES).toString('base64url');
 const TODAY = '2026-10-09'; // a Friday

@@ -10,7 +10,7 @@ enabled = false
 [vars]
 ALLOWED_ORIGINS = "https://abyyworld.github.io,http://localhost:5173"
 # Where push services can reach whoever runs this (sent with every push, as VAPID asks).
-CONTACT = "https://github.com/abyyworld/physical-improvement-tracker-app"
+CONTACT = "https://github.com/abyyworld/arise"
 MAX_SUBSCRIPTIONS = "5000"
 
 # Short bursts: 15 requests a minute per IP address, of which 2 sign-ups (a browser signs up once,

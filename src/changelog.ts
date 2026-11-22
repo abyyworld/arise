@@ -4,6 +4,13 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.27.0',
+    notes: [
+      'Arise has a shorter address: abyyworld.github.io/arise. Your data, your account and your settings stay as they are, and old links and home-screen icons still open Arise.',
+      'Added the browser extension by hand (Load unpacked)? Get it again from Setup and connections, unzip it over the same folder, and press Reload on its card in your browser\'s extensions page. It stays linked.',
+    ],
+  },
+  {
     version: '1.26.1',
     notes: [
       'Adding the browser extension: Arise pages already open refresh by themselves once it\'s added, and if Arise still can\'t see it, a Reload this page button is right there. The extension now points to Setup and connections.',

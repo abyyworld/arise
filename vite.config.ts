@@ -39,7 +39,7 @@ const { ios: native, android: nativeAndroid } = nativeKeys(fileURLToPath(new URL
 const helperBuild = Number(/^helper_build=(\d+)$/m.exec(readFileSync(new URL('./mac-helper/install.sh', import.meta.url), 'utf8'))?.[1] || 0);
 
 export default defineConfig({
-  // Relative paths, so the same build works on GitHub Pages (under /physical-improvement-tracker-app/)
+  // Relative paths, so the same build works on GitHub Pages (under /arise/)
   // and inside the phone apps.
   base: './',
   define: {

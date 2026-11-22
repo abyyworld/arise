@@ -227,7 +227,7 @@ describe('a sign-in coming back', () => {
 
   it('in the pop-up: passes the answer on, takes it out of the address bar, and closes', () => {
     pending('popup');
-    history.replaceState(null, '', '/physical-improvement-tracker-app/#state=st8&access_token=ya29.secret&expires_in=3599&scope=x');
+    history.replaceState(null, '', '/arise/#state=st8&access_token=ya29.secret&expires_in=3599&scope=x');
     const close = vi.spyOn(window, 'close').mockImplementation(() => {});
     expect(handleOAuthReturn()).toBe(true);
     expect(close).toHaveBeenCalled();
@@ -237,7 +237,7 @@ describe('a sign-in coming back', () => {
 
   it("after a whole-page sign-in: the app starts and picks it up once", () => {
     pending('redirect');
-    history.replaceState(null, '', '/physical-improvement-tracker-app/#state=st8&access_token=ya29.secret');
+    history.replaceState(null, '', '/arise/#state=st8&access_token=ya29.secret');
     expect(handleOAuthReturn()).toBe(false);
     expect(location.href).not.toContain('ya29');
     const done = takeReturn()!;
@@ -248,7 +248,7 @@ describe('a sign-in coming back', () => {
 
   it("ignores answers to sign-ins this device didn't start, and old ones", () => {
     pending('redirect');
-    history.replaceState(null, '', '/physical-improvement-tracker-app/#state=forged&access_token=ya29.evil');
+    history.replaceState(null, '', '/arise/#state=forged&access_token=ya29.evil');
     expect(handleOAuthReturn()).toBe(false);
     expect(localStorage.getItem(RETURN)).toBeNull();
     expect(location.href).not.toContain('evil');
