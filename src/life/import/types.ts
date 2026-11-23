@@ -15,6 +15,14 @@ export type ImportKind =
   | 'netflix-history' // NetflixViewingHistory.csv from the website
   | 'apple-health' // apple_health_export/export.xml
   | 'whatsapp' // an exported chat (.txt, or the .zip it comes in)
+  | 'telegram' // result.json from Telegram Desktop's export, in JSON
+  | 'instagram' // messages/inbox/…/message_1.json in Meta's "Download your information"
+  | 'messenger' // the same for Facebook Messenger
+  | 'x-messages' // data/direct-messages.js in the X (Twitter) archive
+  | 'tiktok' // user_data_tiktok.json: its direct messages
+  | 'snapchat' // chat_history.json from Snapchat's My Data
+  | 'discord' // messages/ in Discord's data package
+  | 'linkedin' // messages.csv from LinkedIn's data export
   | 'bank-csv'; // a bank or card statement saved as CSV
 
 // Which column is which in a bank statement. Columns are counted from 0.
@@ -48,6 +56,7 @@ export interface Found {
   csv?: CsvGuess; // bank statements: the guessed columns
   chat?: string; // WhatsApp: who the chat is with, when the file name says
   encoding?: string; // when it isn't UTF-8 (some banks write Windows-1252)
+  parts?: string[]; // several entries of a zip read as one, in this order (a Meta inbox, a Discord package)
 }
 
 export type Problem =

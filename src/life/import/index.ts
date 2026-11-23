@@ -16,6 +16,14 @@ import { netflixProfiles, parseNetflixActivity, parseNetflixHistory } from './ne
 import { parseAppleHealth } from './health';
 import { chatLine, chatName, parseWhatsApp } from './whatsapp';
 import { guessCsv, parseBankCsv } from './bank';
+import { onePart } from './chat';
+import { parseTelegram } from './telegram';
+import { META_PROFILE, META_THREAD, parseMeta } from './meta';
+import { parseX, X_ACCOUNT, X_DMS } from './x';
+import { parseTikTok, TIKTOK } from './tiktok';
+import { parseSnapchat, SNAPCHAT } from './snapchat';
+import { DISCORD_FILE, DISCORD_INDEX, parseDiscord } from './discord';
+import { isLinkedInMessages, parseLinkedIn } from './linkedin';
 
 export type * from './types';
 
@@ -88,8 +96,21 @@ export const KIND_LABEL: Record<ImportKind, string> = {
   'netflix-history': 'Netflix viewing (days only)',
   'apple-health': 'Apple Health',
   whatsapp: 'WhatsApp chat',
+  telegram: 'Telegram chats',
+  instagram: 'Instagram messages',
+  messenger: 'Messenger chats',
+  'x-messages': 'X messages',
+  tiktok: 'TikTok messages',
+  snapchat: 'Snapchat chats',
+  discord: 'Discord messages',
+  linkedin: 'LinkedIn messages',
   'bank-csv': 'Bank statement',
 };
+
+// Kinds of chat from a social app: one event per chat per day, read from one or more files.
+const SOCIAL: ReadonlySet<ImportKind> = new Set(['telegram', 'instagram', 'messenger', 'x-messages', 'tiktok', 'snapchat', 'discord', 'linkedin']);
+
+const TELEGRAM_TYPE = /"type"\s*:\s*"(personal_chat|bot_chat|private_group|private_supergroup|public_supergroup)"/;
 
 const isChat = (head: string) => {
   const lines = head.split(/\r\n|\n|\r/).filter((l) => l.trim()).slice(0, 15);
@@ -107,8 +128,21 @@ export function classify(name: string, head: string, inZip: boolean): ImportKind
     if (/<html/i.test(t) && /outer-cell|content-cell|mdl-grid/.test(t)) return 'html';
     return null;
   }
+  // The X archive's messages: JavaScript that sets a variable to JSON.
+  if (/^window\.YTD\.direct_messages?(_group)?\.part\d+\s*=/.test(t)) return 'x-messages';
   // JSON: an object, or an array of objects (an iPhone WhatsApp chat starts with "[13/01/24" too).
   if (/^\{|^\[\s*([[{"\]]|$)/.test(t)) {
+    if (t.startsWith('{')) {
+      // Telegram: a full export (who the Player is, then their chats), or one chat on its own.
+      if (/"personal_information"\s*:\s*\{/.test(t) && /"user_id"\s*:/.test(t)) return 'telegram';
+      if (/"chats"\s*:\s*\{\s*"about"/.test(t) || (TELEGRAM_TYPE.test(t) && /"messages"\s*:\s*\[/.test(t))) return 'telegram';
+      if (!inZip) {
+        // On their own (a zip is known by where its files are): a Meta chat, TikTok, Snapchat.
+        if (/"participants"\s*:/.test(t) && /"(sender_name|senderName)"\s*:/.test(t)) return /instagram/.test(lower) ? 'instagram' : 'messenger';
+        if (TIKTOK.test(lower)) return 'tiktok';
+        if (SNAPCHAT.test(lower)) return 'snapchat';
+      }
+    }
     if (/"semanticSegments"\s*:/.test(t)) return 'maps-timeline';
     if (/^\[\s*\{/.test(t) && /"(startTime|endTime)"\s*:/.test(t) && /"(visit|activity|timelinePath|timelineMemory)"\s*:/.test(t)) return 'maps-timeline';
     if (/"timelineObjects"\s*:/.test(t)) return 'maps-semantic';
@@ -119,6 +153,7 @@ export function classify(name: string, head: string, inZip: boolean): ImportKind
     return null;
   }
   const first = (t.split(/\r\n|\n|\r/, 1)[0] ?? '').toLowerCase().replace(/"/g, '').trim();
+  if (isLinkedInMessages(first)) return 'linkedin';
   if (/^profile name,start time,duration\b/.test(first)) return 'netflix-activity';
   if (/^title,date$/.test(first)) return 'netflix-history';
   // The same files with the column names in another language: known by their names.
@@ -176,9 +211,11 @@ async function look(file: Named, d: Detection, signal?: AbortSignal): Promise<De
       return { ...d, problem: 'unknown' };
     }
     let unopenable = 0;
+    const social = new Social(name, entries);
     for (const e of entries) {
       if (signal?.aborted) throw new Cancelled();
-      if (!e.size || SKIP.test(e.name) || !LOOK.test(e.name)) continue;
+      if (!e.size || SKIP.test(e.name)) continue;
+      if (social.take(e) || !LOOK.test(e.name)) continue;
       let head: Uint8Array;
       try {
         head = await entryHead(file, e, SNIFF);
@@ -191,6 +228,7 @@ async function look(file: Named, d: Detection, signal?: AbortSignal): Promise<De
       if (kind === 'html') html++;
       else if (kind) d.found.push(await describe(kind, e.name, e.packed, name, encoding, () => guard(decode(entryBytes(file, e), encoding), signal)));
     }
+    d.found.push(...social.found());
     if (!d.found.length) d.problem = html ? 'html' : unopenable ? 'zip-method' : 'unknown';
   } else {
     const head = new Uint8Array(await file.slice(0, SNIFF).arrayBuffer());
@@ -205,6 +243,63 @@ async function look(file: Named, d: Detection, signal?: AbortSignal): Promise<De
   }
   if (html && d.found.length) d.html = html;
   return d;
+}
+
+// Messages from social apps in a zip: known by where their files are, and each app's files read
+// together as one part (a Meta inbox has a file or more per chat; Discord a folder per channel).
+class Social {
+  private groups = new Map<ImportKind, { path: string; parts: ZipEntry[]; extra: ZipEntry[] }>();
+  private profiles: ZipEntry[] = [];
+  private xAccount: ZipEntry[] = [];
+  private discordIndex: ZipEntry[] = [];
+  private meta: 'instagram' | 'messenger';
+
+  constructor(outer: string, entries: ZipEntry[]) {
+    // An older Meta export has no "your_instagram_activity/": which app it's from, from the zip's
+    // name ("instagram-anna-2024-01-01.zip") or the folders only one of them has.
+    const names = entries.map((e) => e.name.toLowerCase());
+    const insta = /instagram/i.test(outer) || names.some((n) => /(^|\/)(your_instagram_activity|followers_and_following|personal_information\/personal_information)\//.test(n));
+    const face = /facebook/i.test(outer) || names.some((n) => /(^|\/)(your_facebook_activity|profile_information|friends_and_followers)\//.test(n));
+    this.meta = insta && !face ? 'instagram' : 'messenger';
+  }
+
+  private add(kind: ImportKind, path: string, e: ZipEntry) {
+    let g = this.groups.get(kind);
+    if (!g) this.groups.set(kind, (g = { path, parts: [], extra: [] }));
+    g.parts.push(e);
+  }
+
+  // Whether the entry is one of theirs (and so needs no other look).
+  take(e: ZipEntry): boolean {
+    const n = e.name;
+    const thread = n.match(META_THREAD);
+    if (thread) {
+      const kind = /(^|\/)your_instagram_activity\//i.test(n) ? 'instagram' : /(^|\/)your_facebook_activity\//i.test(n) ? 'messenger' : this.meta;
+      this.add(kind, n.slice(0, thread.index! + thread[0].indexOf('messages/') + 'messages'.length), e);
+      return true;
+    }
+    if (META_PROFILE.test(n)) return this.profiles.push(e), true;
+    if (X_ACCOUNT.test(n)) return this.xAccount.push(e), true;
+    if (X_DMS.test(n)) return this.add('x-messages', n, e), true;
+    if (TIKTOK.test(n)) return this.add('tiktok', n, e), true;
+    if (SNAPCHAT.test(n)) return this.add('snapchat', n, e), true;
+    if (DISCORD_INDEX.test(n)) return this.discordIndex.push(e), true;
+    const discord = n.match(DISCORD_FILE);
+    if (discord) return this.add('discord', n.slice(0, discord.index! + discord[0].search(/messages\//i) + 'messages'.length), e), true;
+    return false;
+  }
+
+  found(): Found[] {
+    const out: Found[] = [];
+    for (const [kind, g] of this.groups) {
+      const first = kind === 'instagram' || kind === 'messenger' ? this.profiles : kind === 'x-messages' ? this.xAccount : kind === 'discord' ? this.discordIndex : [];
+      const all = [...first, ...g.parts.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))];
+      const f: Found = { kind, path: g.path, size: all.reduce((s, e) => s + e.packed, 0), label: KIND_LABEL[kind] };
+      if (all.length > 1 || all[0].name !== g.path) f.parts = all.map((e) => e.name);
+      out.push(f);
+    }
+    return out;
+  }
 }
 
 async function describe(kind: ImportKind, path: string, size: number, outer: string, encoding: string | undefined, read: () => AsyncIterable<string>): Promise<Found> {
@@ -223,9 +318,9 @@ async function describe(kind: ImportKind, path: string, size: number, outer: str
 
 // Files whose events are totals for a day: a newer export completes the day the older one was
 // made on, so the store replaces what it has (see ImportOptions.onEvents).
-const TOTALS: ReadonlySet<ImportKind> = new Set(['apple-health', 'whatsapp']);
+const TOTALS: ReadonlySet<ImportKind> = new Set(['apple-health', 'whatsapp', ...SOCIAL]);
 
-function parserFor(f: Found, input: TextInput, choices: ImportChoices): AsyncGenerator<LifeEvent[]> {
+function parserFor(f: Found, input: TextInput, choices: ImportChoices, parts: AsyncIterable<TextInput>): AsyncGenerator<LifeEvent[]> {
   switch (f.kind) {
     case 'google-activity':
       return parseMyActivity(input);
@@ -248,6 +343,31 @@ function parserFor(f: Found, input: TextInput, choices: ImportChoices): AsyncGen
       return parseWhatsApp(input, { chat: f.chat });
     case 'bank-csv':
       return parseBankCsv(input, choices.csv ?? f.csv!.mapping);
+    case 'telegram':
+      return parseTelegram(parts);
+    case 'instagram':
+    case 'messenger':
+      return parseMeta(parts, f.kind);
+    case 'x-messages':
+      return parseX(parts);
+    case 'tiktok':
+      return parseTikTok(parts);
+    case 'snapchat':
+      return parseSnapchat(parts);
+    case 'discord':
+      return parseDiscord(parts);
+    case 'linkedin':
+      return parseLinkedIn(parts);
+  }
+}
+
+// The text of one part, which stops at a damaged spot instead of stopping the rest.
+async function* keepGoing(text: AsyncIterable<string>, onDamage: (err: ZipError) => void): AsyncGenerator<string> {
+  try {
+    yield* text;
+  } catch (err) {
+    if (!(err instanceof ZipError)) throw err;
+    onDamage(err);
   }
 }
 
@@ -281,12 +401,25 @@ export async function importFile(file: Named, opts: ImportOptions): Promise<Impo
       label = f.label;
       report(true);
       const before = read;
-      const entry = entries?.get(f.path);
-      if (entries && !entry) continue;
-      const bytes = entry ? entryBytes(file, entry, onRead) : fileBytes(file, onRead);
-      const input: TextInput = { name: f.path, text: guard(decode(bytes, f.encoding), signal) };
+      const open = (path: string): TextInput | null => {
+        const entry = entries?.get(path);
+        if (entries && !entry) return null;
+        const bytes = entry ? entryBytes(file, entry, onRead) : fileBytes(file, onRead);
+        return { name: path, text: guard(decode(bytes, f.encoding), signal) };
+      };
+      // A part read with others (a chat in a Meta inbox): one that's damaged is left out, and
+      // the rest go on.
+      const hurt: { err?: ZipError } = {};
+      async function* parts(): AsyncGenerator<TextInput> {
+        for (const path of f.parts!) {
+          const one = open(path);
+          if (one) yield { name: path, text: keepGoing(one.text, (err) => (hurt.err ??= err)) };
+        }
+      }
+      const input = f.parts ? { name: f.path, text: (async function* () {})() } : open(f.path);
+      if (!input) continue;
       try {
-        for await (const batch of parserFor(f, input, opts)) {
+        for await (const batch of parserFor(f, input, opts, f.parts ? parts() : onePart(input))) {
           if (!batch.length) continue;
           for (const e of batch) {
             if (result.from === undefined || e.at < result.from) result.from = e.at;
@@ -306,6 +439,12 @@ export async function importFile(file: Named, opts: ImportOptions): Promise<Impo
         if (!result.failed.includes(f.label)) result.failed.push(f.label);
         read = before + f.size;
         continue;
+      }
+      if (hurt.err) {
+        const err = hurt.err;
+        result.problem ??= err.code === 'method' ? 'zip-method' : 'unknown';
+        result.failed ??= [];
+        if (!result.failed.includes(f.label)) result.failed.push(f.label);
       }
       read = before + f.size;
       if (!result.labels.includes(f.label)) result.labels.push(f.label);
