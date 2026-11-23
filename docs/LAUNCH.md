@@ -74,18 +74,28 @@ Live since 1.0: the web app's notifications (a morning reminder and an evening c
 2. Put its address in `src/reminders-config.ts` (`server`) and push.
 3. Check it live: on an iPhone, add Arise to the Home Screen, open it from there, and turn on Settings, **Reminders**, **Notifications on this device**. Set the morning time a couple of minutes ahead and wait for it. Do the same on Android and on a laptop.
 
+## Turning on calendars by link on the web
+
+The phone apps read calendars added by their link straight from the calendar's server, with nothing to set up. In a browser most calendar servers don't allow that, so the web app can go through a small fetch-only helper, `worker/calendar` (it keeps nothing and logs nothing; the app marks it **Less private** and only uses it for a calendar where the person turned it on). Until it's deployed, the web app says the helper isn't set up yet and only reads calendars whose server allows web pages.
+
+1. Deploy it: run `scripts/setup-workers.sh` (it's step 7 of 7 now), or `npx -y wrangler@4 deploy` in `worker/calendar`.
+2. Put its address in `src/calendar-config.ts` (`server`) and push (the script offers to do this).
+3. Check it: `curl https://arise-calendar.<you>.workers.dev/health`, then on the web add a calendar by its link with the helper on.
+
 ## Turning on linked accounts
 
 Accounts (on the Connect screen, and in Settings, Your life) reads Google Calendar and Gmail, and Outlook mail and calendar, straight from each person's device. Until you register Arise once with Google and Microsoft, each says "Coming soon". These steps are only here, never in the app. Steam and PlayStation need nothing from you. No client secret is used anywhere.
 
 **Google** (the web app; the iPhone app sends people to the web for it):
 
-1. In Google Cloud console, make a project and turn on the **Google Calendar API** and the **Gmail API**.
-2. Google Auth Platform: audience **External**, left in **Testing**. Add the scopes `https://www.googleapis.com/auth/calendar.readonly` and `https://www.googleapis.com/auth/gmail.readonly`. Add each person as a test user (up to 100).
+1. In Google Cloud console, make a project and turn on the **Google Calendar API**, the **Gmail API** and the **Google Drive API**.
+2. Google Auth Platform: audience **External**, left in **Testing**. Add the scopes `https://www.googleapis.com/auth/calendar.readonly`, `https://www.googleapis.com/auth/gmail.readonly` and `https://www.googleapis.com/auth/drive.readonly`. Add each person as a test user (up to 100).
 3. Clients, create a **Web application** client. Authorized JavaScript origins: `https://abyyworld.github.io`. Authorized redirect URIs: `https://abyyworld.github.io/arise/` (with the slash). For `npm run dev`, also `http://localhost:5173` and `http://localhost:5173/`.
 4. Put its Client ID in `src/connect-config.ts` (`GOOGLE.clientId`) and push.
 
-In Testing, only test users can connect, Google warns that it hasn't verified the app (they choose Continue), and it asks them to say yes again every 7 days. The app tells them. Gmail read access is a restricted scope: opening it to everyone means publishing the app, Google's verification and a paid security assessment. Then set `GOOGLE.testing` to `false`.
+In Testing, only test users can connect, Google warns that it hasn't verified the app (they choose Continue), and it asks them to say yes again every 7 days. The app tells them. Gmail read access and Drive read-only are restricted scopes: opening them to everyone means publishing the app, Google's verification and a paid security assessment. Then set `GOOGLE.testing` to `false`.
+
+Why Drive asks for read-only on all of Drive and not `drive.file` (only the files picked): `drive.file` needs Google's file picker, a script of Google's that would have to run inside Arise, which Arise's rules don't allow (`index.html`). Arise only ever opens the files each person picks. If that changes (a picker page on an address of its own, apart from Arise's), switch `SCOPES.drive` in `src/connect/google.ts` to `https://www.googleapis.com/auth/drive.file`, which is not a restricted scope.
 
 **Microsoft** (the web app and the iPhone app):
 

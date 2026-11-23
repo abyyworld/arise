@@ -24,6 +24,7 @@ import { WAITS, byText } from './strength';
 import { CHECKIN, hasCheckin } from '../lib/life-check';
 import { hasLifeStore } from './store-port';
 import { hasSpot } from './location';
+import { MOODS, isTextFile, noteWithFile, sizeText } from './quick-note';
 
 // (Parts of these screens fill in after reading the log; by then a test may have gone.)
 const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
@@ -32,7 +33,7 @@ let app = { go: () => {}, render: () => {}, view: () => 'today', saveFile: async
 const today = () => dayKey(Date.now());
 // pane: what a day opens on, its journal or everything in the log ('events'). cal: the month the
 // calendar was moved to, and the day it was moved from (it follows the day again once that changes).
-const fresh = () => ({ day: null, pane: 'journal', query: '', results: null, related: [], groups: [], loose: false, searching: false, when: null, mood: 0, counts: null, progress: null, cal: null });
+const fresh = () => ({ day: null, pane: 'journal', query: '', results: null, related: [], groups: [], loose: false, searching: false, when: null, mood: 0, addDay: null, counts: null, progress: null, cal: null });
 const ui = fresh();
 // Where the life log and what Arise learns are kept: synced with an account, or only here.
 const whereLine = () => CLOUD.lines().main;
@@ -120,7 +121,6 @@ const dayLabel = (k) => (k === today() ? 'Today' : k === addDays(today(), -1) ? 
 // "Fri 16 Oct", with the year only when it isn't this one.
 const shortDay = (k) => fmt(k, { weekday: 'short', day: 'numeric', month: 'short', year: k.slice(0, 4) === today().slice(0, 4) ? undefined : 'numeric' });
 const plural = (n, one, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
-const MOODS = ['Low', 'Meh', 'Okay', 'Good', 'Great'];
 const lifeError = (err) => err?.message || "The life log couldn't be read.";
 
 // =====================================================================
@@ -205,7 +205,8 @@ export async function fillRecap() {
 
 // The way into the journal on Today: a row at the foot of the day's card.
 export function journalEntry() {
-  return `<button class="journal-entry" data-act="life-journal" data-day="${esc(today())}"><span>${icon('note')}</span><span><b>Today's journal</b><small>Your day, hour by hour.</small></span><span class="go">Open ${icon('next')}</span></button>`;
+  return `<button class="journal-entry" data-act="life-journal" data-day="${esc(today())}"><span>${icon('note')}</span><span><b>Today's journal</b><small>Your day, hour by hour.</small></span><span class="go">Open ${icon('next')}</span></button>
+    <button class="link small journal-note" data-act="life-add" data-day="today">${icon('note')} Add a note or a file</button>`;
 }
 
 // Opens a day's journal (from Today, a link, or a tapped notification).
@@ -673,14 +674,18 @@ async function showEvent(id) {
 
 // ---------- adding to a day
 
-function openAdd() {
+// `day`: the day to add to (from Today, today; from Days, the day on screen).
+function openAdd(day) {
   ui.mood = 0;
-  const k = ui.day || today();
+  const k = (ui.addDay = day || ui.day || today());
   const now = new Date();
   const time = k === today() ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}` : '12:00';
   openSheet(`<p class="kicker">Add to your day</p>
     <h2 class="display sheet-title">${esc(dayLabel(k))}</h2>
+    <label class="field"><span class="k">Title <span class="muted">· if you like</span></span><input id="lifeNoteTitle" type="text" maxlength="120" autocomplete="off"></label>
     <label class="field"><span class="k">What happened</span><textarea id="lifeNote" class="log-text" rows="4" maxlength="2000" placeholder="Lunch with Sam in the park. Felt good after."></textarea></label>
+    <label class="field"><span class="k">A file or photo <span class="muted">· if you like</span></span><input id="lifeFile" type="file"></label>
+    <p class="muted small" id="lifeFileNote">A text file's words go into the note. For a photo or any other file, Arise keeps its name, size and type for now.</p>
     <p class="label">Mood <span class="muted">· if you like</span></p>
     <div class="seg" role="group" aria-label="Mood">${MOODS.map((m, i) => `<button data-act="life-mood" data-v="${i + 1}" aria-pressed="false">${m}</button>`).join('')}</div>
     <label class="field inline"><span class="k">Time</span><input id="lifeTime" type="time" value="${time}"></label>
@@ -689,34 +694,32 @@ function openAdd() {
   $('#lifeNote')?.focus();
 }
 
+let saving = false;
 async function saveNote() {
-  const k = ui.day || today();
+  if (saving) return;
+  const k = ui.addDay || ui.day || today();
   const text = ($('#lifeNote')?.value || '').trim();
+  const title = ($('#lifeNoteTitle')?.value || '').trim();
+  const file = $('#lifeFile')?.files?.[0] || null;
   const mood = ui.mood;
-  if (!text && !mood) {
-    toast('Write a few words or pick a mood first.');
+  if (!text && !title && !mood && !file) {
+    toast('Write a few words, add a file or pick a mood first.');
     return;
   }
   const [h, m] = ($('#lifeTime')?.value || '12:00').split(':').map(Number);
   const d = new Date(dayStart(k));
   d.setHours(Number.isFinite(h) ? h : 12, Number.isFinite(m) ? m : 0);
-  const first = text.split('\n')[0].trim();
-  const event = {
-    id: `manual:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
-    source: 'manual',
-    kind: text ? 'note' : 'mood',
-    at: Math.min(d.getTime(), Date.now()),
-    title: text ? (first.length > 90 ? `${first.slice(0, 89)}…` : first) : `Mood: ${MOODS[mood - 1]}`,
-    tier: 2,
-    ...(text ? { detail: `${text}${mood ? `\n\nMood: ${MOODS[mood - 1]}.` : ''}` } : {}),
-    ...(mood ? { value: mood, unit: 'mood (1-5)', meta: { mood: MOODS[mood - 1] } } : {}),
-  };
+  saving = true;
   try {
+    const event = await noteWithFile({ text, title, mood, at: Math.min(d.getTime(), Date.now()) }, file);
+    if (!event) throw new Error("That couldn't be saved.");
     const n = await L.addEvents([event]);
     if (!n) throw new Error("That couldn't be saved.");
   } catch (err) {
     toast(lifeError(err));
     return;
+  } finally {
+    saving = false;
   }
   closeSheet();
   toast('Added to your day.');
@@ -1071,7 +1074,7 @@ export async function handleAction(act, el) {
       return true;
     }
     case 'life-add':
-      openAdd();
+      openAdd(d.day === 'today' ? today() : undefined);
       return true;
     case 'life-mood': {
       const v = Number(d.v);
@@ -1216,6 +1219,12 @@ document.addEventListener('submit', async (e) => {
 });
 
 document.addEventListener('change', (e) => {
+  if (e.target.id === 'lifeFile') {
+    const f = e.target.files?.[0];
+    const note = $('#lifeFileNote');
+    if (f && note) note.textContent = isTextFile({ name: f.name, type: f.type, size: f.size }) ? `${f.name}: its words go into the note.` : `${f.name} (${sizeText(f.size)}): Arise keeps its name, size and type for now.`;
+    return;
+  }
   if (e.target.id === 'lifeDate' && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) {
     ui.day = e.target.value > today() ? today() : e.target.value;
     app.render();

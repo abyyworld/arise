@@ -1,0 +1,20 @@
+# Arise's calendar helper: fetches a calendar's link for the web app, keeps nothing. See README.md.
+name = "arise-calendar"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# Nothing about requests is kept: no request logs, no traces. The links are secrets.
+[observability]
+enabled = false
+
+[vars]
+# The Arise app's addresses: the website and a local copy. (The phone apps read calendars
+# straight from their servers and never come here.)
+ALLOWED_ORIGINS = "https://abyyworld.github.io,http://localhost:5173"
+
+# Each device reads each calendar about once an hour; this is plenty, and stops it being used to
+# fetch a lot.
+[[ratelimits]]
+name = "PER_IP"
+namespace_id = "1007"
+simple = { limit = 60, period = 60 }

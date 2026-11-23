@@ -2,13 +2,12 @@
 // exactly those back out of the life log (a Gmail message and a Google search share the source
 // 'google' there; only this list tells them apart). Event ids only, kept in IndexedDB on this
 // device, or in memory where IndexedDB isn't available (private browsing, tests).
-
-import type { ServiceId } from './state';
+// Keyed by a linked account, or by `ics:<id>` for one calendar added by its link (ics-feeds.ts).
 
 const DB = 'arise-connect';
 const STORE = 'ids';
 
-let memory: Map<string, ServiceId> | null = null;
+let memory: Map<string, string> | null = null;
 let db: Promise<IDBDatabase> | null = null;
 
 function open(): Promise<IDBDatabase> {
@@ -40,7 +39,7 @@ async function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRe
 }
 
 // Falls back to memory for good once IndexedDB fails, so the counts stay consistent this visit.
-async function safely<T>(idb: () => Promise<T>, mem: (m: Map<string, ServiceId>) => T): Promise<T> {
+async function safely<T>(idb: () => Promise<T>, mem: (m: Map<string, string>) => T): Promise<T> {
   if (usable()) {
     try {
       return await idb();
@@ -51,7 +50,7 @@ async function safely<T>(idb: () => Promise<T>, mem: (m: Map<string, ServiceId>)
   return mem((memory ??= new Map()));
 }
 
-export async function add(service: ServiceId, ids: readonly string[]): Promise<void> {
+export async function add(service: string, ids: readonly string[]): Promise<void> {
   if (!ids.length) return;
   await safely(
     () => run('readwrite', (s) => void ids.forEach((id) => s.put({ s: service }, id))).then(() => undefined),
@@ -59,14 +58,14 @@ export async function add(service: ServiceId, ids: readonly string[]): Promise<v
   );
 }
 
-export async function list(service: ServiceId): Promise<string[]> {
+export async function list(service: string): Promise<string[]> {
   return safely(
     async () => ((await run('readonly', (s) => s.index('by').getAllKeys(IDBKeyRange.only(service)))) || []).map(String),
     (m) => [...m].filter(([, s]) => s === service).map(([id]) => id),
   );
 }
 
-export async function count(service: ServiceId): Promise<number> {
+export async function count(service: string): Promise<number> {
   return safely(
     async () => (await run('readonly', (s) => s.index('by').count(IDBKeyRange.only(service)))) || 0,
     (m) => [...m.values()].filter((s) => s === service).length,
@@ -81,7 +80,7 @@ export async function drop(ids: readonly string[]): Promise<void> {
   );
 }
 
-export async function forget(service: ServiceId): Promise<void> {
+export async function forget(service: string): Promise<void> {
   await drop(await list(service));
 }
 

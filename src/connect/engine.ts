@@ -11,6 +11,7 @@ import * as STEAM from './steam';
 import * as PSN from './psn';
 import * as GH from './github';
 import * as IDS from './ids';
+import * as FEEDS from './ics-feeds';
 import { ConnectError, isNative, nativeHttp } from './http';
 import { redirectUri, returnError, takeReturn, cancel as cancelSignIn, type Done } from './oauth';
 import { sink, takeAllBack, unwatch, watch } from './sink';
@@ -19,7 +20,7 @@ import { SERVICES, blank, load, remove, save, type ServiceId, type SvcState } fr
 export interface Info {
   name: string;
   reads: string; // what it reads, in one line
-  parts?: { id: string; label: string }[];
+  parts?: { id: string; label: string; off?: boolean }[]; // off: not ticked unless the Player ticks it
   unofficial?: boolean;
   gap: number; // between automatic syncs
 }
@@ -27,10 +28,11 @@ export interface Info {
 export const INFO: Record<ServiceId, Info> = {
   google: {
     name: 'Google',
-    reads: 'Calendar events, and for each email: who wrote, the subject, date, labels and a short preview. Never the whole email.',
+    reads: 'Calendar events, and for each email: who wrote, the subject, date, labels and a short preview. Never the whole email. If you like, the text of Drive files you pick.',
     parts: [
       { id: 'calendar', label: 'Calendar' },
       { id: 'mail', label: 'Gmail' },
+      { id: 'drive', label: 'Drive files you pick', off: true },
     ],
     gap: 10 * 60_000,
   },
@@ -149,6 +151,7 @@ export function syncDue(now = Date.now()) {
     if (!st.on || st.needs || st.next > now || running.has(id) || available(id) !== 'ok') continue;
     if (now - st.last >= INFO[id].gap) syncNow(id);
   }
+  FEEDS.syncDue(now); // calendars added by their link
 }
 
 // ---------- signing in
@@ -241,6 +244,7 @@ export async function deleteData(id: ServiceId): Promise<'done' | 'later'> {
 // is forgotten once the syncs running then have stopped (so none of them adds to it after).
 export async function forgetAll() {
   cancelSignIn();
+  const feeds = FEEDS.forgetAll();
   const stopping: Promise<void>[] = [];
   for (const id of SERVICES) {
     generation[id]++;
@@ -253,6 +257,7 @@ export async function forgetAll() {
   hooks.render();
   await Promise.all(stopping);
   for (const id of SERVICES) await IDS.forget(id).catch(() => {});
+  await feeds.catch(() => {});
   hooks.render();
 }
 

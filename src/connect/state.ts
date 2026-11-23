@@ -18,7 +18,7 @@ export interface SvcState {
   account: string; // shown to the Player: an email, a Steam name…
   user: string; // the service's id for them (a SteamID), or a sign-in hint (an email)
   auth: Auth;
-  parts: string[]; // which parts they chose: 'calendar', 'mail'
+  parts: string[]; // which parts they chose: 'calendar', 'mail', 'drive'
   cursors: Record<string, string>; // where each part's sync left off
   snap: Record<string, number>; // play time per game at the last look (Steam, PlayStation), in minutes
   last: number; // the last sync that worked
@@ -31,7 +31,7 @@ export interface SvcState {
 export const blank = (): SvcState => ({ on: false, account: '', user: '', auth: {}, parts: [], cursors: {}, snap: {}, last: 0, next: 0, count: 0, needs: '', error: '' });
 
 const KEY = (id: ServiceId) => `arise-connect-${id}`;
-const PARTS = ['calendar', 'mail'];
+const PARTS = ['calendar', 'mail', 'drive'];
 
 const o = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const s = (v: unknown, max: number) => (typeof v === 'string' && v.length <= max && !/[\u0000-\u001f]/.test(v) ? v : '');

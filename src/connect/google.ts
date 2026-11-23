@@ -1,4 +1,5 @@
-// Google Calendar and Gmail, with one Google sign-in, straight from this device.
+// Google Calendar, Gmail and the Drive files the Player picks, with one Google sign-in, straight
+// from this device.
 //
 // Sign-in (web app only): Google's token flow for browser apps (oauth.ts). There's no client
 // secret and no refresh token in a browser: Google hands over an access token that lasts about an
@@ -12,18 +13,23 @@
 // Calendar: the events of the calendars shown in Google Calendar, from a year back on, then only
 // what changed (sync tokens). Gmail: for each email, who wrote, the subject, the date, the labels
 // and Google's short preview (the snippet). Never the body: messages are only ever asked for in
-// the "metadata" format. 90 days back, then only what's new (history ids).
+// the "metadata" format. 90 days back, then only what's new (history ids). Drive (off unless
+// ticked): the text of the files the Player picks, as notes (drive.ts).
 
 import { GOOGLE } from '../connect-config';
 import type { LifeEvent } from '../life/types';
 import { ConnectError, arr, obj, request, retryAfter, text, type Res } from './http';
 import { goOn, hand, hash, takeBack } from './sink';
+import { syncDrive } from './drive';
 import type { SvcState } from './state';
 
 export const SCOPES: Record<string, string> = {
   calendar: 'https://www.googleapis.com/auth/calendar.readonly',
   mail: 'https://www.googleapis.com/auth/gmail.readonly',
+  // Read-only, and Arise opens only the files the Player picks (drive.ts says why not drive.file).
+  drive: 'https://www.googleapis.com/auth/drive.readonly',
 };
+const DRIVE = 'https://www.googleapis.com/drive/v3';
 const DAY = 86_400_000;
 export const CAL_BACK = 365 * DAY;
 export const CAL_AHEAD = 400 * DAY; // recurring events: not their every future copy
@@ -98,16 +104,22 @@ async function api(st: SvcState, url: string): Promise<Record<string, unknown>> 
 
 export async function sync(st: SvcState, ctx: Ctx, now = Date.now()) {
   if (!st.auth.token || (st.auth.expires || 0) - 60_000 < now) throw new ConnectError('tap', TAP);
-  if (!st.account && st.user) await whoIsIt(st);
+  // (Calendar and Gmail tell who it is on their own the first time; Drive alone doesn't.)
+  if (!st.account && (st.user || !st.parts.some((p) => p === 'calendar' || p === 'mail'))) await whoIsIt(st);
   if (st.parts.includes('calendar')) await syncCalendar(st, ctx, now);
   if (st.parts.includes('mail')) await syncMail(st, ctx, now);
+  if (st.parts.includes('drive')) await syncDrive(st, ctx, now);
 }
 
 // Who it is, after a sign-in again (engine.ts clears the name; the first time, the calendar list
 // or Gmail's profile tells). Another account than before starts afresh: where the old one's mail
 // sync left off means nothing in another mailbox.
 async function whoIsIt(st: SvcState) {
-  const who = st.parts.includes('mail') ? (await api(st, `${GM}/profile`)).emailAddress : (await api(st, `${CAL}/calendars/primary`)).id;
+  const who = st.parts.includes('mail')
+    ? (await api(st, `${GM}/profile`)).emailAddress
+    : st.parts.includes('calendar')
+      ? (await api(st, `${CAL}/calendars/primary`)).id
+      : obj((await api(st, `${DRIVE}/about?fields=user(emailAddress)`)).user).emailAddress;
   const name = typeof who === 'string' && who.length < 200 ? who : '';
   if (name.toLowerCase() !== st.user.toLowerCase()) st.cursors = {};
   st.account = st.user = name;
