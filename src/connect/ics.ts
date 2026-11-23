@@ -91,8 +91,8 @@ export function parseIcs(text: string): Comp {
   return root;
 }
 
-const prop = (c: Comp, name: string) => c.props.find((p) => p.name === name);
-const props = (c: Comp, name: string) => c.props.filter((p) => p.name === name);
+export const prop = (c: Comp, name: string) => c.props.find((p) => p.name === name);
+export const props = (c: Comp, name: string) => c.props.filter((p) => p.name === name);
 
 // TEXT values: \n is a new line; \, \; and \\ are themselves.
 export const unescape = (v: string) => v.replace(/\\([nN,;\\])/g, (_m, c: string) => (c === 'n' || c === 'N' ? '\n' : c));
@@ -127,7 +127,7 @@ const whens = (p: Prop): When[] => p.value.split(',').map((v) => parseWhen(v, p.
 export type Offset = (instant: number) => number;
 
 const formats = new Map<string, Intl.DateTimeFormat | null>();
-function intlZone(name: string): Offset | null {
+export function intlZone(name: string): Offset | null {
   if (!name || name.length > 80) return null;
   let f = formats.get(name);
   if (f === undefined) {
@@ -281,6 +281,15 @@ export function zones(cal: Comp): Zones {
       return found;
     },
   };
+}
+
+// The usual name (Europe/London) a TZID stands for, when the device knows it; '' when it doesn't
+// (a zone only the file's own VTIMEZONE describes). For importing a file into Arise's own events.
+export function zoneName(tzid: string): string {
+  if (!tzid) return '';
+  const tail = tzid.replace(/^\/+/, '').split('/');
+  const names = [tzid, tail.slice(-3).join('/'), tail.slice(-2).join('/'), WINDOWS[tzid] || ''].filter((x) => /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){1,2}$|^UTC$/.test(x));
+  return names.find((n) => intlZone(n)) || '';
 }
 
 // The real moment of a wall time, in a zone (or on this device's clock).
