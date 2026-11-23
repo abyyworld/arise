@@ -11,6 +11,7 @@ import * as STEAM from './steam';
 import * as PSN from './psn';
 import * as GH from './github';
 import * as IDS from './ids';
+import * as FEEDS from './ics-feeds';
 import { ConnectError, isNative, nativeHttp } from './http';
 import { redirectUri, returnError, takeReturn, cancel as cancelSignIn, type Done } from './oauth';
 import { sink, takeAllBack, unwatch, watch } from './sink';
@@ -149,6 +150,7 @@ export function syncDue(now = Date.now()) {
     if (!st.on || st.needs || st.next > now || running.has(id) || available(id) !== 'ok') continue;
     if (now - st.last >= INFO[id].gap) syncNow(id);
   }
+  FEEDS.syncDue(now); // calendars added by their link
 }
 
 // ---------- signing in
@@ -241,6 +243,7 @@ export async function deleteData(id: ServiceId): Promise<'done' | 'later'> {
 // is forgotten once the syncs running then have stopped (so none of them adds to it after).
 export async function forgetAll() {
   cancelSignIn();
+  const feeds = FEEDS.forgetAll();
   const stopping: Promise<void>[] = [];
   for (const id of SERVICES) {
     generation[id]++;
@@ -253,6 +256,7 @@ export async function forgetAll() {
   hooks.render();
   await Promise.all(stopping);
   for (const id of SERVICES) await IDS.forget(id).catch(() => {});
+  await feeds.catch(() => {});
   hooks.render();
 }
 

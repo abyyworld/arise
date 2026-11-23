@@ -74,6 +74,14 @@ Live since 1.0: the web app's notifications (a morning reminder and an evening c
 2. Put its address in `src/reminders-config.ts` (`server`) and push.
 3. Check it live: on an iPhone, add Arise to the Home Screen, open it from there, and turn on Settings, **Reminders**, **Notifications on this device**. Set the morning time a couple of minutes ahead and wait for it. Do the same on Android and on a laptop.
 
+## Turning on calendars by link on the web
+
+The phone apps read calendars added by their link straight from the calendar's server, with nothing to set up. In a browser most calendar servers don't allow that, so the web app can go through a small fetch-only helper, `worker/calendar` (it keeps nothing and logs nothing; the app marks it **Less private** and only uses it for a calendar where the person turned it on). Until it's deployed, the web app says the helper isn't set up yet and only reads calendars whose server allows web pages.
+
+1. Deploy it: run `scripts/setup-workers.sh` (it's step 7 of 7 now), or `npx -y wrangler@4 deploy` in `worker/calendar`.
+2. Put its address in `src/calendar-config.ts` (`server`) and push (the script offers to do this).
+3. Check it: `curl https://arise-calendar.<you>.workers.dev/health`, then on the web add a calendar by its link with the helper on.
+
 ## Turning on linked accounts
 
 Accounts (on the Connect screen, and in Settings, Your life) reads Google Calendar and Gmail, and Outlook mail and calendar, straight from each person's device. Until you register Arise once with Google and Microsoft, each says "Coming soon". These steps are only here, never in the app. Steam and PlayStation need nothing from you. No client secret is used anywhere.

@@ -10,6 +10,8 @@ import * as STEAM from './steam';
 import * as PSN from './psn';
 import * as GH from './github';
 import * as OAUTH from './oauth';
+import * as ICSUI from './ics-ui';
+import { initFeeds } from './ics-feeds';
 import { ConnectError, isNative } from './http';
 import { INFO, available, busy, deleteData, disconnect, finish, linked, syncNow, initEngine } from './engine';
 import { SERVICES, load, type ServiceId } from './state';
@@ -82,7 +84,8 @@ function card(id: ServiceId): string {
 export function accountsBlock({ label = true } = {}): string {
   return `${label ? '<p class="label">Accounts</p>' : ''}
     <p class="small">Link your accounts so Arise knows your days. It reads them straight from each service, with nothing in between, and keeps what it gets on this device. Your sign-ins stay on this device too.</p>
-    <div class="engines">${SERVICES.map(card).join('')}</div>`;
+    <div class="engines">${SERVICES.map(card).join('')}</div>
+    ${ICSUI.block()}`;
 }
 
 // Settings, under "Your life". The Connect screen gives it its own title, which a redraw keeps.
@@ -101,6 +104,7 @@ export function refresh() {
 
 export function initConnect() {
   initEngine({ render: refresh, toast });
+  initFeeds({ render: refresh, toast });
 }
 
 // ---------- the connect sheets
@@ -331,6 +335,7 @@ async function connectPsn(button: HTMLButtonElement) {
 
 // True when it was one of this panel's buttons.
 export async function handleAction(act: string, el: HTMLElement): Promise<boolean> {
+  if (act.startsWith('ics-')) return ICSUI.handleAction(act, el, refresh);
   if (!act.startsWith('acct-')) return false;
   const id = el.dataset.s;
   switch (act) {

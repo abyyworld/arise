@@ -3,8 +3,8 @@
 //   and a time if you like), what got done today, and what's coming up. Ticked like quests; tap
 //   one to change or delete it. To-dos an AI app added through the web connector show its name.
 //   Calendar: a month, with a dot on each day that has to-dos or calendar events (from the life
-//   log: the iPhone's calendar, Google or Outlook), and the picked day's to-dos and events, with a
-//   box to add one for that day. All of it on this device.
+//   log: the iPhone's calendar, Google, Outlook or a calendar added by its link), and the picked
+//   day's to-dos and events, with a box to add one for that day. All of it on this device.
 // Reminders at a to-do's time: the phone apps schedule them (native.js), and the web app shows
 // them while it's open (todo-alerts.js).
 
@@ -154,7 +154,7 @@ function dayHTML() {
       evs.length
         ? `<p class="label">In your calendar</p><ul class="cal-events">${evs.map((e) => `<li><span class="muted">${esc(e.meta?.allDay ? 'All day' : clock(e.at))}</span> ${esc(e.title)}</li>`).join('')}</ul>`
         : hasLifeStore()
-          ? `<p class="muted small">${k > today ? "Nothing coming up from your calendar. Google and Outlook show what's coming; the iPhone's calendar adds events once they've happened." : 'Nothing from your calendar. Connect it on Setup and connections.'}</p>`
+          ? `<p class="muted small">${k > today ? "Nothing coming up from your calendar. Google, Outlook and calendars added by their link show what's coming; the iPhone's calendar adds events once they've happened." : 'Nothing from your calendar. Connect it on Setup and connections.'}</p>`
           : ''
     }
   </section>`;
