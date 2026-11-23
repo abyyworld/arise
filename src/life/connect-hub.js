@@ -31,6 +31,7 @@ import { items as setupItems, progress, STEPS as ALL_STEPS, STEP_OF } from './se
 import * as SYS from '../system.js';
 import * as APPLOCK from '../app-lock.js';
 import * as FILES from '../files-folder.js';
+import * as MYFILES from './files-ui.js';
 import { toast } from '../ui.js';
 
 export const VIEW = 'connect';
@@ -351,7 +352,7 @@ function connectHTML(s) {
   if (s === 'review') return setupPanel();
   return `<div class="cols hub">
       <div class="col">${phonePart()}${CONNECT.settingsPanel('Accounts')}</div>
-      <div class="col">${computerPart()}${historyPart()}${filesPart()}${appsPart()}</div>
+      <div class="col">${computerPart()}${historyPart()}${filesPart()}${MYFILES.hubPanel()}${appsPart()}</div>
     </div>`;
 }
 

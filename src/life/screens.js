@@ -15,6 +15,7 @@ import * as P from './policy';
 import * as CLOUD from './cloud';
 import * as MEUI from './me-ui.js';
 import * as HUB from './connect-hub.js';
+import * as FUI from './files-ui.js';
 import { deleteCoachQuestion, isCoachQuestion } from './ingest';
 import { SOURCE_NAMES } from './tiers';
 import { widen } from './meaning';
@@ -254,6 +255,7 @@ export function renderDays(root) {
           </div>
           ${k !== today() ? '<button class="link" data-act="life-today">Back to today</button>' : ''}
           <div class="seg life-panes" role="group" aria-label="Show">${paneButton('journal', 'Journal')}${paneButton('events', 'Everything')}</div>
+          ${FUI.daySlot()}
           <div id="lifeDay"><div class="thinking"><span class="dots"><i></i><i></i><i></i></span> Reading your day…</div></div>
           <button class="btn primary block" data-act="life-add">${icon('note')} Add to your day</button>
         </section>
@@ -279,6 +281,7 @@ async function fillDay() {
   const k = ui.day;
   const token = ++dayToken;
   const el = () => (token === dayToken && app.view() === 'days' ? $('#lifeDay') : null);
+  void FUI.fillDay(k);
   let events = [];
   let journal = null;
   try {
@@ -684,6 +687,7 @@ function openAdd() {
     <p class="label">Mood <span class="muted">· if you like</span></p>
     <div class="seg" role="group" aria-label="Mood">${MOODS.map((m, i) => `<button data-act="life-mood" data-v="${i + 1}" aria-pressed="false">${m}</button>`).join('')}</div>
     <label class="field inline"><span class="k">Time</span><input id="lifeTime" type="time" value="${time}"></label>
+    ${FUI.noteField()}
     <button class="btn primary block" data-act="life-add-save">Save</button>
     <p class="muted small life-note">Only the private AI and the AI on your device read your notes, unless you allow more in What Arise knows.</p>`);
   $('#lifeNote')?.focus();
@@ -694,6 +698,14 @@ async function saveNote() {
   const text = ($('#lifeNote')?.value || '').trim();
   const mood = ui.mood;
   if (!text && !mood) {
+    // Only photos or files: they go with the day.
+    if ($('#lifeNoteFiles')?.files?.length) {
+      const n = await FUI.saveNoteFiles('', k);
+      if (!n) return;
+      closeSheet();
+      toast('Added to your day.');
+      return;
+    }
     toast('Write a few words or pick a mood first.');
     return;
   }
@@ -718,6 +730,7 @@ async function saveNote() {
     toast(lifeError(err));
     return;
   }
+  await FUI.saveNoteFiles(event.id, k);
   closeSheet();
   toast('Added to your day.');
   if (app.view() === 'days') fillDay();
@@ -913,6 +926,7 @@ export function settingsPanel() {
 
 export async function handleAction(act, el) {
   if (act.startsWith('me-')) return MEUI.handleAction(act, el);
+  if (act.startsWith('myfiles-')) return FUI.handleAction(act, el);
   const d = el.dataset;
   switch (act) {
     case 'life-day': {

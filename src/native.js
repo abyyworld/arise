@@ -244,6 +244,21 @@ export async function shareFile(name, text) {
   }
 }
 
+// A kept photo or file (life/files-ui.js) to the share sheet, the same way, from its bytes.
+export async function shareBytes(name, blob) {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  const { uri } = await call('Filesystem', 'writeFile', { path: name, data: btoa(bin), directory: 'CACHE' });
+  try {
+    await call('Share', 'share', { title: name, files: [uri] });
+  } catch (err) {
+    if (!/cancel/i.test(err?.message || '')) throw err;
+  } finally {
+    await call('Filesystem', 'deleteFile', { path: name, directory: 'CACHE' }).catch(() => {});
+  }
+}
+
 // A link (a shared goal's page) to the share sheet: Messages, WhatsApp, Mail, Copy and so on.
 export const canShareLink = () => has('Share');
 export async function shareLink({ title, text, url }) {
