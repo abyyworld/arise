@@ -462,7 +462,7 @@ describe('erasing this device', () => {
 describe('the native parts this web app needs', () => {
   it('names the Health plugin and Arise\'s own Swift code, so an older Arise.ipa is told to update instead', () => {
     // See vite.config.ts (OWN_NATIVE) and native-update.ts (check: needsInstall).
-    expect(__APP_NATIVE__.split(',')).toEqual(expect.arrayContaining(['@capgo/capacitor-health@8.11', 'arise-ios@1']));
+    expect(__APP_NATIVE__.split(',')).toEqual(expect.arrayContaining(['@capgo/capacitor-health@8.11', 'arise-ios@2']));
   });
 });
 

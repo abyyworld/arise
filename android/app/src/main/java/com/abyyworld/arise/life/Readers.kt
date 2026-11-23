@@ -144,6 +144,8 @@ object UsageReader {
         val labels = HashMap<String, String>()
         for ((pkg, hours) in totals) {
             if (pkg in skip) continue
+            // An app the Player never wants read.
+            if (LifePrefs.skips(ctx, pkg, labels.getOrPut(pkg) { NotificationRecorder.appName(ctx, pkg) })) continue
             for ((hour, ms) in hours) {
                 out.put(
                     JSONObject()

@@ -265,7 +265,7 @@ describe('the life log between devices', () => {
     expect(await titles(b)).toEqual(all);
     // The life log has its own packs: the main copy (which older versions of Arise read) didn't change.
     expect(cloud.docs.get('users/uid1/arise/meta')!.rev).toBe(meta);
-    expect(a.SYNC.SCHEMA).toBe(8); // (4: the new look and the tiers of the coach's replies; 5: the journal's settings, in the main copy; 6: the life check-in, sleep and mood in a check-in, and the daily message's tier; 7: study; 8: to-dos)
+    expect(a.SYNC.SCHEMA).toBe(9); // (4: the new look and the tiers of the coach's replies; 5: the journal's settings, in the main copy; 6: the life check-in, sleep and mood in a check-in, and the daily message's tier; 7: study; 8: to-dos; 9: Pause everything)
   });
 
   it('loses nothing when two devices send at the same moment', async () => {
@@ -1079,15 +1079,16 @@ describe('before the new database rules are live', () => {
 describe('versions', () => {
   it("leaves a life log synced by a newer version of Arise alone, and updates first", async () => {
     const { a, b } = await pair();
-    // A newer version wrote the index (life schema 2).
+    // A newer version wrote the index (one life schema ahead).
     const index = await on(a, async () => {
       const seal = await import('./seal');
+      const packsMod = await import('./packs');
       const dk = (await a.A.deviceKey('uid1'))!;
       const k = cloud.docs.get('users/uid1/life/key')!;
       const keys = await seal.openLifeKey(dk, 'uid1', { iv: k.iv as string, ct: k.ct as string });
       const old = cloud.docs.get('users/uid1/life/index')!;
       const packs = JSON.parse(await seal.openIndex(keys, 'uid1', { iv: old.iv as string, ct: old.ct as string })).packs;
-      const s = await seal.sealIndex(keys, 'uid1', JSON.stringify({ v: 1, schema: 2, packs }));
+      const s = await seal.sealIndex(keys, 'uid1', JSON.stringify({ v: 1, schema: packsMod.LIFE_SCHEMA + 1, packs }));
       return { v: 1, iv: s.iv, ct: s.ct, updated: Date.now() };
     });
     cloud.docs.set('users/uid1/life/index', index);

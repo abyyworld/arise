@@ -13,7 +13,7 @@ export const GROUPS: readonly { name: string; words: readonly string[] }[] = [
   { name: 'food', words: ['food', 'eat', 'meal', 'breakfast', 'lunch', 'dinner', 'brunch', 'snack', 'restaurant*', 'cafe', 'coffee', 'pizza', 'sushi', 'burger', 'cook', 'recipe*', 'grocer*', 'supermarket', 'takeaway', 'kitchen'] },
   { name: 'music', words: ['music', 'song', 'listen*', 'album', 'artist', 'playlist*', 'spotify', 'concert', 'podcast*', 'radio'] },
   { name: 'watching', words: ['watch', 'film', 'movie', 'cinema', 'series', 'episode', 'netflix', 'youtube', 'video', 'tv'] },
-  { name: 'people', words: ['friend', 'family', 'mum', 'mom', 'mother', 'dad', 'father', 'sister', 'brother', 'partner', 'wife', 'husband', 'girlfriend', 'boyfriend', 'kids', 'son', 'daughter', 'grandma', 'grandpa', 'call', 'message', 'chat', 'whatsapp', 'party'] },
+  { name: 'people', words: ['friend', 'family', 'mum', 'mom', 'mother', 'dad', 'father', 'sister', 'brother', 'partner', 'wife', 'husband', 'girlfriend', 'boyfriend', 'kids', 'son', 'daughter', 'grandma', 'grandpa', 'call', 'message', 'chat', 'whatsapp', 'telegram', 'messenger', 'snapchat', 'discord', 'party'] },
   { name: 'work', words: ['work', 'job', 'office', 'meeting', 'email', 'project', 'deadline', 'client', 'boss', 'colleague*', 'presentation', 'report', 'slack', 'zoom'] },
   { name: 'money', words: ['money', 'spend', 'spent', 'pay', 'paid', 'buy', 'bought', 'purchase', 'shop*', 'bill', 'rent', 'bank', 'salary', 'price', 'cost', 'subscription*', 'amazon'] },
   { name: 'travel', words: ['travel*', 'trip', 'flight', 'fly', 'flew', 'airport', 'plane', 'station', 'hotel', 'holiday', 'vacation', 'journey', 'drive', 'drove', 'taxi', 'uber', 'abroad'] },

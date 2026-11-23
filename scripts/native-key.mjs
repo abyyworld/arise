@@ -89,7 +89,8 @@ export function ownAndroidCode(root) {
 // Arise's own native code in the iPhone app (the Swift files, Info.plist and App.entitlements in
 // ios/App/App) isn't a plugin, so it can't be found like one. Raise this number whenever that code
 // changes in a way the web app relies on (a new method it calls, a new permission it asks for).
-export const IOS_OWN = 'arise-ios@1';
+// 2: location on a timer, places never to note, Pause everything, photos taken.
+export const IOS_OWN = 'arise-ios@2';
 
 export function nativeKeys(root) {
   const own = ownAndroidCode(root);

@@ -27,6 +27,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.json.JSONArray
+import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
 
@@ -40,6 +41,16 @@ import java.time.LocalDate
         Permission(alias = "calls", strings = [Manifest.permission.READ_CALL_LOG]),
         Permission(alias = "contacts", strings = [Manifest.permission.READ_CONTACTS]),
         Permission(alias = "calendar", strings = [Manifest.permission.READ_CALENDAR]),
+        Permission(alias = "location", strings = [Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION]),
+        // "Allow all the time" (Android 10 and later; before that, Location is enough).
+        Permission(alias = "backgroundLocation", strings = [Manifest.permission.ACCESS_BACKGROUND_LOCATION]),
+        Permission(alias = "sms", strings = [Manifest.permission.READ_SMS]),
+        // Photos: Android 13 and later, then older ones; and where each was taken (Android 10 and later).
+        Permission(alias = "photos", strings = [Manifest.permission.READ_MEDIA_IMAGES]),
+        Permission(alias = "storage", strings = [Manifest.permission.READ_EXTERNAL_STORAGE]),
+        Permission(alias = "mediaLocation", strings = [Manifest.permission.ACCESS_MEDIA_LOCATION]),
+        // Which Bluetooth device connected (Android 12 and later: "Nearby devices").
+        Permission(alias = "bluetooth", strings = [Manifest.permission.BLUETOOTH_CONNECT]),
     ],
 )
 class LifePlugin : Plugin() {
@@ -137,6 +148,159 @@ class LifePlugin : Plugin() {
         work(call) {
             LifeQueue.ack(context, upTo)
             JSObject()
+        }
+    }
+
+    // ---------- other queues: location points ("places"), and more (LifeQueue.NAMES)
+
+    private fun queueOf(call: PluginCall): String? = call.getString("queue")?.takeIf { it in LifeQueue.NAMES }
+
+    @PluginMethod
+    fun readQueue(call: PluginCall) {
+        val queue = queueOf(call)
+        if (queue == null) {
+            call.reject("No such queue.", "failed")
+            return
+        }
+        val max = (call.getInt("max", 500) ?: 500).coerceIn(1, 2000)
+        work(call) {
+            val (items, last) = LifeQueue.read(context, max, queue)
+            JSObject().put("items", JSArray(items)).put("last", last)
+        }
+    }
+
+    @PluginMethod
+    fun ackQueue(call: PluginCall) {
+        val queue = queueOf(call)
+        val upTo = call.long("upTo", -1L)
+        if (queue == null || upTo < 0L) {
+            call.reject("queue or upTo is missing.", "failed")
+            return
+        }
+        work(call) {
+            LifeQueue.ack(context, upTo, queue)
+            JSObject()
+        }
+    }
+
+    // ---------- more from the phone: texts, photos, unlocks, connections (MoreReaders.kt)
+
+    @PluginMethod
+    fun readSms(call: PluginCall) {
+        if (!granted("sms")) {
+            call.reject("Arise isn't allowed to read text messages.", "denied")
+            return
+        }
+        val since = call.long("since", 0L)
+        val max = (call.getInt("max", 500) ?: 500).coerceIn(1, 2000)
+        val text = call.getBoolean("text", false) ?: false
+        val contacts = granted("contacts")
+        work(call) { JSObject().put("sms", SmsReader.read(context, since, max, text, contacts)) }
+    }
+
+    @PluginMethod
+    fun readPhotos(call: PluginCall) {
+        val allowed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) granted("photos") else granted("storage")
+        if (!allowed) {
+            call.reject("Arise isn't allowed to see your photos.", "denied")
+            return
+        }
+        val from = call.long("from", 0L)
+        val to = call.long("to", 0L)
+        val max = (call.getInt("max", 1000) ?: 1000).coerceIn(1, 5000)
+        work(call) { JSObject().put("photos", PhotoReader.read(context, from, to, max)) }
+    }
+
+    @PluginMethod
+    fun readUnlocks(call: PluginCall) {
+        if (!UsageReader.hasAccess(context)) {
+            call.reject("Arise doesn't have Usage access.", "denied")
+            return
+        }
+        val fromDay = call.getString("fromDay")
+        val toDay = call.getString("toDay")
+        if (fromDay == null || toDay == null) {
+            call.reject("fromDay or toDay is missing.", "failed")
+            return
+        }
+        work(call) { JSObject().put("days", UnlockReader.read(context, LocalDate.parse(fromDay), LocalDate.parse(toDay))) }
+    }
+
+    // Bluetooth and Wi-Fi connections on or off. Off: what waits is deleted.
+    @PluginMethod
+    fun setConnections(call: PluginCall) {
+        val on = call.getBoolean("on", false) ?: false
+        try {
+            ConnectionWatch.set(context, on)
+        } catch (_: Exception) {
+        }
+        call.resolve(JSObject().put("on", on))
+    }
+
+    // ---------- Pause everything, and apps never read
+
+    // Nothing is noted until this time (0: not paused).
+    @PluginMethod
+    fun setPause(call: PluginCall) {
+        LifePrefs.setPausedUntil(context, call.long("until", 0L))
+        call.resolve()
+    }
+
+    // apps: package names; words: parts of a package name or an app's name.
+    @PluginMethod
+    fun setSkipApps(call: PluginCall) {
+        val apps = HashSet<String>()
+        val words = HashSet<String>()
+        call.getArray("apps")?.let { a -> for (i in 0 until a.length()) a.optString(i).trim().takeIf { it.isNotEmpty() && it.length <= 200 }?.let { apps.add(it) } }
+        call.getArray("words")?.let { a -> for (i in 0 until a.length()) a.optString(i).trim().lowercase().takeIf { it.length in 3..40 }?.let { words.add(it) } }
+        LifePrefs.setSkip(context, apps, words)
+        call.resolve()
+    }
+
+    // ---------- location (LocationReader)
+
+    // The setting: mode ("off", "places", "interval"), every (minutes), exact, never (places never
+    // to note: lat, lon, radius) and pausedUntil (Pause everything). Off: the job and the service
+    // stop, and the points waiting are deleted.
+    @PluginMethod
+    fun setLocation(call: PluginCall) {
+        val ctx = context
+        val mode = call.getString("mode")?.takeIf { it == "places" || it == "interval" } ?: "off"
+        val every = (call.getInt("every", 30) ?: 30).coerceIn(1, 720)
+        val exact = call.getBoolean("exact", true) ?: true
+        val never = JSONArray()
+        val list = call.getArray("never")
+        if (list != null) {
+            for (i in 0 until list.length()) {
+                val o = list.optJSONObject(i) ?: continue
+                never.put(JSONObject().put("lat", o.optDouble("lat")).put("lon", o.optDouble("lon")).put("radius", o.optDouble("radius", 250.0)))
+            }
+        }
+        LifePrefs.setLocation(ctx, mode, every, exact, never)
+        if (data(call, "pausedUntil")) LifePrefs.setPausedUntil(ctx, call.long("pausedUntil", 0L))
+        if (mode == "off") LifeQueue.clear(ctx, LifeQueue.PLACES)
+        try {
+            LocationReader.apply(ctx)
+        } catch (_: Exception) {
+        }
+        call.resolve(JSObject().put("mode", mode))
+    }
+
+    private fun data(call: PluginCall, name: String) = call.data.has(name)
+
+    // Where the phone is now (to add a place never to note).
+    @PluginMethod
+    fun locationNow(call: PluginCall) {
+        if (!LocationReader.hasLocation(context)) {
+            call.reject("Arise isn't allowed to use Location.", "denied")
+            return
+        }
+        LocationReader.once(context, true) { l ->
+            if (l == null) {
+                call.reject("Couldn't find where this phone is.", "failed")
+            } else {
+                call.resolve(JSObject().put("lat", l.latitude).put("lon", l.longitude).put("acc", l.accuracy.toDouble()))
+            }
         }
     }
 
@@ -239,6 +403,9 @@ class LifePlugin : Plugin() {
         val permissions = when (what) {
             "calls" -> listOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_CONTACTS)
             "calendar" -> listOf(Manifest.permission.READ_CALENDAR)
+            "sms" -> listOf(Manifest.permission.READ_SMS)
+            "photos" -> listOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.ACCESS_MEDIA_LOCATION)
+            "location" -> listOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             else -> emptyList()
         }
         if (permissions.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

@@ -4,6 +4,17 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.29.0',
+    notes: [
+      'Bring in your chats from Telegram, Instagram, Messenger, X, TikTok, Snapchat, Discord and LinkedIn. Download your data from the app, then add the file in Setup and connections. It is read on your device.',
+      'Location on a timer: on your phone, choose Places only or a point every 5, 15, 30 or 60 minutes (or any number you like). You can round it to about 1 km and add places that are never noted. Your places show on Days, where you can delete any of them.',
+      'Pause everything: stop Arise reading anything, on every device, for an hour, a day or until you turn it back on.',
+      'Apps Arise never reads: banking, health and password apps are left out from the start, and you can add any app you like, on Android and on the Mac.',
+      'More from Android, each off until you turn it on: text messages, photos taken (when and where, never the photo), Bluetooth and Wi-Fi connections, and phone unlocks. On iPhone: photos taken, and three ready-made Shortcuts automations.',
+      'Update Arise on all your devices: until each one has this version, it waits before syncing. The iPhone app needs the new Arise.ipa installed once by hand.',
+    ],
+  },
+  {
     version: '1.28.0',
     notes: [
       'Link GitHub: pick the repositories Arise may read, with a read-only key you make for just those. Your commits go into your days, and the notes and goals you keep there (like README or goals files) into what Arise knows. In Setup and connections, Connections, Accounts.',
