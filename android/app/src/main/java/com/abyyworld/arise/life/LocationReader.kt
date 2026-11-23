@@ -325,6 +325,7 @@ class LifeBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         try {
             LocationReader.apply(context.applicationContext)
+            ConnectionWatch.apply(context.applicationContext)
         } catch (_: Exception) {
         }
     }

@@ -44,6 +44,13 @@ import java.time.LocalDate
         Permission(alias = "location", strings = [Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION]),
         // "Allow all the time" (Android 10 and later; before that, Location is enough).
         Permission(alias = "backgroundLocation", strings = [Manifest.permission.ACCESS_BACKGROUND_LOCATION]),
+        Permission(alias = "sms", strings = [Manifest.permission.READ_SMS]),
+        // Photos: Android 13 and later, then older ones; and where each was taken (Android 10 and later).
+        Permission(alias = "photos", strings = [Manifest.permission.READ_MEDIA_IMAGES]),
+        Permission(alias = "storage", strings = [Manifest.permission.READ_EXTERNAL_STORAGE]),
+        Permission(alias = "mediaLocation", strings = [Manifest.permission.ACCESS_MEDIA_LOCATION]),
+        // Which Bluetooth device connected (Android 12 and later: "Nearby devices").
+        Permission(alias = "bluetooth", strings = [Manifest.permission.BLUETOOTH_CONNECT]),
     ],
 )
 class LifePlugin : Plugin() {
@@ -174,6 +181,60 @@ class LifePlugin : Plugin() {
             LifeQueue.ack(context, upTo, queue)
             JSObject()
         }
+    }
+
+    // ---------- more from the phone: texts, photos, unlocks, connections (MoreReaders.kt)
+
+    @PluginMethod
+    fun readSms(call: PluginCall) {
+        if (!granted("sms")) {
+            call.reject("Arise isn't allowed to read text messages.", "denied")
+            return
+        }
+        val since = call.long("since", 0L)
+        val max = (call.getInt("max", 500) ?: 500).coerceIn(1, 2000)
+        val text = call.getBoolean("text", false) ?: false
+        val contacts = granted("contacts")
+        work(call) { JSObject().put("sms", SmsReader.read(context, since, max, text, contacts)) }
+    }
+
+    @PluginMethod
+    fun readPhotos(call: PluginCall) {
+        val allowed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) granted("photos") else granted("storage")
+        if (!allowed) {
+            call.reject("Arise isn't allowed to see your photos.", "denied")
+            return
+        }
+        val from = call.long("from", 0L)
+        val to = call.long("to", 0L)
+        val max = (call.getInt("max", 1000) ?: 1000).coerceIn(1, 5000)
+        work(call) { JSObject().put("photos", PhotoReader.read(context, from, to, max)) }
+    }
+
+    @PluginMethod
+    fun readUnlocks(call: PluginCall) {
+        if (!UsageReader.hasAccess(context)) {
+            call.reject("Arise doesn't have Usage access.", "denied")
+            return
+        }
+        val fromDay = call.getString("fromDay")
+        val toDay = call.getString("toDay")
+        if (fromDay == null || toDay == null) {
+            call.reject("fromDay or toDay is missing.", "failed")
+            return
+        }
+        work(call) { JSObject().put("days", UnlockReader.read(context, LocalDate.parse(fromDay), LocalDate.parse(toDay))) }
+    }
+
+    // Bluetooth and Wi-Fi connections on or off. Off: what waits is deleted.
+    @PluginMethod
+    fun setConnections(call: PluginCall) {
+        val on = call.getBoolean("on", false) ?: false
+        try {
+            ConnectionWatch.set(context, on)
+        } catch (_: Exception) {
+        }
+        call.resolve(JSObject().put("on", on))
     }
 
     // ---------- Pause everything, and apps never read
@@ -342,6 +403,9 @@ class LifePlugin : Plugin() {
         val permissions = when (what) {
             "calls" -> listOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_CONTACTS)
             "calendar" -> listOf(Manifest.permission.READ_CALENDAR)
+            "sms" -> listOf(Manifest.permission.READ_SMS)
+            "photos" -> listOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.ACCESS_MEDIA_LOCATION)
+            "location" -> listOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             else -> emptyList()
         }
         if (permissions.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

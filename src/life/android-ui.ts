@@ -10,6 +10,8 @@ import { hasLifeStore } from './store-port';
 import * as LUI from './location-ui';
 import * as LS from './location-sense';
 import { skipButton } from './app-skip-ui';
+import * as MORE from './android-more';
+import type { More } from './android-more';
 
 const WHERE = 'Stays on this phone and in your encrypted sync.';
 
@@ -108,6 +110,62 @@ export function refresh() {
   if (el) el.outerHTML = settingsPanel(el.dataset.title);
 }
 
+// ---------- more from this phone (android-more.ts)
+
+const MORE_ABOUT: Record<More, { name: string; reads: string }> = {
+  sms: { name: 'Text messages', reads: 'Who texted you and who you texted, and when. What they said only with Include what they say on.' },
+  photos: { name: 'Photos taken', reads: 'When you took photos with the camera, and where if the photo says so. Never the photos themselves.' },
+  connections: { name: 'Bluetooth and Wi-Fi', reads: 'When you connect to a Bluetooth device, like your car or headphones, and which Wi-Fi networks you join.' },
+  unlocks: { name: 'Phone unlocks', reads: 'How many times you unlock your phone each day, and when you first and last used it.' },
+};
+
+function moreStatus(m: More): string {
+  const appInfo = button('android-open', 'App info', ' data-screen="app"');
+  switch (MORE.blocked(m)) {
+    case 'permission':
+      return err(`Android hasn't allowed Arise to read your ${m === 'sms' ? 'text messages' : 'photos'} yet.`, button('more-toggle', 'Allow', ` data-m="${m}" data-again="1"`) + appInfo);
+    case 'access':
+      return err('Arise needs Usage access. Turn on Arise there.', button('android-open', 'Open Usage access', ' data-screen="usage"'));
+  }
+  const st = MORE.read();
+  const lines: string[] = [];
+  const last = st.last[m];
+  if (last?.error) lines.push(`<p class="error small">The last read didn't work: ${esc(last.error)}</p>`);
+  else if (last) lines.push(`<p class="muted small">Read ${ago(last.at)}${last.added ? `: ${last.added} new` : ''}.</p>`);
+  else lines.push('<p class="muted small">Not read yet.</p>');
+  if (m === 'sms') {
+    const text = A.read().text;
+    lines.push(`<button class="toggle-row" data-act="android-text" aria-pressed="${text}"><span><b>Include what they say</b><small>The same switch as for notifications. Off: only who and when.</small></span><span class="switch ${text ? 'on' : ''}"></span></button>`);
+  }
+  if (m === 'photos' && MORE.status.mediaLocation && MORE.status.mediaLocation !== 'granted') lines.push('<p class="muted small">Android hasn\'t allowed Arise to see where photos were taken, so only when.</p>');
+  if (m === 'photos') lines.push('<p class="muted small">Places never to note, and Only to about 1 km, under Location, count here too.</p>');
+  if (m === 'connections' && MORE.status.location !== 'granted') lines.push('<p class="muted small">Wi-Fi names need Location allowed all the time. Without it, Arise notes only that you joined a network.</p>');
+  if (m === 'connections' && MORE.status.bluetooth && MORE.status.bluetooth !== 'granted') lines.push('<p class="muted small">Without Nearby devices allowed, Arise can\'t tell which Bluetooth device it was.</p>');
+  return lines.join('');
+}
+
+// A panel of its own, next to Your life · Android.
+export function morePanel(name = ''): string {
+  if (!hasLifeStore() || !A.supported()) return '';
+  const st = MORE.read();
+  const rows = MORE.MORE.map((m) => {
+    const on = st.on[m];
+    const a = MORE_ABOUT[m];
+    return `<button class="toggle-row" data-act="more-toggle" data-m="${m}" aria-pressed="${on}"><span><b>${esc(a.name)}</b><small>${esc(a.reads)} ${WHERE}</small></span><span class="switch ${on ? 'on' : ''}"></span></button>
+      ${on ? moreStatus(m) : ''}`;
+  }).join('');
+  return `<section class="panel" id="androidMorePanel"${name ? ` data-title="${esc(name)}"` : ''}><div class="panel-title"><span>${esc(name || 'Your life · More from Android')}</span></div>
+    <p>More Arise can note from this phone. Each one is off until you turn it on.</p>
+    ${rows}
+  </section>`;
+}
+
+export function refreshMore() {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById('androidMorePanel');
+  if (el) el.outerHTML = morePanel(el.dataset.title);
+}
+
 const SAID: Record<A.TurnOn, string> = {
   on: 'On. Arise reads it each time it opens.',
   settings: 'Find Arise on the screen that opened and turn it on, then come back.',
@@ -143,7 +201,22 @@ export async function handleAction(act: string, el: HTMLElement): Promise<boolea
     case 'android-text':
       await A.setText(!A.read().text);
       refresh();
+      refreshMore();
       return true;
+    case 'more-toggle': {
+      const m = el.dataset.m as More;
+      if (!MORE.MORE.includes(m)) return true;
+      if (MORE.read().on[m] && !el.dataset.again) {
+        await MORE.turnOff(m);
+        toast(`${MORE_ABOUT[m].name} off. What Arise already noted stays in your life log.`);
+      } else {
+        const r = await MORE.turnOn(m);
+        toast(SAID[r]);
+        if (r === 'on') MORE.collect().then(refreshMore, () => {});
+      }
+      refreshMore();
+      return true;
+    }
     case 'android-open': {
       const screen = el.dataset.screen;
       if (screen === 'notifications' || screen === 'usage' || screen === 'health' || screen === 'app') {
@@ -159,6 +232,7 @@ export async function handleAction(act: string, el: HTMLElement): Promise<boolea
 export function initAndroidLife() {
   A.initAndroidSense(refresh);
   LS.initLocation(LUI.refresh);
+  MORE.initMore(refreshMore);
 }
 
 // Location, next to this panel (location-ui.ts).
@@ -166,5 +240,6 @@ export const locationPanel = (name = '') => LUI.locationPanel(name);
 
 export const forget = async () => {
   await A.forgetAll();
+  await MORE.forgetAll();
   if (LS.platform() === 'android') await LS.forget();
 };
