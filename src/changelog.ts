@@ -6,6 +6,7 @@ export const CHANGES: { version: string; notes: string[] }[] = [
   {
     version: '1.30.0',
     notes: [
+      'Calendar: a new tab with month, week, day and list views. Add your own events with times, repeats and reminders, and see your to-dos and other calendars in the same place. Bring events in from a calendar file, or save yours as one. Your events are locked on your device before they sync, and their reminders come from your device only.',
       'Photos and files: keep them with your days, locked on your device before they sync. Add one to a note, to a day on Days, or in Setup and connections, Photos and files.',
       'Search by meaning: download a small model once (about 36 MB) and search your days by what you mean, not only the words. It runs on your device. In Days, search.',
       'Sign out of all devices, from Account, More. Each device signs out the next time it is online.',
