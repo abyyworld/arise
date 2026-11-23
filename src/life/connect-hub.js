@@ -62,7 +62,7 @@ const PHONE = 'Your phone';
 // In the iPhone or Android app, its own switches. Anywhere else, what each app adds, and where to
 // get it.
 function phonePart() {
-  if (inAndroidApp()) return ANDROID.settingsPanel(PHONE);
+  if (inAndroidApp()) return ANDROID.settingsPanel(PHONE) + ANDROID.locationPanel('Location') + ANDROID.morePanel('More from this phone');
   if (inIPhoneApp()) return SENSE.settingsPanel(PHONE);
   return `<section class="panel" id="hubPhone">
     <div class="panel-title">${icon('phone')}<span>${PHONE}</span></div>

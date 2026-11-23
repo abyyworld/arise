@@ -45,7 +45,9 @@ const TIMEOUT = 45_000;
 // (ai.daily[k].tier), which 1.12 would drop.
 // 7: study (the study link, how well each card is known, the rounds played), which 1.16 would drop.
 // 8: to-dos (lib/todos.ts), which 1.19 would drop.
-export const SCHEMA = 8;
+// 9: Pause everything (settings.pauses), which 1.28 would drop, so a device on it could turn a
+// pause off for every device.
+export const SCHEMA = 9;
 
 interface Meta {
   uid?: string;

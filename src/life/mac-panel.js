@@ -4,6 +4,7 @@
 import * as MAC from './mac-link';
 import { esc, icon, openSheet, toast } from '../ui.js';
 import { isNative } from '../native.js';
+import { skipButton } from './app-skip-ui';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -90,6 +91,7 @@ function linkedView() {
     ${rows}
     ${anyOn ? '' : '<p class="muted small">Everything starts off. Turn on what you want Arise to know.</p>'}
     <div class="row"><button class="btn primary small" data-act="mac-pull">${icon('refresh')} Bring in now</button><button class="btn ghost small" data-act="mac-copy">Copy install command</button><button class="btn ghost small" data-act="mac-unlink">Unlink</button></div>
+    ${st && (st.settings.notifications || st.settings.apps) ? `<div class="row">${skipButton('mac')}</div>` : ''}
     <p class="muted small">To update the helper, run the install command again in Terminal. To remove it from this Mac, run this: <span class="mono">${esc(MAC.UNINSTALL_COMMAND)}</span></p>`;
 }
 

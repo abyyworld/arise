@@ -31,9 +31,11 @@ class NotificationRecorder : NotificationListenerService() {
     }
 
     private fun record(ctx: Context, sbn: StatusBarNotification) {
-        if (!LifePrefs.notificationsOn(ctx)) return
+        if (!LifePrefs.notificationsOn(ctx) || LifePrefs.paused(ctx)) return
         val pkg = sbn.packageName ?: return
         if (pkg == ctx.packageName || pkg in SYSTEM) return
+        // An app the Player never wants read (or one in a group they left on: banking, health...).
+        if (LifePrefs.skips(ctx, pkg, appName(ctx, pkg))) return
         if (sbn.isOngoing) return
         val n = sbn.notification ?: return
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return

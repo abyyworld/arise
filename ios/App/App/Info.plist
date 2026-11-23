@@ -31,9 +31,11 @@
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Arise only saves to Apple Health if you ask it to, like a workout you finished in Arise.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>With Always, Arise notes the places you spend time at even while it's closed, if you turn on Places. It stays on this iPhone and in your encrypted sync.</string>
+	<string>With Always, Arise notes the places you spend time at, and where you are every so often if you choose that, even while it's closed. Only if you turn on Places. It stays on this iPhone and in your encrypted sync.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Arise notes the places you spend time at, if you turn on Places. It stays on this iPhone and in your encrypted sync.</string>
+	<string>Arise notes the places you spend time at, and where you are every so often if you choose that. Only if you turn on Places. It stays on this iPhone and in your encrypted sync.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Arise notes when you took photos, and where if the photo says so, if you turn on Photos taken. Never the photos themselves. It stays on this iPhone and in your encrypted sync.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Arise notes when you walk, run, cycle or drive to log your days. It stays on this iPhone and in your encrypted sync.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>

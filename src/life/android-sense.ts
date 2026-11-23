@@ -24,6 +24,8 @@
 
 import type { LifeEvent } from './types';
 import { hasLifeStore, lifeStore } from './store-port';
+import { isPaused, onPauseChange, pausedUntil, unpaused } from './pause';
+import * as APPS from './app-skip';
 
 export type Sense = 'notifications' | 'calls' | 'usage' | 'health' | 'calendar';
 export const SENSES: Sense[] = ['notifications', 'calls', 'usage', 'health', 'calendar'];
@@ -564,6 +566,10 @@ export function collect(now = () => Date.now()): Promise<number> {
 async function collectAll(now: () => number): Promise<number> {
   const st = read();
   if (!SENSES.some((s) => st.on[s])) return 0;
+  // Pause everything: the recorders on the phone hear it, and nothing is read until it ends.
+  await tellPause();
+  if (isPaused()) return 0;
+  if (st.on.notifications || st.on.usage) await tellSkip();
   // The life log first: until it's there, everything waits on the phone.
   const store = await lifeStore();
   await refreshStatus();
@@ -575,7 +581,8 @@ async function collectAll(now: () => number): Promise<number> {
     total += added;
   };
   const add = (events: (LifeEvent | null)[]) => {
-    const list = events.filter((e): e is LifeEvent => !!e);
+    // Nothing that happened during a pause, and nothing from an app on the never-read list.
+    const list = APPS.filterEvents('android', unpaused(events.filter((e): e is LifeEvent => !!e)));
     return list.length ? store.addEvents(list) : Promise.resolve(0);
   };
 
@@ -650,6 +657,34 @@ async function collectAll(now: () => number): Promise<number> {
   return total;
 }
 
+// ---------- Pause everything (pause.ts)
+
+let toldPause = 0;
+// The phone's own recorders keep nothing until the pause ends. Only told when it changes.
+async function tellPause() {
+  const until = pausedUntil();
+  if (until === toldPause) return;
+  try {
+    await call('setPause', { until });
+    toldPause = until;
+  } catch {}
+}
+
+// ---------- apps never read (app-skip.ts)
+
+let toldSkip = '';
+// The phone's notification recorder and app use reader leave these apps out too.
+export async function tellSkip(force = false) {
+  if (!supported()) return;
+  const list = APPS.nativeList(APPS.load('android').skip);
+  const key = JSON.stringify(list);
+  if (key === toldSkip && !force) return;
+  try {
+    await call('setSkipApps', list);
+    toldSkip = key;
+  } catch {}
+}
+
 // ---------- start
 
 // Reads when the app opens and each time it comes back to the front (from the phone's settings,
@@ -663,6 +698,9 @@ export function initAndroidSense(changed: () => void = () => {}) {
   };
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') go();
+  });
+  onPauseChange(() => {
+    if (SENSES.some((s) => read().on[s])) void tellPause();
   });
   go();
 }
