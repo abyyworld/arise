@@ -7,7 +7,7 @@
 
 export interface Req {
   url: string;
-  method?: 'GET' | 'POST';
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   headers?: Record<string, string>;
   body?: string;
   noRedirect?: boolean; // answer with the redirect itself instead of following it
