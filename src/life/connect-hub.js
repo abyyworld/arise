@@ -108,7 +108,7 @@ function historyPart() {
       ${row({
         id: 'hub-history',
         name: 'Files from your apps',
-        what: 'Google Takeout, Maps Timeline, Spotify, Netflix, Apple Health, WhatsApp and bank statements. Arise reads the file on this device.',
+        what: 'Google Takeout, Maps Timeline, Spotify, Netflix, Apple Health, WhatsApp and other chat apps, and bank statements. Arise reads the file on this device.',
         action: IMPORT.importButton('Bring in your history', 'btn small primary'),
       })}
     </div>
@@ -118,7 +118,7 @@ function historyPart() {
 // ---------- your setup: everything worth setting up, where each stands, and what's next
 
 // Sources a file brings in (not the phone or this computer, which have parts of their own).
-const FROM_FILES = ['google', 'youtube', 'chrome', 'maps', 'spotify', 'netflix', 'health', 'whatsapp', 'bank'];
+const FROM_FILES = ['google', 'youtube', 'chrome', 'maps', 'spotify', 'netflix', 'health', 'whatsapp', 'telegram', 'instagram', 'messenger', 'x', 'tiktok', 'snapchat', 'discord', 'linkedin', 'bank'];
 let history = null; // the names of what was brought in, once counted
 
 function facts() {
