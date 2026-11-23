@@ -50,7 +50,8 @@ const TIMEOUT = 45_000;
 // 8: to-dos (lib/todos.ts), which 1.19 would drop.
 // 9: Pause everything (settings.pauses), which 1.28 would drop, so a device on it could turn a
 // pause off for every device.
-export const SCHEMA = 9;
+// 10: your own calendar events (lib/events.ts), which 1.30 would drop.
+export const SCHEMA = 10;
 
 interface Meta {
   uid?: string;

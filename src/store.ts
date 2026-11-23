@@ -10,6 +10,7 @@ import type { Goal, Quest } from './lib/goals';
 import { mergeChat, mergeDaily, neverPlanned, planOn, splicePlanDays } from './lib/merge';
 import * as ST from './lib/study';
 import * as TD from './lib/todos';
+import * as EV from './lib/events';
 
 export type { Goal, Quest };
 
@@ -1176,7 +1177,7 @@ export function exportData() {
 
 // Nothing of the Player's own yet: no history and no real goal (an intro that was skipped
 // doesn't count). A backup loaded into a device like this is a full restore.
-export const isEmpty = (s: State = state) => !s.sessions.length && !Object.keys(s.logs).length && !s.body.entries.length && !s.profile?.goal && !s.goals.length && !Object.keys(s.checks).length && !ST.hasStudy(s.study) && !Object.keys(s.todos).length;
+export const isEmpty = (s: State = state) => !s.sessions.length && !Object.keys(s.logs).length && !s.body.entries.length && !s.profile?.goal && !s.goals.length && !Object.keys(s.checks).length && !ST.hasStudy(s.study) && !Object.keys(s.todos).length && !Object.keys(s.events).length;
 
 // Anything at all of the Player's own: history of any kind, a workout in progress, a goal, a
 // plan, the coach's chat, reminder texts asked for, an answer in the profile. Not what a device
@@ -1198,7 +1199,7 @@ export function introOnly(s: State = state) {
 // Nothing done yet: no history of any kind (goals, a profile and settings may be set up, and the
 // weigh-in the intro saves with them).
 export function nothingDone(s: Omit<State, 'active' | 'updatedAt'>) {
-  return !s.sessions.length && !Object.keys(s.logs).length && (!s.body.entries.length || introWeighIn(s)) && !Object.keys(s.checks).length && !Object.keys(s.values).length && !s.football.length && !s.rests.length && !s.easyWeeks.length && !s.customPlan && !s.ai.chat.length && !ST.hasStudy(s.study) && !Object.keys(s.todos).length;
+  return !s.sessions.length && !Object.keys(s.logs).length && (!s.body.entries.length || introWeighIn(s)) && !Object.keys(s.checks).length && !Object.keys(s.values).length && !s.football.length && !s.rests.length && !s.easyWeeks.length && !s.customPlan && !s.ai.chat.length && !ST.hasStudy(s.study) && !Object.keys(s.todos).length && !Object.keys(s.events).length;
 }
 // The intro saves the weight it asks for as a weigh-in, just before its goal (system.js): the only
 // one, on the day a goal was made, from before that goal was last saved.
@@ -1306,6 +1307,7 @@ export function importData(raw: unknown): number {
   }
   state.study = ST.mergeStudy(state.study, data.study);
   state.todos = TD.mergeTodos(state.todos, data.todos);
+  state.events = EV.mergeEvents(state.events, data.events);
   // The coach, as sync combines it (lib/merge.ts): every chat message from both, minus anything
   // from before the last "clear"; each day's System message and the nudges, the later ones; and
   // the easy week snoozed as long as either says.
@@ -1397,6 +1399,71 @@ export function removeTodo(id: string) {
   if (!t || t.gone) return;
   state.todos = TD.cleanTodos({ ...state.todos, [id]: { id, title: '', created: t.created, at: Date.now(), gone: true } });
   save();
+}
+
+// ---------- your own calendar events (lib/events.ts)
+
+export type { CalEvent, Change, Occurrence } from './lib/events';
+
+// The times of your events that overlap from..to (moments).
+export const eventsBetween = (from: number, to: number) => EV.occurrences(state.events, from, to);
+export const eventsOn = (k: string) => EV.onDay(state.events, k);
+
+function putEvent(raw: Record<string, unknown>): EV.CalEvent | null {
+  const e = EV.cleanEvent(raw);
+  if (!e) return null;
+  state.events = EV.cleanEvents({ ...state.events, [e.id]: e });
+  save();
+  return state.events[e.id] || null;
+}
+
+// Adds one; `id` keeps one from being added twice. The new event, or null when it isn't right.
+export function addEvent(input: Omit<Partial<EV.CalEvent>, 'created' | 'at' | 'gone'>): EV.CalEvent | null {
+  const id = input.id || EV.newEventId();
+  if (state.events[id] && !state.events[id].gone) return null;
+  const now = Date.now();
+  return putEvent({ ...input, id, created: now, at: now });
+}
+
+// Changes every time of it: what's given replaces what was (a field left out is cleared).
+export function updateEvent(id: string, next: Omit<Partial<EV.CalEvent>, 'id' | 'created' | 'at' | 'gone'>): EV.CalEvent | null {
+  const e = state.events[id];
+  if (!e || e.gone) return null;
+  return putEvent({ ...next, id, created: e.created, from: e.from, at: Date.now() });
+}
+
+export function removeEvent(id: string) {
+  const e = state.events[id];
+  if (!e || e.gone) return;
+  state.events = EV.cleanEvents({ ...state.events, [id]: { id, title: '', start: '', created: e.created, at: Date.now(), gone: true } });
+  save();
+}
+
+// One time of a repeating event: left out, or changed on its own.
+export function skipEventTime(id: string, key: string) {
+  const e = state.events[id];
+  if (!e || e.gone || !e.repeat) return;
+  const changes = { ...(e.changes || {}) };
+  delete changes[key];
+  putEvent({ ...e, skip: [...(e.skip || []), key], changes, at: Date.now() });
+}
+export function changeEventTime(id: string, key: string, change: EV.Change) {
+  const e = state.events[id];
+  if (!e || e.gone || !e.repeat) return null;
+  return putEvent({ ...e, changes: { ...(e.changes || {}), [key]: change }, at: Date.now() });
+}
+
+// Events read from a calendar file: new ones added, ones read before changed. How many came in.
+export function importEvents(list: EV.CalEvent[]): number {
+  const now = Date.now();
+  const next: Record<string, unknown> = { ...state.events };
+  for (const e of list) {
+    const was = state.events[e.id];
+    next[e.id] = { ...e, created: was && !was.gone ? was.created : now, at: now };
+  }
+  state.events = EV.cleanEvents(next);
+  save();
+  return list.length;
 }
 
 // ---------- study (lib/study.ts): the link to the Player's study pack, and how it's going

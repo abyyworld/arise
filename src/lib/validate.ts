@@ -19,6 +19,7 @@ import { cleanEntry, type FeedEntry } from './feed';
 import { cleanLife, cleanLifeBefore } from './life-check';
 import { cleanStudy, type Study } from './study';
 import { cleanTodos, type Todos } from './todos';
+import { cleanEvents, type CalEvents } from './events';
 
 export { DATE, isDate } from './clean';
 const ID = /^[a-z0-9]{1,32}$/i;
@@ -459,6 +460,7 @@ export interface State {
   values: Values;
   study: Study;
   todos: Todos;
+  events: CalEvents; // your own calendar events (lib/events.ts)
   stamps: Stamps;
   updatedAt?: number;
 }
@@ -496,6 +498,7 @@ export function cleanState(raw: unknown, defaults: Settings): State {
     values: cleanValues(d.values),
     study: cleanStudy(d.study),
     todos: cleanTodos(d.todos),
+    events: cleanEvents(d.events),
     stamps: cleanStamps(d.stamps),
   };
   if (time(d.updatedAt)) state.updatedAt = time(d.updatedAt);
