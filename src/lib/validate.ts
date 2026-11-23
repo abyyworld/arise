@@ -863,7 +863,7 @@ export function cleanOffLater(raw: unknown): OffLater[] {
   return [...by].slice(-200).map(([id, owner]) => ({ id, owner }));
 }
 
-// ---------- photos and files (life/files.ts)
+// ---------- photos and files (life/files.ts), and search by meaning (life/embed/)
 
 // A kept photo or file: its details, as this device stores them and as they sync, sealed
 // (life/files-sync.ts). `thumb` is a small JPEG made on the device (base64 in the cloud).
@@ -937,4 +937,15 @@ export function cleanFilesIndex(raw: unknown): FilesIndex {
     if (FILE_ID.test(id) && at && !files[id]) gone[id] = { at, n: int(x.n, 0, 1000, 0) };
   }
   return { schema: int(d.schema, 1, 1000, 1), seq: int(d.seq, 0, Number.MAX_SAFE_INTEGER, 0), files, gone };
+}
+
+// Search by meaning with the model on this device (life/embed/model.ts): on, and when it was
+// downloaded. Kept on this device only.
+export interface MeaningPrefs {
+  on: boolean;
+  at: number;
+}
+export function cleanMeaningPrefs(raw: unknown): MeaningPrefs {
+  const d = obj(raw);
+  return { on: d.on === true, at: time(d.at) };
 }

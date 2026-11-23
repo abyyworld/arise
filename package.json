@@ -27,6 +27,7 @@
     "@capgo/capacitor-health": "8.11.4",
     "fflate": "0.8.2",
     "firebase": "^12.19.0",
+    "onnxruntime-web": "1.31.1",
     "tinfoil": "1.2.1"
   },
   "devDependencies": {

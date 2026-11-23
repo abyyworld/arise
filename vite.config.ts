@@ -38,6 +38,23 @@ const { ios: native, android: nativeAndroid } = nativeKeys(fileURLToPath(new URL
 // a linked helper is older.
 const helperBuild = Number(/^helper_build=(\d+)$/m.exec(readFileSync(new URL('./mac-helper/install.sh', import.meta.url), 'utf8'))?.[1] || 0);
 
+// The search model's engine (onnxruntime-web, in src/life/embed/worker.ts) names its WebAssembly
+// file next to itself, which would put 15 MB in every build and every phone update. Arise hands it
+// that file from the device's own database instead (downloaded on the Player's choice, checked:
+// src/life/embed/model.ts), so the name is pointed at where it's downloaded from, and nothing is copied.
+function ortWasmStaysOut() {
+  const NAME = 'new URL("ort-wasm-simd-threaded.wasm",import.meta.url)';
+  return {
+    name: 'arise-ort-wasm-stays-out',
+    enforce: 'pre' as const,
+    transform(code: string, id: string) {
+      if (!/onnxruntime-web[\\/]dist[\\/]/.test(id) || !code.includes(NAME)) return null;
+      const version = JSON.parse(readFileSync(new URL('./node_modules/onnxruntime-web/package.json', import.meta.url), 'utf8')).version;
+      return { code: code.split(NAME).join(`new URL("ort-wasm-simd-threaded.wasm","https://cdn.jsdelivr.net/npm/onnxruntime-web@${version}/dist/")`), map: null };
+    },
+  };
+}
+
 export default defineConfig({
   // Relative paths, so the same build works on GitHub Pages (under /arise/)
   // and inside the phone apps.
@@ -56,9 +73,11 @@ export default defineConfig({
     target: 'es2022',
     sourcemap: true,
   },
-  // The importers' worker (src/life/import/worker.ts) is a module worker.
+  // The importers' worker (src/life/import/worker.ts) is a module worker, and so is the search
+  // model's (src/life/embed/worker.ts).
   worker: {
     format: 'es',
+    plugins: () => [ortWasmStaysOut()],
   },
   plugins: [
     // Which version this build is, for the phone apps' own updates (scripts/native-bundle.mjs).

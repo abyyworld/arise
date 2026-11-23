@@ -18,7 +18,8 @@ import * as HUB from './connect-hub.js';
 import * as FUI from './files-ui.js';
 import { deleteCoachQuestion, isCoachQuestion } from './ingest';
 import { SOURCE_NAMES } from './tiers';
-import { widen } from './meaning';
+import * as MEANING from './embed/index';
+import * as MUI from './meaning-ui.js';
 import { addDays, dayEnd, dayKey, dayStart, monthStart, parseDay, parseWhen, withoutWhen } from './dates';
 import { PART_NAMES, shareText, splitLine, toText } from './diary';
 import { WAITS, byText } from './strength';
@@ -33,7 +34,7 @@ let app = { go: () => {}, render: () => {}, view: () => 'today', saveFile: async
 const today = () => dayKey(Date.now());
 // pane: what a day opens on, its journal or everything in the log ('events'). cal: the month the
 // calendar was moved to, and the day it was moved from (it follows the day again once that changes).
-const fresh = () => ({ day: null, pane: 'journal', query: '', results: null, related: [], groups: [], loose: false, searching: false, when: null, mood: 0, counts: null, progress: null, cal: null });
+const fresh = () => ({ day: null, pane: 'journal', query: '', results: null, related: [], groups: [], by: 'words', loose: false, searching: false, when: null, mood: 0, counts: null, progress: null, cal: null });
 const ui = fresh();
 // Where the life log and what Arise learns are kept: synced with an account, or only here.
 const whereLine = () => CLOUD.lines().main;
@@ -266,6 +267,7 @@ export function renderDays(root) {
           <p class="small">Each day opens on its journal: written from your log hour by hour, and by the AI too when it may read the whole day. Edit it as you like. Your words stay yours.</p>
           <p class="small">${esc(whereLine())}</p>
         </section>
+        ${MUI.panel()}
       </div>
     </div>`;
   fillDay();
@@ -590,9 +592,18 @@ function resultsHTML() {
   const ask = `<button class="btn ghost small" data-act="life-ask">${icon('system')} Ask the coach</button>`;
   if (!ui.results.length) return `<p class="muted small">Nothing in your log matches “${esc(ui.query)}”${ui.when ? ` (${esc(ui.when)})` : ''}.</p><div class="row">${ask}</div>`;
   const list = ui.results.map(resultRow).join('');
-  const loose = ui.loose === 'when' ? 'Nothing had those words, so here is everything from then: ' : ui.loose === 'meaning' ? `Nothing had all of those words, so here are things about ${esc(ui.groups.join(', '))}: ` : ui.loose ? 'Nothing had every word, so here are the closest: ' : '';
+  const loose =
+    ui.loose === 'when'
+      ? 'Nothing had those words, so here is everything from then: '
+      : ui.loose === 'model'
+        ? 'Nothing had those words, so here are the closest in meaning: '
+        : ui.loose === 'meaning'
+          ? `Nothing had all of those words, so here are things about ${esc(ui.groups.join(', '))}: `
+          : ui.loose
+            ? 'Nothing had every word, so here are the closest: '
+            : '';
   const related = ui.related?.length
-    ? `<p class="label life-related">Related: ${esc(ui.groups.join(', '))}</p><ul class="tl-list life-results related">${ui.related.map(resultRow).join('')}</ul>`
+    ? `<p class="label life-related">${ui.by === 'model' ? 'Close in meaning' : `Related: ${esc(ui.groups.join(', '))}`}</p><ul class="tl-list life-results related">${ui.related.map(resultRow).join('')}</ul>`
     : '';
   return `<p class="muted small">${loose}${plural(ui.results.length, 'thing')} found${ui.when ? `, ${esc(ui.when)}` : ''}. Tap one to see its day.</p>
     <ul class="tl-list life-results">${list}</ul>
@@ -605,6 +616,7 @@ async function runSearch(q) {
   ui.results = null;
   ui.related = [];
   ui.groups = [];
+  ui.by = 'words';
   ui.loose = false;
   ui.when = null;
   if (!ui.query) {
@@ -618,24 +630,9 @@ async function runSearch(q) {
     const words = L.queryWords(withoutWhen(ui.query, when));
     const range = when ? { from: when.from, to: when.to } : {};
     ui.when = when ? when.label : null;
-    ui.results = [];
-    if (words.length) {
-      ui.results = await L.search(words.join(' '), { ...range, limit: 50 });
-      // By meaning (meaning.ts, on this device): the related words too.
-      const wide = widen(words);
-      ui.groups = wide.groups;
-      if (!ui.results.length && wide.related.length) {
-        ui.results = await L.search('', { ...range, limit: 50, any: true, words: wide.words });
-        ui.loose = ui.results.length > 0 ? 'meaning' : false;
-      } else if (wide.related.length) {
-        const have = new Set(ui.results.map((e) => e.id));
-        ui.related = (await L.search('', { ...range, limit: 40, any: true, words: wide.related })).filter((e) => !have.has(e.id)).slice(0, 20);
-      }
-      if (!ui.results.length) {
-        ui.results = await L.search(words.join(' '), { ...range, limit: 30, any: true });
-        ui.loose = ui.results.length > 0;
-      }
-    }
+    // The words, then by meaning: the model on this device if it's downloaded, else lists of
+    // related words (embed/index.ts find).
+    Object.assign(ui, await MEANING.find(withoutWhen(ui.query, when), words, range));
     // A date alone, or one whose other words aren't in the log: everything then.
     if (!ui.results.length && when) {
       ui.results = await L.eventsBetween(when.from, when.to, { limit: 100, newest: true });
@@ -927,6 +924,7 @@ export function settingsPanel() {
 export async function handleAction(act, el) {
   if (act.startsWith('me-')) return MEUI.handleAction(act, el);
   if (act.startsWith('myfiles-')) return FUI.handleAction(act, el);
+  if (act.startsWith('meaning-')) return MUI.handleAction(act, el);
   const d = el.dataset;
   switch (act) {
     case 'life-day': {
