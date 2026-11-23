@@ -1079,15 +1079,16 @@ describe('before the new database rules are live', () => {
 describe('versions', () => {
   it("leaves a life log synced by a newer version of Arise alone, and updates first", async () => {
     const { a, b } = await pair();
-    // A newer version wrote the index (life schema 2).
+    // A newer version wrote the index (one life schema ahead).
     const index = await on(a, async () => {
       const seal = await import('./seal');
+      const packsMod = await import('./packs');
       const dk = (await a.A.deviceKey('uid1'))!;
       const k = cloud.docs.get('users/uid1/life/key')!;
       const keys = await seal.openLifeKey(dk, 'uid1', { iv: k.iv as string, ct: k.ct as string });
       const old = cloud.docs.get('users/uid1/life/index')!;
       const packs = JSON.parse(await seal.openIndex(keys, 'uid1', { iv: old.iv as string, ct: old.ct as string })).packs;
-      const s = await seal.sealIndex(keys, 'uid1', JSON.stringify({ v: 1, schema: 2, packs }));
+      const s = await seal.sealIndex(keys, 'uid1', JSON.stringify({ v: 1, schema: packsMod.LIFE_SCHEMA + 1, packs }));
       return { v: 1, iv: s.iv, ct: s.ct, updated: Date.now() };
     });
     cloud.docs.set('users/uid1/life/index', index);

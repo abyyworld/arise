@@ -20,7 +20,7 @@
 import { cleanLifeEvent, cleanLifeFact, cleanLifePrefs, cleanLifeSummary, cleanLifeTombs, cleanLifeWipe, type LifeFact, type LifeSummary, type LifeWipe } from '../lib/validate';
 import type { LifeEvent } from './types';
 
-export const LIFE_SCHEMA = 1; // bump when a pack's shape changes in a way an older app would lose
+export const LIFE_SCHEMA = 2; // bump when a pack's shape changes in a way an older app would lose (2: the chat app sources)
 export const MEM = 'mem';
 export const TOMB_KEEP = 400 * 864e5;
 const MAX_WIPES = 500;
