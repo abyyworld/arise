@@ -7,6 +7,8 @@ import { esc, toast } from '../ui.js';
 import * as A from './android-sense';
 import type { Sense } from './android-sense';
 import { hasLifeStore } from './store-port';
+import * as LUI from './location-ui';
+import * as LS from './location-sense';
 
 const WHERE = 'Stays on this phone and in your encrypted sync.';
 
@@ -122,6 +124,7 @@ async function on(sense: Sense) {
 
 // The panel's buttons. True when it was one of them.
 export async function handleAction(act: string, el: HTMLElement): Promise<boolean> {
+  if (LS.platform() === 'android' && (await LUI.handleAction(act, el, LUI.refresh))) return true;
   const sense = el.dataset.sense as Sense | undefined;
   switch (act) {
     case 'android-toggle':
@@ -153,6 +156,13 @@ export async function handleAction(act: string, el: HTMLElement): Promise<boolea
 // Reads on start and whenever the app comes back to the front; the panel follows.
 export function initAndroidLife() {
   A.initAndroidSense(refresh);
+  LS.initLocation(LUI.refresh);
 }
 
-export const forget = () => A.forgetAll();
+// Location, next to this panel (location-ui.ts).
+export const locationPanel = (name = '') => LUI.locationPanel(name);
+
+export const forget = async () => {
+  await A.forgetAll();
+  if (LS.platform() === 'android') await LS.forget();
+};

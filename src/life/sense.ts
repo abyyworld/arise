@@ -14,6 +14,7 @@
 import { hasLifeStore, lifeStore, type LifeStore } from './store-port';
 import type { LifeEvent } from './types';
 import * as M from './sense-map';
+import * as LOC from './location';
 
 export type Source = 'health' | 'motion' | 'calendar' | 'places' | 'shortcuts';
 export const SOURCES: Source[] = ['health', 'motion', 'calendar', 'places', 'shortcuts'];
@@ -82,7 +83,7 @@ export function cleanState(raw: unknown): SenseState {
   if (o.addWorkouts === true) st.addWorkouts = true;
   st.held = M.list(o.held)
     .map(M.cleanItem)
-    .filter((it): it is M.InboxItem => !!it)
+    .filter((it): it is M.InboxItem => !!it && it.type !== 'point')
     .slice(-500);
   return st;
 }
@@ -381,15 +382,24 @@ async function readCalendar(store: LifeStore, st: SenseState, now: number) {
 // cleared only once the life log has it. Anything from a source that's off is dropped.
 async function readInbox(store: LifeStore, st: SenseState, now: number) {
   const { text } = await sense('inboxTake');
-  const items = M.parseInbox(typeof text === 'string' ? text : '').filter((it) => (it.type === 'log' ? st.on.shortcuts : st.on.places));
+  // Location (location.ts): nothing from inside a place never to note, and to about 1 km unless
+  // the Player wants it exact. The iPhone did this already; this catches what came before.
+  const loc = LOC.loadState().prefs;
+  const all = M.parseInbox(typeof text === 'string' ? text : '');
+  const items = all.filter((it) => (it.type === 'log' ? st.on.shortcuts : it.type === 'visit' ? st.on.places && !LOC.inNever(it, loc.never) : false));
+  const points = st.on.places && loc.mode === 'interval' ? LOC.prepare(all.filter((it): it is M.PointItem => it.type === 'point'), loc) : [];
   const { events, visits, held } = M.sortInbox(items, st.held, now);
+  events.push(...points.map((p) => LOC.pointEvent(p, 'iphone', loc.exact)));
   const names = new Map<string, M.PlaceName>();
-  for (const v of visits) {
+  for (const found of visits) {
+    const v = loc.exact ? found : { ...found, ...LOC.roundSpot(found.lat, found.lon) };
     const near = `${v.lat.toFixed(3)},${v.lon.toFixed(3)}`;
     let place = names.get(near) ?? null;
     if (!place) {
       try {
         place = M.cleanPlace(await sense('placeName', { lat: v.lat, lon: v.lon }));
+        // To about 1 km: the area and the city, never the street or the building.
+        if (!loc.exact) place = { ...(place.area ? { name: place.area } : place.city ? { name: place.city } : {}), ...(place.city ? { city: place.city } : {}), ...(place.country ? { country: place.country } : {}) };
         names.set(near, place);
       } catch {
         // Offline, most likely: try again next time, for up to 3 days.

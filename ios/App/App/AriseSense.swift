@@ -40,6 +40,8 @@ public class AriseSensePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "placesStart", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "placesStop", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "placeName", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "locationSet", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "locationNow", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "inboxTake", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "inboxClear", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openSettings", returnType: CAPPluginReturnPromise),
@@ -344,6 +346,46 @@ public class AriseSensePlugin: CAPPlugin, CAPBridgedPlugin {
             places.isOn = false
             places.update()
             call.resolve(["status": places.status, "on": false])
+        }
+    }
+
+    // Location on a timer: mode ("off", "places", "interval"), every (minutes), exact, never
+    // (places never to note: lat, lon, radius) and pausedUntil (Pause everything). The Places
+    // switch (placesStart, placesStop) still decides whether anything is noted at all.
+    @objc func locationSet(_ call: CAPPluginCall) {
+        let mode = call.getString("mode") ?? "off"
+        let every = call.getInt("every") ?? 30
+        let exact = call.getBool("exact") ?? true
+        var never: [[Double]] = []
+        for item in call.getArray("never") ?? [] {
+            guard let o = item as? [String: Any], let lat = o["lat"] as? Double, let lon = o["lon"] as? Double else { continue }
+            never.append([lat, lon, (o["radius"] as? Double) ?? 250])
+        }
+        let paused = call.getDouble("pausedUntil")
+        DispatchQueue.main.async {
+            let places = ArisePlaces.shared
+            places.mode = mode == "interval" ? "interval" : "places"
+            places.every = every
+            places.exact = exact
+            places.never = never
+            if let paused = paused {
+                places.pausedUntil = paused
+            }
+            places.update()
+            call.resolve(["status": places.status, "on": places.isOn, "mode": places.mode])
+        }
+    }
+
+    // Where the iPhone is now.
+    @objc func locationNow(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            ArisePlaces.shared.now { l in
+                guard let l = l else {
+                    call.reject("Couldn't find where this iPhone is.", "FAILED")
+                    return
+                }
+                call.resolve(["lat": l.coordinate.latitude, "lon": l.coordinate.longitude, "acc": l.horizontalAccuracy])
+            }
         }
     }
 

@@ -1744,6 +1744,7 @@ function renderSettings() {
         ${SENSE.settingsPanel()}
         ${N.isNative ? '' : BROWSER.browserPanel()}
         ${ANDROID.settingsPanel()}
+        ${ANDROID.locationPanel()}
         <section class="panel">
           <div class="panel-title"><span>${w('player')}</span></div>
           <label class="field"><span class="k">${w('nameLabel')}</span><input id="nameIn" type="text" maxlength="24" value="${esc(st.name)}" placeholder="${w('namePlaceholder')}" autocomplete="nickname"></label>

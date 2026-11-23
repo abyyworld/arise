@@ -487,7 +487,16 @@ export interface VisitItem {
   lat: number;
   lon: number;
 }
-export type InboxItem = LogItem | VisitItem;
+// A point noted on the timer (Location, every so many minutes: ArisePlaces in AriseInbox.swift).
+export interface PointItem {
+  type: 'point';
+  id: string;
+  at: number;
+  lat: number;
+  lon: number;
+  acc?: number;
+}
+export type InboxItem = LogItem | VisitItem | PointItem;
 
 const ID = /^[A-Za-z0-9-]{1,64}$/;
 
@@ -509,6 +518,14 @@ export function cleanItem(raw: unknown): InboxItem | null {
     if (arrive === undefined && depart === undefined) return null;
     if (arrive !== undefined && depart !== undefined && depart < arrive) return null;
     return { type: 'visit', id: o.id, lat, lon, ...(arrive !== undefined ? { arrive } : {}), ...(depart !== undefined ? { depart } : {}) };
+  }
+  if (o.type === 'point') {
+    const at = time(o.at);
+    const lat = num(o.lat);
+    const lon = num(o.lon);
+    if (at === undefined || lat === undefined || lon === undefined || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+    const acc = num(o.acc);
+    return { type: 'point', id: o.id, at, lat, lon, ...(acc !== undefined && acc >= 0 ? { acc } : {}) };
   }
   return null;
 }

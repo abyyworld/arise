@@ -43,7 +43,7 @@ function project() {
 }
 
 // How vite.config.ts worked out the iPhone app's key before there was an Android app (1.6: the
-// plugins, then Arise's own Swift code).
+// plugins, then Arise's own Swift code, whose number is raised when that code changes).
 function iosKeyAsBefore(root: string) {
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const names = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).sort();
@@ -54,7 +54,7 @@ function iosKeyAsBefore(root: string) {
       if (name === '@capacitor/ios' || p.capacitor?.ios) parts.push(`${name}@${String(p.version).split('.').slice(0, 2).join('.')}`);
     } catch {}
   }
-  return [...parts, 'arise-ios@1'].join(',');
+  return [...parts, IOS_OWN].join(',');
 }
 
 describe('the native parts of each phone app', () => {

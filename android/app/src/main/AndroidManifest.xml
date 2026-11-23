@@ -49,6 +49,27 @@
             </intent-filter>
         </service>
 
+        <!-- Your life, Android: location on a timer (LocationReader.kt). The job wakes Arise every
+             15 minutes or more for one point; for less than that the service runs, with a
+             notification. Both only while the Player has Location on in Settings. -->
+        <service
+            android:name=".life.LocationJob"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
+        <service
+            android:name=".life.LocationService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
+        <!-- After the phone starts or Arise is updated: the job and the service again, if on. -->
+        <receiver
+            android:name=".life.LifeBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Health Connect shows why Arise asks for health data: the privacy policy. -->
         <activity
             android:name=".life.HealthPrivacyActivity"
@@ -98,6 +119,15 @@
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <!-- Location on a timer: where the phone is, also while Arise is closed ("Allow all the
+         time"), a job that survives a restart, and the service with a notification for under
+         15 minutes. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <!-- Reminders may come a few minutes late (src/native.js), so no exact alarms. -->
     <uses-permission

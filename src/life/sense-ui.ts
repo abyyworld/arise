@@ -7,6 +7,8 @@ import { esc, openSheet, toast } from '../ui.js';
 import * as SENSE from './sense';
 import type { Source } from './sense';
 import { hasLifeStore } from './store-port';
+import * as LUI from './location-ui';
+import * as LS from './location-sense';
 
 const WHERE = 'Stays on this iPhone and in your encrypted sync.';
 
@@ -49,6 +51,7 @@ function statusLine(src: Source): string {
     const add = !!st.addWorkouts;
     lines.push(`<button class="toggle-row" data-act="life-add-workouts" aria-pressed="${add}"><span><b>Add my workouts to my calendar</b><small>Each workout you finish in Arise goes in your calendar.</small></span><span class="switch ${add ? 'on' : ''}"></span></button>`);
   }
+  if (src === 'places') lines.push(LUI.locationBlock({ withOff: false }));
   if (src === 'shortcuts') lines.push('<button class="btn ghost small" data-act="life-automations">iPhone automations</button>');
   return lines.join('');
 }
@@ -131,6 +134,7 @@ export function automationsHTML(): string {
 
 // Returns true when it handled the action.
 export async function handleAction(act: string, el: HTMLElement): Promise<boolean> {
+  if (LS.platform() === 'iphone' && (await LUI.handleAction(act, el, refresh))) return true;
   switch (act) {
     case 'life-toggle': {
       const src = el.dataset.src as Source;
@@ -172,10 +176,14 @@ export async function handleAction(act: string, el: HTMLElement): Promise<boolea
 // In the iPhone app: starts reading, and keeps the panel up to date.
 export function initLife() {
   SENSE.initSense({ changed: refresh });
+  LS.initLocation(refresh);
 }
 
 // Everything on this device is being erased: every source off, nothing left waiting.
-export const forget = () => SENSE.forget();
+export const forget = async () => {
+  if (LS.platform() === 'iphone') await LS.forget();
+  await SENSE.forget();
+};
 
 // A workout was just finished: into the calendar, if the Player asked for that.
 export const workoutDone = (session: { name?: string; started?: number; finished?: number } | null) => SENSE.workoutDone(session);

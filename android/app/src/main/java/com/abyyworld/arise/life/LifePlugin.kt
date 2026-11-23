@@ -27,6 +27,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.json.JSONArray
+import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
 
@@ -40,6 +41,9 @@ import java.time.LocalDate
         Permission(alias = "calls", strings = [Manifest.permission.READ_CALL_LOG]),
         Permission(alias = "contacts", strings = [Manifest.permission.READ_CONTACTS]),
         Permission(alias = "calendar", strings = [Manifest.permission.READ_CALENDAR]),
+        Permission(alias = "location", strings = [Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION]),
+        // "Allow all the time" (Android 10 and later; before that, Location is enough).
+        Permission(alias = "backgroundLocation", strings = [Manifest.permission.ACCESS_BACKGROUND_LOCATION]),
     ],
 )
 class LifePlugin : Plugin() {
@@ -137,6 +141,85 @@ class LifePlugin : Plugin() {
         work(call) {
             LifeQueue.ack(context, upTo)
             JSObject()
+        }
+    }
+
+    // ---------- other queues: location points ("places"), and more (LifeQueue.NAMES)
+
+    private fun queueOf(call: PluginCall): String? = call.getString("queue")?.takeIf { it in LifeQueue.NAMES }
+
+    @PluginMethod
+    fun readQueue(call: PluginCall) {
+        val queue = queueOf(call)
+        if (queue == null) {
+            call.reject("No such queue.", "failed")
+            return
+        }
+        val max = (call.getInt("max", 500) ?: 500).coerceIn(1, 2000)
+        work(call) {
+            val (items, last) = LifeQueue.read(context, max, queue)
+            JSObject().put("items", JSArray(items)).put("last", last)
+        }
+    }
+
+    @PluginMethod
+    fun ackQueue(call: PluginCall) {
+        val queue = queueOf(call)
+        val upTo = call.long("upTo", -1L)
+        if (queue == null || upTo < 0L) {
+            call.reject("queue or upTo is missing.", "failed")
+            return
+        }
+        work(call) {
+            LifeQueue.ack(context, upTo, queue)
+            JSObject()
+        }
+    }
+
+    // ---------- location (LocationReader)
+
+    // The setting: mode ("off", "places", "interval"), every (minutes), exact, never (places never
+    // to note: lat, lon, radius) and pausedUntil (Pause everything). Off: the job and the service
+    // stop, and the points waiting are deleted.
+    @PluginMethod
+    fun setLocation(call: PluginCall) {
+        val ctx = context
+        val mode = call.getString("mode")?.takeIf { it == "places" || it == "interval" } ?: "off"
+        val every = (call.getInt("every", 30) ?: 30).coerceIn(1, 720)
+        val exact = call.getBoolean("exact", true) ?: true
+        val never = JSONArray()
+        val list = call.getArray("never")
+        if (list != null) {
+            for (i in 0 until list.length()) {
+                val o = list.optJSONObject(i) ?: continue
+                never.put(JSONObject().put("lat", o.optDouble("lat")).put("lon", o.optDouble("lon")).put("radius", o.optDouble("radius", 250.0)))
+            }
+        }
+        LifePrefs.setLocation(ctx, mode, every, exact, never)
+        if (data(call, "pausedUntil")) LifePrefs.setPausedUntil(ctx, call.long("pausedUntil", 0L))
+        if (mode == "off") LifeQueue.clear(ctx, LifeQueue.PLACES)
+        try {
+            LocationReader.apply(ctx)
+        } catch (_: Exception) {
+        }
+        call.resolve(JSObject().put("mode", mode))
+    }
+
+    private fun data(call: PluginCall, name: String) = call.data.has(name)
+
+    // Where the phone is now (to add a place never to note).
+    @PluginMethod
+    fun locationNow(call: PluginCall) {
+        if (!LocationReader.hasLocation(context)) {
+            call.reject("Arise isn't allowed to use Location.", "denied")
+            return
+        }
+        LocationReader.once(context, true) { l ->
+            if (l == null) {
+                call.reject("Couldn't find where this phone is.", "failed")
+            } else {
+                call.resolve(JSObject().put("lat", l.latitude).put("lon", l.longitude).put("acc", l.accuracy.toDouble()))
+            }
         }
     }
 

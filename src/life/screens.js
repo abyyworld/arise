@@ -23,6 +23,7 @@ import { PART_NAMES, shareText, splitLine, toText } from './diary';
 import { WAITS, byText } from './strength';
 import { CHECKIN, hasCheckin } from '../lib/life-check';
 import { hasLifeStore } from './store-port';
+import { hasSpot } from './location';
 
 // (Parts of these screens fill in after reading the log; by then a test may have gone.)
 const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
@@ -284,7 +285,7 @@ async function fillDay() {
   if (!box) return;
   if (journal) journals.set(k, journal);
   box.innerHTML = `<div data-pane="journal" ${ui.pane === 'journal' ? '' : 'hidden'}>${journal ? journalHTML(k, journal) : ''}</div>
-    <div data-pane="events" ${ui.pane === 'events' ? '' : 'hidden'}>${summaryHTML(k, events) + timelineHTML(events)}</div>`;
+    <div data-pane="events" ${ui.pane === 'events' ? '' : 'hidden'}>${summaryHTML(k, events) + timelineHTML(events) + placesHTML(k, events)}</div>`;
 }
 
 function showPane(v) {
@@ -535,6 +536,34 @@ function timelineHTML(events) {
       return `<div class="tl-hour"><p class="tl-h">${esc(timeOf(new Date(2000, 0, 1, h).getTime()))}</p><ul class="tl-list">${shown}</ul>${more}</div>`;
     })
     .join('')}</div>`;
+}
+
+// Where the Player was this day (location points, stays and visits), each with its own delete,
+// and the whole day or a range of days at once.
+function placesHTML(k, events) {
+  const spots = events.filter(hasSpot).sort((a, b) => a.at - b.at);
+  if (!spots.length) return '';
+  const rows = spots
+    .map(
+      (e) => `<li class="row loc-row"><span><b>${esc(timeOf(e.at))}</b> ${esc(e.title)}${e.detail ? ` <small class="muted">${esc(e.detail)}</small>` : ''}</span>
+      <button class="btn ghost small" data-act="life-ev-del" data-id="${esc(e.id)}" aria-label="${esc(`Delete ${e.title} at ${timeOf(e.at)}`)}">Delete</button></li>`,
+    )
+    .join('');
+  return `<details class="other life-places" id="lifePlaces"><summary>Where you were: ${plural(spots.length, 'place')}</summary>
+    <ul class="plain">${rows}</ul>
+    <div class="row"><button class="btn ghost small" data-act="loc-day-del" data-day="${esc(k)}">Delete this day's places</button><button class="btn ghost small" data-act="loc-range" data-day="${esc(k)}">Delete a date range</button></div>
+  </details>`;
+}
+
+// Deleting where the Player was over several days: everything from Maps in them.
+function openRange(day) {
+  const k = /^\d{4}-\d{2}-\d{2}$/.test(day || '') ? day : today();
+  openSheet(`<p class="kicker">Your days</p>
+    <h2 class="display sheet-title">Delete places</h2>
+    <p>Deletes every place in these days: points, stays, visits and anything brought in from Google Maps. It goes from all your devices.</p>
+    <label class="field"><span class="k">From</span><input id="locFrom" type="date" value="${esc(k)}" max="${esc(today())}"></label>
+    <label class="field"><span class="k">To (this day too)</span><input id="locTo" type="date" value="${esc(k)}" max="${esc(today())}"></label>
+    <button class="btn primary block" data-act="loc-range-del">Delete</button>`);
 }
 
 // ---------- search
@@ -989,6 +1018,43 @@ export async function handleAction(act, el) {
       try {
         if (isCoachQuestion(d.id)) await deleteCoachQuestion(d.id);
         else await L.removeIds([d.id]);
+      } catch (err) {
+        toast(lifeError(err));
+      }
+      closeSheet();
+      if (app.view() === 'days') fillDay();
+      return true;
+    }
+    case 'loc-day-del': {
+      const k = d.day;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(k || '')) return true;
+      if (!confirm("Delete every place from this day? It can't be undone.")) return true;
+      try {
+        const ids = (await L.eventsBetween(dayStart(k), dayEnd(k), { limit: 5000 })).filter(hasSpot).map((e) => e.id);
+        if (ids.length) await L.removeIds(ids);
+        await M.forgetDays([k]);
+        toast('Deleted.');
+      } catch (err) {
+        toast(lifeError(err));
+      }
+      if (app.view() === 'days') fillDay();
+      return true;
+    }
+    case 'loc-range':
+      openRange(d.day);
+      return true;
+    case 'loc-range-del': {
+      const from = $('#locFrom')?.value || '';
+      const to = $('#locTo')?.value || '';
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) {
+        toast('Pick the first day, then a last day on or after it.');
+        return true;
+      }
+      if (!confirm(`Delete every place from ${shortDay(from)} to ${shortDay(to)}? It can't be undone.`)) return true;
+      try {
+        const { deleted, days } = await L.deleteWhereDays({ source: 'maps', from: dayStart(from), to: dayEnd(to) });
+        await M.forgetDays(days);
+        toast(deleted ? `Deleted ${plural(deleted, 'place')}.` : 'There were no places in those days.');
       } catch (err) {
         toast(lifeError(err));
       }
