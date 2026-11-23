@@ -66,7 +66,7 @@ afterEach(() => vi.useRealTimers());
 describe('Your days', () => {
   it('is a tab, and shows a day grouped by hour with where each thing came from', async () => {
     await boot('days');
-    expect([...document.querySelectorAll('#tabs [data-v]')].map((b) => b.getAttribute('data-v'))).toEqual(['today', 'days', 'progress', 'goals', 'coach', 'settings']);
+    expect([...document.querySelectorAll('#tabs [data-v]')].map((b) => b.getAttribute('data-v'))).toEqual(['today', 'calendar', 'days', 'progress', 'goals', 'coach', 'settings']);
     expect(document.querySelector('#tabs [data-v="days"]')?.classList.contains('on')).toBe(true);
     expect(text('h1')).toBe('Your days');
     // Signed out: it says where the log is, and how to sync it.
@@ -198,6 +198,24 @@ describe('Your days', () => {
     expect(note).toMatchObject({ source: 'manual', kind: 'note', tier: 2, title: 'Lunch with Sam in the park.', at: T('2026-10-17', 9, 30), value: 4 });
     expect(note.detail).toContain('Mood: Good.');
     await vi.waitFor(() => expect(text('#lifeDay')).toContain('Lunch with Sam in the park.'));
+  });
+});
+
+describe('a quick note from Today', () => {
+  it('adds a note with a title and a text file to today', async () => {
+    const { L } = await boot('today');
+    click('[data-act="life-add"][data-day="today"]');
+    expect(text('.sheet-body .kicker')).toBe('Add to your day');
+    (document.getElementById('lifeNoteTitle') as HTMLInputElement).value = 'Packing list';
+    const input = document.getElementById('lifeFile') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File(['Tent\nStove'], 'packing.txt', { type: 'text/plain' })] });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(text('#lifeFileNote')).toBe('packing.txt: its words go into the note.');
+    (document.getElementById('lifeTime') as HTMLInputElement).value = '08:15';
+    click('[data-act="life-add-save"]');
+    await vi.waitFor(async () => expect(await L.countBySource()).toMatchObject({ manual: 1 }));
+    const [note] = await L.eventsBetween(0, Infinity, { sources: ['manual'] });
+    expect(note).toMatchObject({ kind: 'note', title: 'Packing list', detail: 'packing.txt:\nTent\nStove', at: T('2026-10-17', 8, 15), meta: { file: 'packing.txt', fileType: 'text/plain' } });
   });
 });
 

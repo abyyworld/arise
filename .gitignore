@@ -13,3 +13,4 @@ coverage/
 *.apk
 *.keystore
 *.jks
+.vitest/

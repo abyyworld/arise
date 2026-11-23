@@ -1972,3 +1972,194 @@ describe('a blank first copy', () => {
     });
   });
 });
+
+describe('sign out of all devices', () => {
+  // The key this device keeps (lib/keystore.ts), straight from its database.
+  const storedKey = () =>
+    new Promise<unknown>((resolve, reject) => {
+      const r = indexedDB.open('arise-keys', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('keys');
+      r.onsuccess = () => {
+        const tx = r.result.transaction('keys', 'readonly');
+        const get = tx.objectStore('keys').get('current');
+        tx.oncomplete = () => {
+          r.result.close();
+          resolve(get.result);
+        };
+      };
+      r.onerror = () => reject(r.error);
+    });
+  const at = (sec: number) => vi.setSystemTime(new Date(Date.UTC(2026, 10, 1, 12, 0, sec)));
+  // The simulated Firebase has one sign-in for every device: once one signs out, the others'
+  // requests need it back (as it was, signed in at `sec`).
+  const back = async (sec: number) => ((await import('./lib/firebase')) as unknown as typeof import('./test/fake-firebase')).restoreSession('uid1', Date.UTC(2026, 10, 1, 12, 0, sec));
+
+  // A phone that made the account, and a laptop that signed in to it 10 seconds later.
+  async function pair() {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    at(0);
+    const a = await device('phone');
+    a.S.importData({ sessions: [session('s1')] });
+    await a.SYNC.submit('up', { email: 'me@example.com', password: PW, password2: PW });
+    await a.SYNC.handleAction('sync-code-done');
+    at(10);
+    const b = await device('laptop');
+    await b.SYNC.submit('in', { id: 'me@example.com', password: PW });
+    expect(b.SYNC.status.user?.uid).toBe('uid1');
+    return { a, b };
+  }
+  let yes: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    yes = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  });
+  afterEach(() => {
+    yes.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('signs the other devices out at their next sync, keeps their data, and keeps this one signed in', async () => {
+    const { a, b } = await pair();
+    at(20);
+    await on(a, () => a.SYNC.submit('everywhere', { keep: '1', password: PW }));
+    expect(a.SYNC.status.error).toBe('');
+    const cut = cloud.docs.get('users/uid1/arise/signout')!;
+    expect(cut).toMatchObject({ v: 1, wipe: false, at: { seconds: Date.UTC(2026, 10, 1, 12, 0, 20) / 1000 } });
+    // Nothing of the Player's in it.
+    expect(Object.keys(cut).sort()).toEqual(['at', 'v', 'wipe']);
+
+    at(30);
+    await on(b, async () => {
+      expect(await storedKey()).toBeTruthy();
+      await b.SYNC.syncNow();
+      expect(b.SYNC.status.user).toBeNull();
+      expect(b.SYNC.status.error).toMatch(/Sign out of all devices/);
+      expect(await storedKey()).toBeUndefined();
+      expect(b.S.state.sessions.map((s) => s.id)).toEqual(['s1']);
+      // Signed out the usual way: it knows whose data this is, for signing back in.
+      expect(JSON.parse(localStorage.getItem('arise-sync')!)).toMatchObject({ lastUid: 'uid1' });
+    });
+    // The device that chose it stays signed in and keeps syncing.
+    await back(20);
+    await on(a, async () => {
+      a.S.importData({ sessions: [session('s2', '2026-10-02')] });
+      await a.SYNC.syncNow();
+      expect(a.SYNC.status.user?.uid).toBe('uid1');
+      expect(a.SYNC.status.error).toBe('');
+      expect(await storedKey()).toBeTruthy();
+    });
+    // Signing in again later works as before, and stays.
+    at(40);
+    await on(b, async () => {
+      await b.SYNC.submit('in', { id: 'me@example.com', password: PW });
+      await b.SYNC.syncNow();
+      expect(b.SYNC.status.user?.uid).toBe('uid1');
+      expect(b.SYNC.status.error).toBe('');
+      expect(b.S.state.sessions.map((s) => s.id).sort()).toEqual(['s1', 's2']);
+    });
+  });
+
+  it("doesn't send a signed-out device's waiting changes up", async () => {
+    const { a, b } = await pair();
+    at(20);
+    await on(a, () => a.SYNC.submit('everywhere', { keep: '1', password: PW }));
+    const rev = (cloud.docs.get('users/uid1/arise/meta') as { rev: string }).rev;
+    at(30);
+    await on(b, async () => {
+      b.S.importData({ sessions: [session('thief', '2026-10-03')] });
+      await b.SYNC.syncNow();
+      expect(b.SYNC.status.user).toBeNull();
+    });
+    expect((cloud.docs.get('users/uid1/arise/meta') as { rev: string }).rev).toBe(rev);
+  });
+
+  it("removes the other devices' data when asked to", async () => {
+    const { a, b } = await pair();
+    at(20);
+    await on(a, () => a.SYNC.submit('everywhere', { keep: '1', wipe: '1', password: PW }));
+    expect(cloud.docs.get('users/uid1/arise/signout')).toMatchObject({ wipe: true });
+    at(30);
+    await on(b, async () => {
+      await b.SYNC.syncNow();
+      expect(b.SYNC.status.user).toBeNull();
+      expect(b.SYNC.status.error).toMatch(/data removed/);
+      expect(b.S.state.sessions).toEqual([]);
+      expect(await storedKey()).toBeUndefined();
+    });
+    // The cloud copy and the device that chose it keep everything.
+    await back(20);
+    await on(a, async () => {
+      await a.SYNC.syncNow();
+      expect(a.SYNC.status.user?.uid).toBe('uid1');
+      expect(a.S.state.sessions.map((s) => s.id)).toEqual(['s1']);
+    });
+  });
+
+  it('signs this device out too when it is not kept', async () => {
+    const { a, b } = await pair();
+    at(20);
+    await on(a, async () => {
+      await a.SYNC.submit('everywhere', { password: PW });
+      expect(a.SYNC.status.user).toBeNull();
+      expect(await storedKey()).toBeUndefined();
+      expect(a.S.state.sessions.map((s) => s.id)).toEqual(['s1']);
+    });
+    at(30);
+    await back(10); // the laptop's
+    await on(b, async () => {
+      await b.SYNC.syncNow();
+      expect(b.SYNC.status.user).toBeNull();
+    });
+  });
+
+  it('needs the right password, and then changes nothing', async () => {
+    const { a, b } = await pair();
+    at(20);
+    await on(a, () => a.SYNC.submit('everywhere', { keep: '1', password: 'not my password' }));
+    expect(a.SYNC.status.error).toMatch(/password isn't right/);
+    expect(cloud.docs.has('users/uid1/arise/signout')).toBe(false);
+    at(30);
+    await on(b, async () => {
+      await b.SYNC.syncNow();
+      expect(b.SYNC.status.user?.uid).toBe('uid1');
+    });
+  });
+
+  it('signs out a device that was offline once it can reach the cloud', async () => {
+    const { a, b } = await pair();
+    at(20);
+    await on(a, () => a.SYNC.submit('everywhere', { keep: '1', password: PW }));
+    at(30);
+    await on(b, async () => {
+      cloud.hook = () => {
+        throw Object.assign(new Error('unavailable'), { code: 'unavailable' });
+      };
+      await b.SYNC.syncNow();
+      expect(b.SYNC.status.user?.uid).toBe('uid1'); // can't tell yet
+      cloud.hook = null;
+      await b.SYNC.syncNow();
+      expect(b.SYNC.status.user).toBeNull();
+    });
+  });
+
+  it("doesn't touch a device that signed in after it", async () => {
+    const { a } = await pair();
+    at(20);
+    await on(a, () => a.SYNC.submit('everywhere', { keep: '1', password: PW }));
+    at(25);
+    const c = await device('tablet');
+    await c.SYNC.submit('in', { id: 'me@example.com', password: PW });
+    await c.SYNC.syncNow();
+    expect(c.SYNC.status.user?.uid).toBe('uid1');
+    expect(c.SYNC.status.error).toBe('');
+  });
+
+  it('goes with the account when it is deleted', async () => {
+    const { a } = await pair();
+    at(20);
+    await on(a, async () => {
+      await a.SYNC.submit('everywhere', { keep: '1', password: PW });
+      await a.SYNC.submit('delete', { password: PW });
+    });
+    expect([...cloud.docs.keys()].filter((p) => p.startsWith('users/uid1/'))).toEqual([]);
+  });
+});

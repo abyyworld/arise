@@ -43,6 +43,7 @@ import * as BROWSER from './life/browser-ui.js';
 import * as YOU from './you.js';
 import * as HUB from './life/connect-hub.js';
 import * as TODOS from './todos-ui.js';
+import * as CAL from './calendar-ui.js';
 import * as PAUSEUI from './life/pause-ui';
 import * as SKIPUI from './life/app-skip-ui';
 import { forget as forgetAppSkip } from './life/app-skip';
@@ -50,6 +51,8 @@ import * as ALERTS from './todo-alerts.js';
 import * as ATMO from './atmosphere.js';
 import * as TOP from './life/top-sites.js';
 import * as FILES from './files-folder.js';
+import * as GHB from './github-backup';
+import * as GHB_UI from './github-backup-ui.js';
 import { initInsight } from './life/insight';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -135,7 +138,7 @@ const VIEWS = {
   study: () => STUDY.renderStudy(app),
   quiz: () => STUDY.renderQuiz(app),
   [HUB.VIEW]: () => HUB.renderConnect(app),
-  [TODOS.VIEW]: () => TODOS.renderCalendar(app),
+  [CAL.VIEW]: () => CAL.renderCalendar(app),
   [IMPORT.VIEW]: () => IMPORT.renderImport(app, { store: loadLifeStore, back: importBack }),
 };
 
@@ -163,7 +166,7 @@ function render() {
   if (applyLook()) buildNav();
   document.body.dataset.view = view;
   // Screens without a tab of their own light up the one they open from.
-  const tab = view === 'plan' || view === 'training' ? 'goals' : view === 'knows' || view === HUB.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' || view === TODOS.VIEW ? 'today' : view;
+  const tab = view === 'plan' || view === 'training' ? 'goals' : view === 'knows' || view === HUB.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
   for (const b of document.querySelectorAll('#tabs [data-v]')) {
     b.classList.toggle('on', b.dataset.v === tab);
     if (b.dataset.v === tab) b.setAttribute('aria-current', 'page');
@@ -285,7 +288,7 @@ function heroHTML(k) {
     <p class="hero-hi">${esc(hi)}${name ? `, <span class="hero-name">${esc(name)}</span>` : ''}.</p>
     <p class="hero-sub">${esc(line)}</p>
     <div class="hero-glance">
-      <button data-act="nav" data-v="${TODOS.VIEW}"><b id="heroCal">·</b> <span>on your calendar today</span></button>
+      <button data-act="nav" data-v="${CAL.VIEW}"><b id="heroCal">·</b> <span>on your calendar today</span></button>
       <button data-act="to-todo-card"><b>${todos}</b> <span>${todos === 1 ? 'to-do' : 'to-dos'}</span></button>
       <button data-act="nav" data-v="goals"><b>${left}</b> <span>${left === 1 ? 'quest' : 'quests'} left</span></button>
     </div>
@@ -294,7 +297,7 @@ function heroHTML(k) {
 
 // The calendar's count, once the life log has it.
 function fillHero(k) {
-  TODOS.calendarCount(k)
+  CAL.calendarCount(k)
     .then((n) => {
       const b = $('#heroCal');
       if (!b) return;
@@ -1796,7 +1799,7 @@ function renderSettings() {
         <section class="panel">
           <div class="panel-title"><span>Backup</span></div>
           <p>${SYNC.configured ? 'With an account (see Account) your data syncs by itself. Without one, your' : 'Your'} log is saved on this device only. You can also save a backup here and load it on another device to combine them.</p>
-          <p class="muted small">Keep backups in Filen, iCloud Drive or Dropbox: <button class="link" data-act="hub-go" data-v="connect" data-step="connections" data-to="hubFiles">Your files</button>.</p>
+          <p class="muted small">Keep backups in Filen, iCloud Drive or Dropbox: <button class="link" data-act="hub-go" data-v="connect" data-step="connections" data-to="hubFiles">Your files</button>. Or, optional, locked in a private repository on GitHub: <button class="link" data-act="hub-go" data-v="connect" data-step="connections" data-to="hubGitHub">GitHub backup</button>.</p>
           ${FILES.state().error ? `<p class="error small">${esc(FILES.state().error)}</p>` : ''}
           <div class="row"><button class="btn primary" data-act="export">Save backup</button><button class="btn ghost" data-act="import">Load backup</button></div>
         </section>
@@ -2345,6 +2348,7 @@ document.addEventListener('click', async (e) => {
       if (GOALS.handleAction(d.act, el)) break;
       if (STUDY.handleAction(d.act, el)) break;
       if (TODOS.handleAction(d.act, el)) break;
+      if (CAL.handleAction(d.act, el)) break;
       if (YOU.handleAction(d.act, el)) break;
       if (await LIFE.handleAction(d.act, el)) break;
       if (PAUSEUI.handleAction(d.act, el)) break;
@@ -2375,6 +2379,7 @@ async function eraseDevice(signedIn) {
   }
   if (WR.isOn()) await WR.turnOff(); // like the iPhone app's, the reminders stop
   await CONNECT.forgetAll(); // linked accounts' sign-ins go too (the reset started it: this waits until it's done)
+  await GHB.forget(); // the GitHub backup's key and backup password (its backups stay on GitHub)
   await SENSE.forget(); // the iPhone stops noting places, and every source is off again
   if (!N.isNative) await BROWSER.forgetAll().catch(() => {}); // linked browsers' keys go too
   forgetAIKey('');
@@ -2457,7 +2462,14 @@ document.addEventListener('change', async (e) => {
     drawExercise();
   } else if (t.id === 'importFile' && t.files[0]) {
     try {
-      const added = S.importData(JSON.parse(await t.files[0].text()));
+      // A locked backup (GitHub backup) asks for its backup password first.
+      const raw = await GHB_UI.openBackup(JSON.parse(await t.files[0].text()));
+      if (raw === null) {
+        toast('Not loaded.');
+        t.value = '';
+        return;
+      }
+      const added = S.importData(raw);
       toast(added ? `Backup loaded: ${plural(added, 'new workout')} added.` : 'Backup loaded. No new workouts in it.');
       render();
     } catch (err) {
@@ -2562,6 +2574,7 @@ function buildNav() {
   // Each tab's view, its name and its icon. Me (the progress view) comes right after the days.
   const tabs = [
     ['today', 'Today', 'today'],
+    [CAL.VIEW, 'Calendar', 'calendar'],
     ['days', 'Days', 'days'],
     ['progress', w('youTab'), 'person'],
     ['goals', 'Goals', 'target'],
@@ -2619,6 +2632,7 @@ PAUSEUI.initPause(); // Pause everything: its card on Today goes when it ends
 WR.initWebReminders();
 ATMO.initAtmosphere();
 FILES.initFiles();
+GHB.initGitHubBackup();
 // The atmosphere menu closes with a tap anywhere else, or Escape.
 document.addEventListener('click', (e) => {
   if (!atmoOpen || e.target?.closest?.('.hero-tools')) return;

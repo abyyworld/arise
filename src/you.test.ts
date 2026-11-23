@@ -89,7 +89,7 @@ describe('the Me tab', () => {
     await boot({ data: { logs: { '2026-10-16': { e: 3, at: 1 } } } });
     expect(text('#tabs [data-v="progress"]')).toBe('Me');
     // Right after the days, with a person for its icon.
-    expect([...document.querySelectorAll('#tabs [data-v]')].map((b) => b.getAttribute('data-v'))).toEqual(['today', 'days', 'progress', 'goals', 'coach', 'settings']);
+    expect([...document.querySelectorAll('#tabs [data-v]')].map((b) => b.getAttribute('data-v'))).toEqual(['today', 'calendar', 'days', 'progress', 'goals', 'coach', 'settings']);
     expect($('#tabs [data-v="progress"] svg')!.innerHTML).toBe('<circle cx="12" cy="8" r="4"></circle><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"></path>');
     expect($('#tabs [data-v="progress"]')!.classList.contains('on')).toBe(true);
     expect(text('.page-head .kicker')).toBe('Everything about you');

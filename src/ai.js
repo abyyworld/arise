@@ -1680,6 +1680,19 @@ export function buildContext({ full = false, compact = false, recalled = '', e =
     for (const t of td.later.slice(0, compact ? 3 : 8)) out.push(`- [later] ${t.title}${when(t)}`);
   }
 
+  // Their own calendar events (lib/events.ts) in the next 7 days: titles and times only. (Events
+  // from Google, Outlook and the phone are in the life log, which the AI sees by its own rules.)
+  const soon = S.eventsBetween(Date.now(), S.parseKey(S.addDays(k, 7)).getTime());
+  if (soon.length) {
+    const hm = (ms) => {
+      const d = new Date(ms);
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    };
+    const dayOf = (ms) => S.keyOf(new Date(ms));
+    out.push('', '## Calendar, next 7 days');
+    for (const o of soon.slice(0, compact ? 10 : 30)) out.push(`- ${dayOf(o.start)} ${o.allDay ? (o.lastDay !== o.day ? `all day, to ${o.lastDay}` : 'all day') : `${hm(o.start)}-${hm(o.end)}`}: ${o.title}`);
+  }
+
   const p = st.profile;
   out.push('', '## Profile');
   if (!p) out.push('The Player has not filled in their profile yet.');

@@ -31,6 +31,8 @@ import { items as setupItems, progress, STEPS as ALL_STEPS, STEP_OF } from './se
 import * as SYS from '../system.js';
 import * as APPLOCK from '../app-lock.js';
 import * as FILES from '../files-folder.js';
+import * as GHB_UI from '../github-backup-ui.js';
+import * as MYFILES from './files-ui.js';
 import { toast } from '../ui.js';
 
 export const VIEW = 'connect';
@@ -250,6 +252,7 @@ export async function handleAction(act, el, { go } = {}) {
     if (!globalThis.document?.activeElement?.closest?.('.wiz-pager')) refocus('.wiz-pager button:not([disabled])');
     return true;
   }
+  if (await GHB_UI.handleAction(act)) return true;
   if (act.startsWith('files-')) {
     try {
       if (act === 'files-pick' && (await FILES.pick())) toast('Done. Arise backs up to that folder from now on.');
@@ -314,7 +317,7 @@ const GUIDES = {
   ],
   connections: [
     { art: 'phone', title: 'Your phone', text: 'The iPhone or Android app reads sleep, steps, workouts, places and your calendar into your days by itself.' },
-    { art: 'link', title: 'Your accounts', text: 'Link Google or Microsoft for your calendar and email, Steam or PlayStation for your games, and GitHub for what you build and plan in your repositories. Read straight from this device.' },
+    { art: 'link', title: 'Your accounts', text: 'Link Google or Microsoft for your calendar and email (and Google Drive files you pick), Steam or PlayStation for your games, and GitHub for what you build and plan in your repositories. Add any other calendar by its link. Read straight from this device.' },
     { art: 'laptop', title: 'This computer', text: 'The browser extension adds the sites you visit; on a Mac, the helper adds calls, messages and app use.' },
     { art: 'days', title: 'Your history', text: 'Bring in years of your life from Google, Spotify, Netflix, Apple Health and more. The file is read on this device.' },
     { art: 'share', title: 'AI apps', text: 'Let Claude, ChatGPT or Gemini know you, with only what you pick for each. On the web it is less private, and off until you turn it on.' },
@@ -351,7 +354,7 @@ function connectHTML(s) {
   if (s === 'review') return setupPanel();
   return `<div class="cols hub">
       <div class="col">${phonePart()}${CONNECT.settingsPanel('Accounts')}</div>
-      <div class="col">${computerPart()}${historyPart()}${filesPart()}${appsPart()}</div>
+      <div class="col">${computerPart()}${historyPart()}${filesPart()}${MYFILES.hubPanel()}${GHB_UI.panel()}${appsPart()}</div>
     </div>`;
 }
 

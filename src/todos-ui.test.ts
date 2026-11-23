@@ -155,7 +155,7 @@ describe('times, changes and the calendar', () => {
     expect(Object.values(S.state.todos).find((t) => t.title === 'Buy flowers')).toMatchObject({ day: '2026-11-20', time: '18:00' });
     expect(titles('#calDay > .qlist:not(.later) .qtitle')).toEqual(['Call mum', 'Buy flowers']);
     // The next month, and back.
-    $('[data-act="cal-month"][data-n="1"]')!.click();
+    $('[data-act="cal-move"][data-n="1"]')!.click();
     expect(document.querySelectorAll('.cal-grid .cal-cell:not(.blank)')).toHaveLength(31);
     $('[data-act="cal-today"]')!.click();
     expect($('[data-d="2026-11-13"]')!.classList.contains('on')).toBe(true);

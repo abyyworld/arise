@@ -7,6 +7,9 @@
 //   life key ──HKDF "arise life ids v1"───▶ HMAC-SHA-256 of a pack's name and part number: the
 //                 document's id, 43 characters of base64url whatever the pack, so the ids in the
 //                 cloud don't tell which months the Player has anything in.
+//   life key ──HKDF "arise files seal v1" and "arise files ids v1"──▶ the same two, for the
+//                 Player's photos and files (files-seal.ts), so a file can never be opened as a
+//                 pack or a pack as a file.
 //
 // A pack is compressed before it's sealed (gzip, lib/crypto.ts) and split into parts of at most
 // 700,000 characters, one document each. Each seal is tied to the account, the pack and its
@@ -33,6 +36,8 @@ export class PackError extends Error {
 export interface LifeKeys {
   sealKey: CryptoKey;
   idKey: CryptoKey;
+  fileKey: CryptoKey; // photos and files (files-seal.ts)
+  fileIdKey: CryptoKey;
 }
 
 const keyLabel = (uid: string) => `${uid}/life/key`;
@@ -55,7 +60,9 @@ async function deriveKeys(raw: Uint8Array<ArrayBuffer>): Promise<LifeKeys> {
   const base = await subtle().importKey('raw', raw, 'HKDF', false, ['deriveKey']);
   const sealKey = await subtle().deriveKey(hkdf('arise life seal v1'), base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
   const idKey = await subtle().deriveKey(hkdf('arise life ids v1'), base, { name: 'HMAC', hash: 'SHA-256', length: 256 }, false, ['sign']);
-  return { sealKey, idKey };
+  const fileKey = await subtle().deriveKey(hkdf('arise files seal v1'), base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  const fileIdKey = await subtle().deriveKey(hkdf('arise files ids v1'), base, { name: 'HMAC', hash: 'SHA-256', length: 256 }, false, ['sign']);
+  return { sealKey, idKey, fileKey, fileIdKey };
 }
 
 // The document id of part `i` of a pack.

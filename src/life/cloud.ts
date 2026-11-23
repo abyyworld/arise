@@ -31,6 +31,7 @@ import { canonical, cleanContent, emptyContent, isEmpty, LIFE_SCHEMA, MEM, TOMB_
 import { digest, newLifeKey, newRev, openIndex, openLifeKey, openPack, partId, sealIndex, sealPack, PackError, type LifeKeys } from './seal';
 import * as LOCAL from './local';
 import { eraseAll, hasLifeDB, holdsOwnData } from './log';
+import { eraseFilesHere, hasFilesDB, readFilesState, writeFilesState } from './files-store';
 
 type FB = typeof import('../lib/firebase');
 
@@ -69,6 +70,8 @@ let running: Promise<void> | null = null;
 let again = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let cache: { uid: string; keys: LifeKeys } | null = null;
+let okUid = ''; // the account the last sync went through for, in this session ('' none yet)
+const synced = new Set<() => void>(); // told after each sync that went through (files-sync.ts)
 
 const codeOf = (err: unknown) => String((err as { code?: string })?.code || '');
 const fail = (code: string, message: string) => Object.assign(new Error(message), { code });
@@ -134,6 +137,7 @@ export async function flush(): Promise<void> {
 // Signing out, or another account: nothing more goes in or out for the one before.
 export function stop() {
   gen++;
+  okUid = '';
   if (timer) clearTimeout(timer);
   timer = null;
   cache = null;
@@ -179,7 +183,11 @@ async function once() {
         t = setTimeout(() => reject(fail('timeout', 'Syncing the life log took too long.')), TIMEOUT);
       }),
     ]);
-    if (g === gen) Object.assign(status, { needsServer: false, newer: false, otherAccount: false, older: false, error: '', at: Date.now() });
+    if (g === gen) {
+      Object.assign(status, { needsServer: false, newer: false, otherAccount: false, older: false, error: '', at: Date.now() });
+      okUid = r.uid;
+      for (const fn of synced) fn();
+    }
   } catch (err) {
     const code = codeOf(err);
     if (code === 'other-account') status.otherAccount = true;
@@ -521,6 +529,12 @@ export async function eraseHere(): Promise<void> {
     throw fail('life-erase', `Your life log couldn't be removed from this device, so nothing else was either. ${(err as Error)?.message || ''}`.trim());
   }
   takePaused(false, 0);
+  // The photos and files kept with it go too (files-store.ts).
+  try {
+    if (await hasFilesDB()) await eraseFilesHere();
+  } catch (err) {
+    throw fail('life-erase', `Your photos and files couldn't be removed from this device, so nothing else was either. ${(err as Error)?.message || ''}`.trim());
+  }
 }
 
 // The data on this device goes into the account `uid` (sync.ts, right before it signs in), and
@@ -536,6 +550,11 @@ export async function joining(uid: string, from: string): Promise<void> {
     if (st) await LOCAL.forget();
     // From now on, what's done here counts for `uid`, even before the first sync (see run).
     await LOCAL.noteSince(uid, Date.now());
+    // The photos and files go with it the same way (files-sync.ts).
+    if (await hasFilesDB()) {
+      const fs = await readFilesState();
+      if (fs && fs.uid === from) await writeFilesState(null);
+    }
   } catch (err) {
     throw fail('life-read', `Your life log on this device couldn't be read, so you weren't signed in. Try again. ${(err as Error)?.message || ''}`.trim());
   }
@@ -547,6 +566,9 @@ export async function forgetAccount(uid: string): Promise<void> {
   stop();
   try {
     if ((await LOCAL.readState())?.uid === uid) await LOCAL.forget();
+  } catch {}
+  try {
+    if ((await hasFilesDB()) && (await readFilesState())?.uid === uid) await writeFilesState(null);
   } catch {}
 }
 
@@ -571,4 +593,36 @@ export async function deleteCloud(uid: string): Promise<void> {
     for (const d of docs.slice(i, i + 400)) batch.delete(fb.doc(db, 'users', uid, 'life', d.id));
     await batch.commit();
   }
+}
+
+// ---------- photos and files (files-sync.ts)
+
+// Told after each sync of the life log that went through.
+export function onSynced(fn: () => void): () => void {
+  synced.add(fn);
+  return () => synced.delete(fn);
+}
+
+export interface FilesCloud {
+  uid: string;
+  keys: LifeKeys;
+  fb: FB;
+  db: Firestore;
+  ref: (id: string) => ReturnType<FB['doc']>; // users/{uid}/life/{id}
+  account: ReturnType<FB['doc']>; // users/{uid}/arise/keys: there while the account is
+  live(): boolean; // still this account, and nobody signed out since
+}
+
+// The cloud for the Player's files: the life log's folder and keys, only while the life log
+// syncs for this account on this device (its last sync went through), so the same guards apply.
+export async function filesCloud(): Promise<FilesCloud | null> {
+  const r = hooks?.ready();
+  if (!r || okUid !== r.uid) return null;
+  const g = gen;
+  const uid = r.uid;
+  const { fb, db } = hooks!.firebase();
+  const c: Ctx = { r, fb, db, ref: (id) => fb.doc(db, 'users', uid, 'life', id), account: fb.doc(db, 'users', uid, 'arise', 'keys') };
+  const keys = await lifeKeys(c, true);
+  const live = () => g === gen && okUid === uid && hooks?.ready()?.uid === uid;
+  return live() ? { uid, keys, fb, db, ref: c.ref, account: c.account, live } : null;
 }

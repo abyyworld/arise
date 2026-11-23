@@ -6,7 +6,7 @@
 // Signed-in people are simulated with the emulator's mock sign-in tokens (no Auth emulator needed).
 
 import { initializeApp } from 'firebase/app';
-import { connectFirestoreEmulator, deleteDoc, doc, getDoc, getDocs, collection, getFirestore, setDoc, setLogLevel } from 'firebase/firestore/lite';
+import { connectFirestoreEmulator, deleteDoc, doc, getDoc, getDocs, collection, getFirestore, serverTimestamp, setDoc, setLogLevel, Timestamp } from 'firebase/firestore/lite';
 
 setLogLevel('silent'); // the refusals below are expected; this script says what each one was
 const [host, port] = (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080').split(':');
@@ -103,6 +103,25 @@ await expectAllowed('the main copy: a part', setDoc(arise(alice, 'alice', 'part0
 await expectDenied('the main copy: plain data', setDoc(arise(alice, 'alice', 'part0'), { rev: 'r1', ct: b64(100), journal: 'secret' }));
 await expectDenied('the main copy: someone else', getDoc(arise(bob, 'alice', 'meta')));
 await expectDenied('a folder that is not allowed', setDoc(doc(alice, 'users', 'alice', 'other', 'x'), pack()));
+
+console.log('Sign out of all devices (users/{uid}/arise/signout)');
+const cut = (extra = {}) => ({ v: 1, at: serverTimestamp(), wipe: false, ...extra });
+await expectAllowed('the owner writes it, with the database time', setDoc(arise(alice, 'alice', 'signout'), cut()));
+await expectAllowed('the owner writes it again, with wipe', setDoc(arise(alice, 'alice', 'signout'), cut({ wipe: true })));
+await expectAllowed('the owner reads it', getDoc(arise(alice, 'alice', 'signout')));
+await expectDenied("a device's own clock", setDoc(arise(alice, 'alice', 'signout'), cut({ at: Timestamp.now() })));
+await expectDenied('a time in the future', setDoc(arise(alice, 'alice', 'signout'), cut({ at: Timestamp.fromMillis(Date.now() + 86_400_000) })));
+await expectDenied('a number for the time', setDoc(arise(alice, 'alice', 'signout'), cut({ at: Date.now() })));
+await expectDenied('an extra field', setDoc(arise(alice, 'alice', 'signout'), cut({ device: 'phone' })));
+await expectDenied('no wipe', setDoc(arise(alice, 'alice', 'signout'), { v: 1, at: serverTimestamp() }));
+await expectDenied('wipe that is not true or false', setDoc(arise(alice, 'alice', 'signout'), cut({ wipe: 'yes' })));
+await expectDenied('another version', setDoc(arise(alice, 'alice', 'signout'), cut({ v: 2 })));
+await expectDenied('someone else reads it', getDoc(arise(bob, 'alice', 'signout')));
+await expectDenied('someone else writes it', setDoc(arise(bob, 'alice', 'signout'), cut()));
+await expectDenied('someone else deletes it', deleteDoc(arise(bob, 'alice', 'signout')));
+await expectDenied('nobody signed in reads it', getDoc(arise(nobody, 'alice', 'signout')));
+await expectDenied('nobody signed in writes it', setDoc(arise(nobody, 'alice', 'signout'), cut()));
+await expectAllowed('the owner deletes it (with the account)', deleteDoc(arise(alice, 'alice', 'signout')));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

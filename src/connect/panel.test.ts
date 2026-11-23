@@ -117,7 +117,8 @@ describe('the web app, set up', () => {
     save('google', { ...blank(), on: true, account: 'me@example.com', parts: ['calendar', 'mail'], last: Date.now() - 5 * 60_000, count: 1204, auth: { token: 't', expires: Date.now() + 3000_000 } });
     show();
     expect(text('google')).toContain('Connected as me@example.com (Calendar and Gmail). Last sync 5 min ago. 1,204 items so far.');
-    expect(buttons('google')).toEqual(['Sync now', 'Disconnect', 'Delete what Arise got from it']);
+    // Drive is off until they add it.
+    expect(buttons('google')).toEqual(['Sync now', 'Add Drive files', 'Disconnect', 'Delete what Arise got from it']);
   });
 
   it('asks for a tap when the hour-long Google sign-in is over', () => {

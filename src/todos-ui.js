@@ -1,37 +1,31 @@
-// To-dos (lib/todos.ts), on Today and in the calendar.
+// To-dos (lib/todos.ts), on Today and in the calendar (calendar-ui.js).
 //   Today: what's left to do, with its day and time if it has them, a box to add one (with a day
 //   and a time if you like), what got done today, and what's coming up. Ticked like quests; tap
 //   one to change or delete it. To-dos an AI app added through the web connector show its name.
-//   Calendar: a month, with a dot on each day that has to-dos or calendar events (from the life
-//   log: the iPhone's calendar, Google or Outlook), and the picked day's to-dos and events, with a
-//   box to add one for that day. All of it on this device.
+//   The calendar shows them on their days with the same rows, the box to add one for a day, and
+//   this sheet to change one.
 // Reminders at a to-do's time: the phone apps schedule them (native.js), and the web app shows
 // them while it's open (todo-alerts.js).
 
 import * as S from './store';
-import * as L from './life/log';
-import { hasLifeStore } from './life/store-port';
 import * as N from './native.js';
 import { allowed as webAlerts } from './todo-alerts.js';
 import { esc, icon, openSheet, closeSheet, toast } from './ui.js';
 
-export const VIEW = 'calendar';
+const CALENDAR = 'calendar'; // calendar-ui.js VIEW
 const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
 
 const parse = (k) => {
   const [y, m, d] = k.split('-').map(Number);
   return new Date(y, m - 1, d);
 };
-const keyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 export const dayText = (k, today = S.todayKey()) => {
   if (k === today) return 'Today';
   if (k === S.addDays(today, 1)) return 'Tomorrow';
   if (k === S.addDays(today, -1)) return 'Yesterday';
   return parse(k).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 };
-const clock = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-
-function row(t, today, { showDay = true } = {}) {
+export function row(t, today, { showDay = true } = {}) {
   const done = !!t.done;
   const late = !done && t.day && t.day < today;
   const when = t.day && showDay ? `${late ? 'Was due ' : ''}${dayText(t.day, today)}${t.time ? `, ${t.time}` : ''}` : t.time || '';
@@ -47,7 +41,7 @@ function row(t, today, { showDay = true } = {}) {
 }
 
 // The box to add one. `day`: fixed to that day (the calendar's).
-const addForm = (day = '') => `<form class="todo-add" data-form="todo-add">
+export const addForm = (day = '') => `<form class="todo-add" data-form="todo-add">
       <label class="sr-only" for="todoIn">New to-do</label>
       <input id="todoIn" type="text" maxlength="200" placeholder="${day ? `Add a to-do for ${esc(dayText(day).toLowerCase() === 'today' ? 'today' : dayText(day))}` : 'Add a to-do'}" autocomplete="off" enterkeyhint="done">
       <label class="sr-only" for="todoDay">Day (optional)</label>
@@ -65,136 +59,20 @@ export function todoCard(k = S.todayKey()) {
     ${open.length || done.length ? `<ul class="qlist">${[...open, ...done].map((t) => row(t, k)).join('')}</ul>` : '<p class="muted small">Nothing to do. Add anything you want to get done, today or another day.</p>'}
     ${addForm()}
     ${next.length ? `<p class="label">Coming up</p><ul class="qlist later">${next.map((t) => row(t, k)).join('')}</ul>${later.length > next.length ? `<p class="muted small">And ${later.length - next.length} more.</p>` : ''}` : ''}
-    <div class="row"><button class="link" data-act="nav" data-v="${VIEW}">${icon('days')} Calendar</button></div>
+    <div class="row"><button class="link" data-act="nav" data-v="${CALENDAR}">${icon('days')} Calendar</button></div>
   </section>`;
-}
-
-// ---------- the calendar
-
-const cal = { month: '', day: '' }; // 'YYYY-MM', 'YYYY-MM-DD'
-let events = { month: '', byDay: new Map() }; // calendar events from the life log, by day
-let eventsGen = 0;
-
-const monthOf = (k) => k.slice(0, 7);
-function monthDays(month) {
-  const [y, m] = month.split('-').map(Number);
-  const first = new Date(y, m - 1, 1);
-  const lead = (first.getDay() + 6) % 7; // Monday first
-  const n = new Date(y, m, 0).getDate();
-  return { first, lead, n, y, m };
-}
-
-// To-dos on a day: not done and due that day, or done that day.
-function todosOn(k) {
-  return Object.values(S.state.todos)
-    .filter((t) => !t.gone && (t.done ? keyOf(new Date(t.done)) === k : t.day === k))
-    .sort((a, b) => (a.time || '').localeCompare(b.time || '') || a.created - b.created); // (no time first, like all-day)
-}
-
-async function loadEvents(month) {
-  if (!hasLifeStore()) return;
-  const gen = ++eventsGen;
-  const { y, m } = monthDays(month);
-  const from = new Date(y, m - 1, 1).getTime();
-  const to = new Date(y, m, 1).getTime();
-  let list = [];
-  try {
-    // Calendars only (Google, Outlook, the iPhone's, the Mac's), not Arise's own events.
-    list = await L.eventsBetween(from, to, { sources: ['calendar', 'mac'], kinds: ['event'], limit: 2000 });
-  } catch {}
-  if (gen !== eventsGen) return;
-  const byDay = new Map();
-  for (const e of list) {
-    const k = keyOf(new Date(e.at));
-    if (!byDay.has(k)) byDay.set(k, []);
-    byDay.get(k).push(e);
-  }
-  for (const l of byDay.values()) l.sort((a, b) => a.at - b.at);
-  events = { month, byDay };
-  repaintCalendar();
-}
-
-function gridHTML() {
-  const today = S.todayKey();
-  const { lead, n, y, m } = monthDays(cal.month);
-  const cells = [];
-  for (let i = 0; i < lead; i++) cells.push('<span class="cal-cell blank" aria-hidden="true"></span>');
-  for (let d = 1; d <= n; d++) {
-    const k = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    const todos = todosOn(k);
-    const left = todos.filter((t) => !t.done).length;
-    const evs = events.month === cal.month ? events.byDay.get(k)?.length || 0 : 0;
-    const said = [left ? `${left} to do` : '', evs ? `${evs} in your calendar` : ''].filter(Boolean).join(', ');
-    cells.push(
-      `<button class="cal-cell${k === today ? ' today' : ''}${k === cal.day ? ' on' : ''}" data-act="cal-day" data-d="${k}" aria-pressed="${k === cal.day}" aria-label="${esc(parse(k).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }))}${said ? `: ${said}` : ''}"><span>${d}</span><span class="cal-dots">${left ? '<i class="dot todo"></i>' : ''}${evs ? '<i class="dot ev"></i>' : ''}</span></button>`,
-    );
-  }
-  const names = Array.from({ length: 7 }, (_, i) => new Date(2024, 0, 1 + i).toLocaleDateString(undefined, { weekday: 'narrow' }));
-  return `<div class="cal-head">
-      <button class="icon-btn" data-act="cal-month" data-n="-1" aria-label="Last month">${icon('back')}</button>
-      <b>${esc(new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }))}</b>
-      <button class="icon-btn flip" data-act="cal-month" data-n="1" aria-label="Next month">${icon('back')}</button>
-    </div>
-    <div class="cal-grid" role="group" aria-label="Days">${names.map((x) => `<span class="cal-name" aria-hidden="true">${esc(x)}</span>`).join('')}${cells.join('')}</div>
-    ${cal.day !== today ? '<button class="link small" data-act="cal-today">Back to today</button>' : ''}`;
-}
-
-function dayHTML() {
-  const k = cal.day;
-  const today = S.todayKey();
-  const todos = todosOn(k);
-  const overdue = k === today ? S.todosFor(k).open.filter((t) => !t.day || t.day < k) : [];
-  const evs = events.month === monthOf(k) ? events.byDay.get(k) || [] : [];
-  return `<section class="panel todos" id="calDay">
-    <div class="panel-title">${icon('days')}<span>${esc(dayText(k, today))}</span></div>
-    ${todos.length ? `<ul class="qlist">${todos.map((t) => row(t, today, { showDay: false })).join('')}</ul>` : '<p class="muted small">No to-dos on this day.</p>'}
-    ${overdue.length ? `<p class="label">Still to do from before, or with no day</p><ul class="qlist later">${overdue.map((t) => row(t, today)).join('')}</ul>` : ''}
-    ${addForm(k)}
-    ${
-      evs.length
-        ? `<p class="label">In your calendar</p><ul class="cal-events">${evs.map((e) => `<li><span class="muted">${esc(e.meta?.allDay ? 'All day' : clock(e.at))}</span> ${esc(e.title)}</li>`).join('')}</ul>`
-        : hasLifeStore()
-          ? `<p class="muted small">${k > today ? "Nothing coming up from your calendar. Google and Outlook show what's coming; the iPhone's calendar adds events once they've happened." : 'Nothing from your calendar. Connect it on Setup and connections.'}</p>`
-          : ''
-    }
-  </section>`;
-}
-
-// How many calendar events (Google, Outlook, the iPhone's, the Mac's) are on day k, or null when
-// this build has no life log. For the hero on Today.
-export async function calendarCount(k) {
-  if (!hasLifeStore()) return null;
-  const from = parse(k).getTime();
-  const to = parse(S.addDays(k, 1)).getTime();
-  return (await L.eventsBetween(from, to, { sources: ['calendar', 'mac'], kinds: ['event'], limit: 500 })).length;
-}
-
-export function renderCalendar(root) {
-  const today = S.todayKey();
-  if (!cal.day) cal.day = today;
-  if (!cal.month) cal.month = monthOf(cal.day);
-  root.innerHTML = `
-    <header class="page-head life-back-head"><button class="icon-btn" data-act="nav" data-v="today" aria-label="Back to Today">${icon('back')}</button><div><p class="kicker">Your to-dos and your calendar</p><h1 class="display">Calendar</h1></div></header>
-    <div class="cols">
-      <div class="col"><section class="panel cal" id="calMonth">${gridHTML()}</section></div>
-      <div class="col">${dayHTML()}</div>
-    </div>`;
-  void loadEvents(cal.month); // again each time: new events may have come in since
-}
-
-function repaintCalendar() {
-  const grid = $('#calMonth');
-  if (grid) grid.innerHTML = gridHTML();
-  const day = $('#calDay');
-  if (day) day.outerHTML = dayHTML();
 }
 
 // ---------- after a change
 
+// The calendar paints itself again after a change here (calendar-ui.js sets this).
+let afterChange = () => {};
+export const onTodoChange = (fn) => (afterChange = fn);
+
 function repaint() {
   const el = $('#todoCard');
   if (el) el.outerHTML = todoCard();
-  repaintCalendar();
+  afterChange();
 }
 
 function add() {
@@ -292,27 +170,6 @@ export function handleAction(act, el) {
       toast(`Deleted "${t.title}".`);
       return true;
     }
-    case 'cal-day':
-      cal.day = el.dataset.d;
-      repaintCalendar();
-      return true;
-    case 'cal-month': {
-      const { y, m } = monthDays(cal.month);
-      const d = new Date(y, m - 1 + Number(el.dataset.n || 0), 1);
-      cal.month = keyOf(d).slice(0, 7);
-      cal.day = monthOf(S.todayKey()) === cal.month ? S.todayKey() : keyOf(d);
-      repaintCalendar();
-      void loadEvents(cal.month);
-      return true;
-    }
-    case 'cal-today':
-      cal.day = S.todayKey();
-      if (monthOf(cal.day) !== cal.month) {
-        cal.month = monthOf(cal.day);
-        void loadEvents(cal.month);
-      }
-      repaintCalendar();
-      return true;
     default:
       return false;
   }
@@ -326,11 +183,3 @@ globalThis.document?.addEventListener('submit', (e) => {
   if (form === 'todo-add') add();
   else save();
 });
-
-// For tests: the calendar starts again on today.
-export function _reset() {
-  cal.month = '';
-  cal.day = '';
-  events = { month: '', byDay: new Map() };
-}
-
