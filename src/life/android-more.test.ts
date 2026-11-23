@@ -52,7 +52,7 @@ function fakePhone() {
     isNativePlatform: () => true,
     getPlatform: () => 'android',
     PluginHeaders: [{ name: 'AriseLife' }],
-    nativePromise: async (plugin: string, method: string, options: Opts = {}) => {
+    nativePromise: async (_plugin: string, method: string, options: Opts = {}) => {
       p.log.push({ method, options });
       const fn = handlers[method];
       if (!fn) throw new Error(`${method} isn't simulated`);

@@ -129,7 +129,8 @@ const floorHour = (ms: number) => {
 
 // Photos taken, one event per hour ("Took 3 photos"), with where the first one with a place was
 // taken: nothing from inside a place never to note, and to about 1 km unless Location is exact.
-export function photoEvents(rows: readonly unknown[], prefs: LOC.LocationPrefs): LifeEvent[] {
+// Also for the iPhone (iphone-photos.ts), which has no source of its own in the life log.
+export function photoEvents(rows: readonly unknown[], prefs: LOC.LocationPrefs, device: 'android' | 'iphone' = 'android'): LifeEvent[] {
   const hours = new Map<number, { n: number; spot?: { lat: number; lon: number } }>();
   for (const raw of rows) {
     const r = (raw || {}) as Record<string, unknown>;
@@ -147,8 +148,8 @@ export function photoEvents(rows: readonly unknown[], prefs: LOC.LocationPrefs):
     .sort((a, b) => a[0] - b[0])
     .map(([h, { n, spot }]) => {
       const e: LifeEvent = {
-        id: `android:photos:${h}`,
-        source: 'android',
+        id: device === 'android' ? `android:photos:${h}` : `other:iphone-photos:${h}`,
+        source: device === 'android' ? 'android' : 'other',
         kind: 'other',
         at: h,
         end: h + HOUR,
@@ -156,7 +157,7 @@ export function photoEvents(rows: readonly unknown[], prefs: LOC.LocationPrefs):
         value: n,
         unit: 'photos',
         tier: spot ? 3 : 2,
-        meta: { ...ANDROID, via: 'photos' },
+        meta: { device, via: 'photos' },
       };
       if (spot) {
         e.meta!.lat = Math.round(spot.lat * 1e5) / 1e5;

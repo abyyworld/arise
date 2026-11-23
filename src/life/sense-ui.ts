@@ -9,6 +9,7 @@ import type { Source } from './sense';
 import { hasLifeStore } from './store-port';
 import * as LUI from './location-ui';
 import * as LS from './location-sense';
+import * as PHOTOS from './iphone-photos';
 
 const WHERE = 'Stays on this iPhone and in your encrypted sync.';
 
@@ -52,8 +53,35 @@ function statusLine(src: Source): string {
     lines.push(`<button class="toggle-row" data-act="life-add-workouts" aria-pressed="${add}"><span><b>Add my workouts to my calendar</b><small>Each workout you finish in Arise goes in your calendar.</small></span><span class="switch ${add ? 'on' : ''}"></span></button>`);
   }
   if (src === 'places') lines.push(LUI.locationBlock({ withOff: false }));
-  if (src === 'shortcuts') lines.push('<button class="btn ghost small" data-act="life-automations">iPhone automations</button>');
+  if (src === 'shortcuts') lines.push(quickAutomations(), '<button class="btn ghost small" data-act="life-automations">iPhone automations</button>');
   return lines.join('');
+}
+
+// Under Photos taken, once it's on.
+function photosLine(): string {
+  const st = PHOTOS.read();
+  const s = PHOTOS.status.photos;
+  if (s === 'denied' || s === 'restricted') return `<p class="error small">Photos are off for Arise. In the Settings app, open Arise, then Photos, and choose Full Access.</p>${settingsButton}`;
+  const lines: string[] = [];
+  if (st.last?.error) lines.push(`<p class="error small">The last read didn't work: ${esc(st.last.error)}</p>`);
+  else if (st.last) lines.push(`<p class="muted small">Read ${ago(st.last.at)}${st.last.added ? `: ${st.last.added} new` : ''}.</p>`);
+  else lines.push('<p class="muted small">Not read yet.</p>');
+  if (s === 'limited') lines.push(`<p class="muted small">Arise sees only the photos you picked for it. For all of them, choose Full Access in the Settings app, under Arise, Photos.</p>${settingsButton}`);
+  lines.push('<p class="muted small">Places never to note, and Only to about 1 km, under Places, count here too.</p>');
+  return lines.join('');
+}
+
+// Three ready-made automations to start with, in short. The full guide has the rest.
+function quickAutomations(): string {
+  const step = (name: string, when: string, what: string) => `<li><b>${name}.</b> ${when} Then add <b>Log to Arise</b>: ${what}</li>`;
+  return `<details class="other"><summary>Three to start with</summary>
+    <p class="small">In the <b>Shortcuts</b> app: Automation, <b>+</b>, pick what starts it, choose <b>Run Immediately</b>, then <b>New Blank Automation</b> and add the action.</p>
+    <ol class="changes small">
+      ${step('An app is opened', '<b>App</b>, choose the app, tick <b>Is Opened</b>.', 'What happened is the app\'s name, Kind <b>App opened</b>. Add a second one with <b>Is Closed</b> and Kind <b>App closed</b> to count the time.')}
+      ${step('Arrived home', '<b>Arrive</b>, pick <b>Home</b>.', 'What happened is “Home”, Kind <b>Arrived</b>. Add one with <b>Leave</b> and Kind <b>Left</b>.')}
+      ${step('A message came in', '<b>Message</b> (iOS 17 or later), leave Sender empty, and for <b>Message Contains</b> type a space.', 'What happened is <b>Shortcut Input</b>, Kind <b>Message</b>. For only who wrote, tap Shortcut Input and pick Sender.')}
+    </ol>
+  </details>`;
 }
 
 // In Settings it's "Your life". The Connect screen gives it its own `name`, which a redraw keeps.
@@ -81,9 +109,12 @@ export function settingsPanel(name = ''): string {
       ${on ? statusLine(src) : ''}`;
   }).join('');
   const any = SENSE.SOURCES.some((s) => st.on[s]);
+  const photos = PHOTOS.read();
   return `${title}
     <p>Arise can log your days from this iPhone, so your coach knows you better. Each one is off until you turn it on, and Arise reads them each time it opens.</p>
     ${rows}
+    <button class="toggle-row" data-act="life-photos" aria-pressed="${photos.on}"><span><b>Photos taken</b><small>When you took photos, and where if the photo says so. Never the photos themselves. ${WHERE}</small></span><span class="switch ${photos.on ? 'on' : ''}"></span></button>
+    ${photos.on ? photosLine() : ''}
     ${any ? `<div class="row"><button class="btn ghost small" data-act="life-read" ${SENSE.status.busy ? 'disabled' : ''}>${SENSE.status.busy ? 'Reading…' : 'Read now'}</button></div>` : ''}
   </section>`;
 }
@@ -159,7 +190,20 @@ export async function handleAction(act: string, el: HTMLElement): Promise<boolea
       refresh();
       return true;
     }
+    case 'life-photos': {
+      if (PHOTOS.read().on) {
+        PHOTOS.turnOff();
+        toast('Photos taken off. What was already read stays in your life log.');
+      } else {
+        (el as HTMLButtonElement).disabled = true;
+        const note = await PHOTOS.turnOn();
+        toast(note || 'Photos taken on.');
+      }
+      refresh();
+      return true;
+    }
     case 'life-read':
+      void PHOTOS.collect();
       SENSE.collect(true);
       refresh();
       return true;
@@ -177,11 +221,13 @@ export async function handleAction(act: string, el: HTMLElement): Promise<boolea
 export function initLife() {
   SENSE.initSense({ changed: refresh });
   LS.initLocation(refresh);
+  PHOTOS.initPhotos(refresh);
 }
 
 // Everything on this device is being erased: every source off, nothing left waiting.
 export const forget = async () => {
   if (LS.platform() === 'iphone') await LS.forget();
+  PHOTOS.forget();
   await SENSE.forget();
 };
 

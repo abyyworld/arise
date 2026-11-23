@@ -3,6 +3,7 @@ import CoreLocation
 import CoreMotion
 import EventKit
 import HealthKit
+import Photos
 import UIKit
 
 // Arise's own native code for the life log (src/life/sense.ts): permission for Apple Health,
@@ -42,6 +43,9 @@ public class AriseSensePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "placeName", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "locationSet", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "locationNow", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "photosStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "photosAccess", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "photos", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "inboxTake", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "inboxClear", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openSettings", returnType: CAPPluginReturnPromise),
@@ -412,6 +416,60 @@ public class AriseSensePlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 call.resolve(out)
             }
+        }
+    }
+
+    // ---------- photos taken: when, and where if the photo says so. Never the photo itself.
+
+    private static func photosStatusName() -> String {
+        switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
+        case .authorized: return "granted"
+        case .limited: return "limited"
+        case .denied: return "denied"
+        case .restricted: return "restricted"
+        case .notDetermined: return "prompt"
+        @unknown default: return "prompt"
+        }
+    }
+
+    @objc func photosStatus(_ call: CAPPluginCall) {
+        call.resolve(["status": AriseSensePlugin.photosStatusName()])
+    }
+
+    @objc func photosAccess(_ call: CAPPluginCall) {
+        PHPhotoLibrary.requestAuthorization(for: .readWrite) { _ in
+            call.resolve(["status": AriseSensePlugin.photosStatusName()])
+        }
+    }
+
+    // Photos (not screenshots) taken between two times, oldest first: id, at, and lat and lon when
+    // the photo has a place.
+    @objc func photos(_ call: CAPPluginCall) {
+        let now = Date()
+        let from = AriseSensePlugin.date(call, "from", now.addingTimeInterval(-86400))
+        let to = AriseSensePlugin.date(call, "to", now)
+        DispatchQueue.global(qos: .utility).async {
+            let status = AriseSensePlugin.photosStatusName()
+            guard status == "granted" || status == "limited" else {
+                call.reject("Arise can't see your photos.", "DENIED")
+                return
+            }
+            let options = PHFetchOptions()
+            options.predicate = NSPredicate(format: "creationDate >= %@ AND creationDate < %@", from as NSDate, to as NSDate)
+            options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
+            options.fetchLimit = 5000
+            var list: [[String: Any]] = []
+            PHAsset.fetchAssets(with: .image, options: options).enumerateObjects { asset, _, _ in
+                if asset.mediaSubtypes.contains(.photoScreenshot) { return }
+                guard let created = asset.creationDate else { return }
+                var item: [String: Any] = ["id": asset.localIdentifier, "at": AriseSensePlugin.ms(created)]
+                if let place = asset.location {
+                    item["lat"] = place.coordinate.latitude
+                    item["lon"] = place.coordinate.longitude
+                }
+                list.append(item)
+            }
+            call.resolve(["photos": list])
         }
     }
 
