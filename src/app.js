@@ -43,6 +43,9 @@ import * as BROWSER from './life/browser-ui.js';
 import * as YOU from './you.js';
 import * as HUB from './life/connect-hub.js';
 import * as TODOS from './todos-ui.js';
+import * as PAUSEUI from './life/pause-ui';
+import * as SKIPUI from './life/app-skip-ui';
+import { forget as forgetAppSkip } from './life/app-skip';
 import * as ALERTS from './todo-alerts.js';
 import * as ATMO from './atmosphere.js';
 import * as TOP from './life/top-sites.js';
@@ -180,7 +183,7 @@ function render() {
 // Training, with the rest of it.
 function renderToday() {
   const k = S.todayKey();
-  const main = [dayCard(k), ...(isSystem() ? [] : [lookHint()]), resumeBanner(), LIFE.recapSlot(), SYS.systemMessageCard(), STUDY.todayCard(), `<div id="todo">${todo(k)}</div>`, TODOS.todoCard(k), journalNotifyCard(), installBanner()];
+  const main = [dayCard(k), PAUSEUI.todayCard(), ...(isSystem() ? [] : [lookHint()]), resumeBanner(), LIFE.recapSlot(), SYS.systemMessageCard(), STUDY.todayCard(), `<div id="todo">${todo(k)}</div>`, TODOS.todoCard(k), journalNotifyCard(), installBanner()];
   const life = S.state.profile?.life;
   const side = isSystem() ? [statusWindow(), quoteCard(k)] : [SIDE.todaySide(), TOP.slot(), SIDE.gameLine(), life && (life.values?.length || life.hope) ? mattersCard(life) : quoteCard(k)];
 
@@ -1741,6 +1744,7 @@ function renderSettings() {
         ${CONNECT.settingsPanel()}
         ${SYS.settingsPanels()}
         ${LIFE.settingsPanel()}
+        ${PAUSEUI.pausePanel()}
         ${SENSE.settingsPanel()}
         ${N.isNative ? '' : BROWSER.browserPanel()}
         ${ANDROID.settingsPanel()}
@@ -2342,6 +2346,8 @@ document.addEventListener('click', async (e) => {
       if (TODOS.handleAction(d.act, el)) break;
       if (YOU.handleAction(d.act, el)) break;
       if (await LIFE.handleAction(d.act, el)) break;
+      if (PAUSEUI.handleAction(d.act, el)) break;
+      if (SKIPUI.handleAction(d.act, el)) break;
       if (await CONNECT.handleAction(d.act, el)) break;
       if (await HUB.handleAction(d.act, el, { go })) break;
       if (await LOCK.handleAction(d.act, el)) break;
@@ -2379,6 +2385,8 @@ async function eraseDevice(signedIn) {
   LOCK.turnOff();
   unlinkMac(); // the Mac helper's link goes too (the helper itself stays installed)
   ANDROID.forget(); // the Android app stops noting anything for the life log
+  forgetAppSkip('android'); // and the apps never read, on this device
+  forgetAppSkip('mac');
   closeSheet();
   go('today');
   toast(signedIn ? 'Erased from this device and signed out.' : 'All data erased.');
@@ -2606,6 +2614,7 @@ setInterval(tick, 250);
 N.initNative();
 SENSE.initLife(); // the iPhone app only: Apple Health, motion, calendar, places, Shortcuts
 ANDROID.initAndroidLife();
+PAUSEUI.initPause(); // Pause everything: its card on Today goes when it ends
 WR.initWebReminders();
 ATMO.initAtmosphere();
 FILES.initFiles();

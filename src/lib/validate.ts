@@ -12,6 +12,7 @@ import { cleanSlot, int, isDate, isExercise, normalizePlan, str, type Plan, type
 import { cleanChecks, cleanGoal, cleanValues, type Checks, type Goal, type Values } from './goals';
 import type { LifeEvent, LifeKind, LifeSource, LifeTier } from '../life/types';
 import { LIFE_KINDS, LIFE_SOURCES, floorTier } from '../life/tiers';
+import { cleanPauses, type Pause } from './pause';
 import { cleanBy } from '../life/strength';
 import { ABOUT_DEFAULT, cleanChoice, LINK_DEFAULT, type MeChoice } from './me';
 import { cleanEntry, type FeedEntry } from './feed';
@@ -78,6 +79,8 @@ export interface Settings {
   recapAt: string; // '' = at the morning reminder's time
   notifyDetails: boolean; // what the journal says may show on the lock screen (off: plain words only)
   journalVoice: 'first' | 'you'; // the AI journal says "I" (like a real journal) or "you"
+  // Pause everything (src/life/pause.ts): when nothing was noted, on any device. Left out when none.
+  pauses?: Pause[];
 }
 
 export function cleanSettings(raw: unknown, d: Settings): Settings {
@@ -113,7 +116,13 @@ export function cleanSettings(raw: unknown, d: Settings): Settings {
     recapAt: pick(s.recapAt, (x) => typeof x === 'string' && (x === '' || TIME.test(x)), d.recapAt),
     notifyDetails: pick(s.notifyDetails, isBool, d.notifyDetails),
     journalVoice: pick(s.journalVoice, (x) => x === 'first' || x === 'you', d.journalVoice),
+    ...withPauses(s.pauses),
   };
+}
+
+function withPauses(raw: unknown): { pauses?: Pause[] } {
+  const pauses = cleanPauses(raw);
+  return pauses.length ? { pauses } : {};
 }
 
 // The Player's AI keys, kept on this device only (never synced or in backups). A field left out

@@ -18,6 +18,7 @@ import { fromB64, open as openSealed, seal as sealText, toB64, type Sealed } fro
 import { type HelloReply, NS, type PageRequest, commitment, newLinkId, newNonce, pairCode, parsePull, type Note } from '../../extension/src/lib/pairing';
 import { type SealedBatch, newKeyPair, openBatch } from '../../extension/src/lib/seal';
 import { lifeStore, type LifeStore } from './store-port';
+import { unpaused } from './pause';
 import type { LifeEvent } from './types';
 
 const CURVE = { name: 'ECDH', namedCurve: 'P-256' } as const;
@@ -401,7 +402,8 @@ export async function ingest(rec: LinkRecord, key: CryptoKey, batches: SealedBat
     }
     let events: LifeEvent[];
     try {
-      events = cleanEvents(await openBatch(key, b), now);
+      // Nothing from a pause (pause.ts): taken from the extension, never kept.
+      events = unpaused(cleanEvents(await openBatch(key, b), now));
     } catch {
       out.acked.push(b.id); // damaged: it would never open
       continue;

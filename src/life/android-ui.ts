@@ -9,6 +9,7 @@ import type { Sense } from './android-sense';
 import { hasLifeStore } from './store-port';
 import * as LUI from './location-ui';
 import * as LS from './location-sense';
+import { skipButton } from './app-skip-ui';
 
 const WHERE = 'Stays on this phone and in your encrypted sync.';
 
@@ -96,6 +97,7 @@ export function settingsPanel(name = ''): string {
     <p>Arise can note what happens on this phone, so your coach knows your days. Each one is off until you turn it on, and Android asks you first.</p>
     ${rows}
     ${restricted}
+    ${st.on.notifications || st.on.usage ? `<div class="row">${skipButton('android')}</div>` : ''}
   </section>`;
 }
 

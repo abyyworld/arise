@@ -14,6 +14,8 @@
 // content and blocks it (WebKit bug 171934), so on Safari the panel says to use Chrome or Edge.
 
 import { lifeStore, type LifeStore } from './store-port';
+import { unpaused } from './pause';
+import { filterEvents } from './app-skip';
 import type { LifeEvent, LifeKind, LifeTier } from './types';
 
 export const PORT = 47613; // the same as mac-helper/src/config.mjs
@@ -381,6 +383,9 @@ export function goneId(x: unknown): string {
   return e.gone === true && e.source === 'mac' && sourceOf(id) === 'calendar' ? id : '';
 }
 
+// The apps the Player never wants read (app-skip.ts): their notifications and app use are left out.
+const keepApps = (events: LifeEvent[]) => filterEvents('mac', events);
+
 let store: Promise<LifeStore> | null = null;
 // The life log, if it's ready within `ms`: the helper's events wait there until it is.
 function lifeLog(ms: number): Promise<LifeStore> {
@@ -404,7 +409,8 @@ export function pull(): Promise<number> {
       for (let i = 0; i < PAGES; i++) {
         const page = await call<{ events?: unknown[]; next?: number; more?: boolean }>(l.code, '/v1/events?after=0&limit=500');
         const raw = Array.isArray(page.events) ? page.events : [];
-        const events = raw.map((x) => cleanEvent(x, withText)).filter((x): x is LifeEvent => !!x);
+        // Nothing from a pause (pause.ts), and nothing from an app on the never-read list.
+        const events = keepApps(unpaused(raw.map((x) => cleanEvent(x, withText)).filter((x): x is LifeEvent => !!x)));
         // A calendar event comes again when it moved or changed: it takes its old place. (A life
         // log that can't replace keeps the first.) One that's gone comes out.
         const changing = events.filter((e) => sourceOf(e.id) === 'calendar');

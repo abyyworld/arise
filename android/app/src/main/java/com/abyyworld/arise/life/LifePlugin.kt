@@ -176,6 +176,26 @@ class LifePlugin : Plugin() {
         }
     }
 
+    // ---------- Pause everything, and apps never read
+
+    // Nothing is noted until this time (0: not paused).
+    @PluginMethod
+    fun setPause(call: PluginCall) {
+        LifePrefs.setPausedUntil(context, call.long("until", 0L))
+        call.resolve()
+    }
+
+    // apps: package names; words: parts of a package name or an app's name.
+    @PluginMethod
+    fun setSkipApps(call: PluginCall) {
+        val apps = HashSet<String>()
+        val words = HashSet<String>()
+        call.getArray("apps")?.let { a -> for (i in 0 until a.length()) a.optString(i).trim().takeIf { it.isNotEmpty() && it.length <= 200 }?.let { apps.add(it) } }
+        call.getArray("words")?.let { a -> for (i in 0 until a.length()) a.optString(i).trim().lowercase().takeIf { it.length in 3..40 }?.let { words.add(it) } }
+        LifePrefs.setSkip(context, apps, words)
+        call.resolve()
+    }
+
     // ---------- location (LocationReader)
 
     // The setting: mode ("off", "places", "interval"), every (minutes), exact, never (places never

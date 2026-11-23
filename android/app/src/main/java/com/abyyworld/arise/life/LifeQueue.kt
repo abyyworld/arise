@@ -17,6 +17,8 @@ object LifePrefs {
     private const val LOCATION_EXACT = "locationExact"
     private const val LOCATION_NEVER = "locationNever"
     private const val PAUSED_UNTIL = "pausedUntil"
+    private const val SKIP_APPS = "skipApps"
+    private const val SKIP_WORDS = "skipWords"
     const val LAST_POINT = "lastPoint"
     const val SEQ = "seq"
 
@@ -73,6 +75,25 @@ object LifePrefs {
 
     fun setPausedUntil(ctx: Context, until: Long) {
         prefs(ctx).edit().putLong(PAUSED_UNTIL, maxOf(0L, until)).apply()
+    }
+
+    // ---------- apps never read (src/life/app-skip.ts): their package names (with everything
+    // under them) and words in a package name or an app's name.
+
+    fun setSkip(ctx: Context, apps: Set<String>, words: Set<String>) {
+        prefs(ctx).edit().putStringSet(SKIP_APPS, apps).putStringSet(SKIP_WORDS, words).apply()
+    }
+
+    fun skips(ctx: Context, pkg: String, label: String = ""): Boolean {
+        val p = prefs(ctx)
+        val id = pkg.lowercase()
+        val apps = p.getStringSet(SKIP_APPS, emptySet()) ?: emptySet()
+        if (apps.any { val a = it.lowercase(); id == a || id.startsWith("$a.") }) return true
+        val words = p.getStringSet(SKIP_WORDS, emptySet()) ?: emptySet()
+        if (words.isEmpty()) return false
+        val parts = id.split('.').filter { it.length > 2 }
+        val name = label.lowercase().replace(Regex("[^a-z0-9]+"), "")
+        return words.any { w -> parts.any { it.contains(w) } || (name.isNotEmpty() && name.contains(w)) }
     }
 }
 

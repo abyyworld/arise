@@ -19,6 +19,7 @@ import * as LOC from './location';
 import type { LocationMode, NeverPlace } from './location';
 import * as ANDROID from './android-sense';
 import * as SENSE from './sense';
+import { onPauseChange, pausedUntil, unpaused } from './pause';
 
 interface Cap {
   nativePromise: (plugin: string, method: string, options?: object) => Promise<Record<string, unknown>>;
@@ -93,7 +94,7 @@ let running: Promise<number> | null = null;
 export function nativeConfig() {
   const st = read();
   const m = mode();
-  return { mode: m, every: st.prefs.every, exact: st.prefs.exact, never: st.prefs.never.map((n) => ({ lat: n.lat, lon: n.lon, radius: n.radius })), pausedUntil: 0 };
+  return { mode: m, every: st.prefs.every, exact: st.prefs.exact, never: st.prefs.never.map((n) => ({ lat: n.lat, lon: n.lon, radius: n.radius })), pausedUntil: pausedUntil() };
 }
 
 // Tells the phone what to do now. Quietly: a phone without the newest app just doesn't know it.
@@ -237,7 +238,7 @@ async function collectAndroid(now: () => number): Promise<number> {
       const st = read();
       const m = st.prefs.mode;
       // Taken when the setting is off: dropped, never kept.
-      const points = m === 'off' ? [] : LOC.prepare(items, st.prefs);
+      const points = m === 'off' ? [] : unpaused(LOC.prepare(items, st.prefs));
       let events: LifeEvent[] = [];
       if (m === 'interval') events = LOC.thin(points, st.prefs.every).map((p) => LOC.pointEvent(p, 'android', st.prefs.exact));
       else if (m === 'places') {
@@ -275,6 +276,10 @@ export function initLocation(changed: () => void = () => {}) {
   };
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') go();
+  });
+  // A pause started or ended here: the phone hears it straight away.
+  onPauseChange(() => {
+    if (mode() !== 'off') void push();
   });
   go();
 }

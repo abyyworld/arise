@@ -15,6 +15,7 @@ import { hasLifeStore, lifeStore, type LifeStore } from './store-port';
 import type { LifeEvent } from './types';
 import * as M from './sense-map';
 import * as LOC from './location';
+import { isPaused, unpaused } from './pause';
 
 export type Source = 'health' | 'motion' | 'calendar' | 'places' | 'shortcuts';
 export const SOURCES: Source[] = ['health', 'motion', 'calendar', 'places', 'shortcuts'];
@@ -270,7 +271,9 @@ export async function forget() {
 
 // ---------- reading
 
-async function add(store: LifeStore, events: LifeEvent[]) {
+async function add(store: LifeStore, all: LifeEvent[]) {
+  // Nothing that happened during a pause (pause.ts).
+  const events = unpaused(all);
   let added = 0;
   for (let i = 0; i < events.length; i += BATCH) added += await store.addEvents(events.slice(i, i + BATCH));
   return added;
@@ -448,6 +451,8 @@ export function collect(force = false): Promise<void> {
 }
 
 async function run(force: boolean) {
+  // Pause everything: nothing is read until it ends (what waits in the inbox waits).
+  if (isPaused()) return;
   const st = read();
   const store = await lifeStore();
   status.busy = true;
