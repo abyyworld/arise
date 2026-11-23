@@ -85,6 +85,20 @@ service cloud.firestore {
         && (!('wasEmail' in request.resource.data) || request.resource.data.wasEmail == true);
     }
 
+    // Sign out of all devices (src/lib/session-cut.ts): when the account last chose it, and whether
+    // those devices also remove Arise's data. The time is the database's own (request.time), so no
+    // device's clock can set it. Every device signed in before it signs itself out. Nothing of the
+    // account's data is in it.
+    match /users/{uid}/arise/signout {
+      allow read, delete: if owner(uid);
+      allow write: if owner(uid)
+        && request.resource.data.keys().hasOnly(['v', 'at', 'wipe'])
+        && request.resource.data.keys().hasAll(['v', 'at', 'wipe'])
+        && request.resource.data.v == 1
+        && request.resource.data.at == request.time
+        && request.resource.data.wipe is bool;
+    }
+
     // The ciphertext, up to 20 parts of 700,000 characters.
     match /users/{uid}/arise/{part} {
       allow read, delete: if owner(uid) && part.matches('part[0-9]{1,2}');

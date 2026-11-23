@@ -11,6 +11,8 @@
 // ciphertext is split across users/{uid}/arise/part0, part1... (a document holds about 1 MB). The
 // pages of goals shared with a link are shares/{id} (share.ts). The life log syncs on its own, in
 // sealed packs under users/{uid}/life (life/cloud.ts), after each sync here that went through.
+// users/{uid}/arise/signout says when the Player last chose "Sign out of all devices"
+// (lib/session-cut.ts): each device checks it before every sync, and signs out if it's older.
 
 import * as S from './store';
 import * as A from './account';
@@ -19,6 +21,7 @@ import { merge, type CloudCopy } from './lib/merge';
 import { seal, open, type Sealed } from './lib/crypto';
 import { SHARE_OFF } from './lib/share';
 import { holdsOwnData as lifeLogHoldsData } from './life/log';
+import { mustSignOut } from './lib/session-cut';
 import { esc, icon, openSheet, closeSheet, toast } from './ui.js';
 
 export const configured = A.configured;
@@ -99,7 +102,7 @@ export const status = {
   notice: '', // something to know about the signed-in account, shown in its panel until signing out
   pending: null as A.Setup | null, // codes the Player still has to save
   pendingFor: '', // whose codes they are
-  more: '' as '' | 'password' | 'code' | 'way' | 'delete',
+  more: '' as '' | 'password' | 'code' | 'way' | 'delete' | 'everywhere',
 };
 
 const readMeta = (): Meta => {
@@ -349,6 +352,8 @@ async function run() {
   const stored = readMeta();
   const uid = status.user!.uid;
   if (stored.deleting === uid) throw new A.AccountError('deleting', "Deleting your account didn't finish, so nothing is synced. Enter your password under More to finish it.");
+  // Signed out of all devices since this device signed in: nothing goes in or out.
+  if (await cutHere(gen)) return;
   const k = await key();
   // The data here is this account's (or is joining it): only ever with one key. It's noted the
   // first time, and if the account's key is another one later, nothing goes in or out (see knows).
@@ -800,6 +805,14 @@ const notUpWhy = () => (LIFE.status.tooBig ? 'part of your life log is too big t
 // Sign out. `clear` also removes the data from this device. Refuses (returns false) if there
 // are changes that haven't reached the cloud, unless `force`.
 async function leave({ clear, force = false }: { clear: boolean; force?: boolean }): Promise<boolean> {
+  if (!(await sendFirst({ clear, force }))) return false;
+  await signOutHere(clear);
+  return true;
+}
+
+// Before signing out: what's left goes up. False when `clear` would lose changes that still
+// haven't reached the cloud (unless `force`).
+async function sendFirst({ clear, force = false }: { clear: boolean; force?: boolean }): Promise<boolean> {
   if (timer) flush();
   if (running) await running;
   // The life log's latest changes go up first too.
@@ -811,6 +824,12 @@ async function leave({ clear, force = false }: { clear: boolean; force?: boolean
     await LIFE.syncNow();
     if (unsynced() || (await lifeUnsynced())) return false;
   }
+  return true;
+}
+
+// Signs this device out; `clear` also removes the data here (the life log first: if it can't go,
+// this throws and nothing else changes).
+async function signOutHere(clear: boolean) {
   if (clear) {
     // The life log first: if it can't go, nothing else does, and the Player is told.
     await LIFE.eraseHere();
@@ -845,7 +864,69 @@ async function leave({ clear, force = false }: { clear: boolean; force?: boolean
     writeMeta({});
     hooks.changed();
   }
+}
+
+// ---------- sign out of all devices (lib/session-cut.ts)
+
+const CUT = 'You chose Sign out of all devices, so this device was signed out. Your data on this device stays.';
+const CUT_WIPE = 'You chose Sign out of all devices, so this device was signed out and its Arise data removed.';
+
+// Whether this device signed in before the account last chose "Sign out of all devices". Then it
+// signs out here, right away: nothing more goes in or out, not even changes waiting to go up (it
+// may be a lost phone), and with `wipe` the data here goes too. Throws when the cloud can't be
+// reached (it's checked again next time). `gen`: from a sync run, which stops if it's stale.
+async function cutHere(gen?: number): Promise<boolean> {
+  const user = status.user;
+  if (!user) return false;
+  const [cut, since] = await Promise.all([A.readCut(user.uid), A.signedInAt()]);
+  if (!mustSignOut(since, cut) || status.user?.uid !== user.uid || (gen !== undefined && gen !== generation)) return false;
+  generation++;
+  if (timer) clearTimeout(timer);
+  timer = null;
+  let wiped = false;
+  if (cut!.wipe) {
+    try {
+      await signOutHere(true);
+      wiped = true;
+    } catch {
+      // The life log couldn't go (see life/cloud.ts eraseHere): signed out all the same, data kept.
+    }
+  }
+  if (!wiped) await signOutHere(false);
+  status.error = wiped ? CUT_WIPE : CUT;
+  hooks.render();
   return true;
+}
+
+// The same outside a sync: at start, and on coming back to the screen while locked. Quiet when
+// the cloud can't be reached.
+async function checkCut() {
+  try {
+    await cutHere();
+  } catch {}
+}
+
+// From this device: every device signed in before now signs out. `keepThis`: this one stays
+// (it signs in again). Otherwise it signs out here too, once what's left has gone up.
+async function everywhere(password: string, keepThis: boolean, wipe: boolean) {
+  const user = status.user!;
+  if (!keepThis && !(await sendFirst({ clear: wipe }))) {
+    if (!confirm(`Some changes haven't reached the cloud yet (${notUpWhy()}). Remove them from this device anyway? They'll be lost.`)) return;
+  }
+  try {
+    await A.signOutEverywhere(user, password, { keepThis, wipe });
+  } catch (err) {
+    // Signing in again here failed after the others were told: this device signs out too.
+    if (keepThis) await checkCut();
+    throw err;
+  }
+  status.more = '';
+  if (keepThis) {
+    toast('Done. Your other devices sign out the next time Arise opens there and is online.');
+    return;
+  }
+  await signOutHere(wipe);
+  toast(wipe ? 'Signed out everywhere, and removed from this device.' : 'Signed out everywhere. Your data stays on this device.');
 }
 
 // "Erase all data" in Settings: everything on this device goes, the cloud copy stays. Returns
@@ -926,6 +1007,7 @@ async function deleteEverything(password: string): Promise<boolean> {
     const batch = fb.writeBatch(db);
     for (let i = 0; i < Math.max(remote?.parts || 0, 1); i++) batch.delete(ref(`part${i}`, user.uid));
     batch.delete(ref('meta', user.uid));
+    batch.delete(ref('signout', user.uid));
     // The pages of goals shared with a link are turned off first, so no link outlives the account.
     // All of the account's, as the cloud lists them, not only the ones this device's goals know
     // of: a link made on a device that hasn't synced here, or kept by a goal deleted while signed
@@ -1091,6 +1173,8 @@ export function panel(): string {
             <button class="btn primary small" type="submit" ${busy ? 'disabled' : ''}>Make a new recovery code</button></form>`
           : status.more === 'way'
             ? wayForm(busy)
+          : status.more === 'everywhere'
+            ? everywhereForm(busy)
           : status.more === 'delete'
             ? `<form class="stack" data-form="delete">${field('password', 'Password', 'password', 'required autocomplete="current-password"')}
             <p class="small error">This deletes your account and your cloud copy for good, and turns off every link to a goal you shared. The data on this device stays.</p>
@@ -1120,6 +1204,7 @@ export function panel(): string {
           <button class="link small" data-act="sync-more" data-v="password">Change password</button>
           <button class="link small" data-act="sync-more" data-v="code">Make a new recovery code</button>
           ${A.usesCode(u.id) ? '' : '<button class="link small" data-act="sync-more" data-v="way">How you get back in if you forget your password</button>'}
+          <button class="link small" data-act="sync-more" data-v="everywhere">Sign out of all devices</button>
           ${more}
           <p class="muted small">Your account ID: <code class="account-id">${esc(status.user!.uid)}</code></p>
           <button class="btn ghost small" data-act="sync-out-clear">Sign out and remove my data from this device</button>
@@ -1201,6 +1286,18 @@ function waysChoice() {
       ${way('email', 'Email reset (easier)', '<span class="tag">Less private</span>', EMAIL_WAY)}
       <button class="learn-more" type="button" data-act="sync-learn">Learn more: which one is right for me?</button>
     </fieldset>`;
+}
+
+// Under More: sign out of all devices (see lib/session-cut.ts). The password is needed, as it
+// can remove data from other devices.
+function everywhereForm(busy: boolean) {
+  return `<form class="stack" data-form="everywhere">
+      <p class="small">Every device where you're signed in to this account signs out. Each one does it the next time Arise opens there and is online, and forgets its key. A device that's off or offline does it when it next connects.</p>
+      <p class="small">Lost a device, or think someone else is signed in? Change your password too. That ends their sign-in on the server as well.</p>
+      <label class="check"><input type="checkbox" name="keep" value="1" checked> <span>Keep me signed in on this device</span></label>
+      <label class="check"><input type="checkbox" name="wipe" value="1"> <span>Also remove Arise's data from the devices that sign out. Changes that never reached the cloud from them are lost. Your cloud copy stays.</span></label>
+      ${field('password', 'Password', 'password', 'required autocomplete="current-password"')}
+      <button class="btn primary small" type="submit" ${busy ? 'disabled' : ''}>Sign out of all devices</button></form>`;
 }
 
 // Under More: switch how the account gets back in. The password is needed either way.
@@ -1372,6 +1469,11 @@ export async function submit(kind: string, values: Values) {
           showCodes(setup, way === 'code' ? NEW_CODE_ONLY_WAY : '');
         }
       }
+    } else if (kind === 'everywhere') {
+      const keepThis = v('keep') === '1';
+      const wipe = v('wipe') === '1';
+      const gone = wipe ? ` Arise removes its data from each of them${keepThis ? '' : ', this one too'}. Your cloud copy stays.` : '';
+      if (confirm(`${keepThis ? 'Sign out every other device?' : 'Sign out every device, this one too?'}${gone}`)) await everywhere(v('password'), keepThis, wipe);
     } else if (kind === 'delete') {
       if (confirm('Delete your account and your cloud copy? This cannot be undone. The data on this device stays.')) {
         const deleted = await deleteEverything(v('password'));
@@ -1429,9 +1531,16 @@ export function initSync(h: Partial<typeof hooks>): Promise<void> {
     if (document.visibilityState === 'hidden') {
       if (timer) flush();
       LIFE.flush();
+    } else if (status.locked) {
+      void checkCut();
     } else {
       syncNow();
     }
+  });
+  // Back online: what waited goes up, and a "Sign out of all devices" made meanwhile is seen.
+  globalThis.addEventListener?.('online', () => {
+    if (status.user && !status.locked) syncNow();
+    else if (status.user) void checkCut();
   });
   // Only load Firebase at start if this device was signed in before.
   const meta = readMeta();
@@ -1448,6 +1557,9 @@ export function initSync(h: Partial<typeof hooks>): Promise<void> {
           return;
         }
         status.locked = !(await A.deviceKey(status.user.uid));
+        // (A sync checks it too; a locked device doesn't sync.)
+        if (status.locked) await checkCut();
+        if (!status.user) return;
         hooks.render();
         await Promise.all([syncNow(), status.locked ? null : loadWay()]);
       })
