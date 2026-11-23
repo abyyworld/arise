@@ -31,6 +31,7 @@ import { items as setupItems, progress, STEPS as ALL_STEPS, STEP_OF } from './se
 import * as SYS from '../system.js';
 import * as APPLOCK from '../app-lock.js';
 import * as FILES from '../files-folder.js';
+import * as GHB_UI from '../github-backup-ui.js';
 import { toast } from '../ui.js';
 
 export const VIEW = 'connect';
@@ -250,6 +251,7 @@ export async function handleAction(act, el, { go } = {}) {
     if (!globalThis.document?.activeElement?.closest?.('.wiz-pager')) refocus('.wiz-pager button:not([disabled])');
     return true;
   }
+  if (await GHB_UI.handleAction(act)) return true;
   if (act.startsWith('files-')) {
     try {
       if (act === 'files-pick' && (await FILES.pick())) toast('Done. Arise backs up to that folder from now on.');
@@ -351,7 +353,7 @@ function connectHTML(s) {
   if (s === 'review') return setupPanel();
   return `<div class="cols hub">
       <div class="col">${phonePart()}${CONNECT.settingsPanel('Accounts')}</div>
-      <div class="col">${computerPart()}${historyPart()}${filesPart()}${appsPart()}</div>
+      <div class="col">${computerPart()}${historyPart()}${filesPart()}${GHB_UI.panel()}${appsPart()}</div>
     </div>`;
 }
 

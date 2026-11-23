@@ -27,13 +27,16 @@ interface FakeUser {
   uid: string;
   email: string;
   since: string; // the login's password when this session began
+  authAt: number; // when this session signed in (ms), as its token says (whole seconds)
   getIdToken: (forceRefresh?: boolean) => Promise<string>;
+  getIdTokenResult: () => Promise<{ authTime: string }>;
 }
 interface FakeAuth {
   currentUser: FakeUser | null;
   cbs: ((u: FakeUser | null) => void)[];
 }
 let auth: FakeAuth | null = null;
+const nowSec = () => Math.floor(Date.now() / 1000) * 1000;
 
 // A session can be renewed while its login exists and still has the password it began with
 // (Firebase ends a login's other sessions when its password changes). Otherwise renewing fails
@@ -44,6 +47,8 @@ const userFor = (uid: string, email: string): FakeUser => {
     uid,
     email,
     since: cloud.users.get(uid)?.password ?? '',
+    authAt: nowSec(),
+    getIdTokenResult: async () => ({ authTime: new Date(user.authAt).toUTCString() }),
     getIdToken: async (forceRefresh = false) => {
       if (forceRefresh && cloud.users.get(uid)?.password !== user.since) {
         if (auth?.currentUser === user) setUser(null);
@@ -73,9 +78,11 @@ export function onAuthStateChanged(a: FakeAuth, cb: (u: FakeUser | null) => void
 }
 
 // Test helper: this device is signed in already (a session that outlived the device's key).
-export function restoreSession(uid: string) {
+// `authAt`: when that session signed in (ms), if not now.
+export function restoreSession(uid: string, authAt?: number) {
   const u = cloud.users.get(uid)!;
   auth!.currentUser = userFor(u.uid, u.email);
+  if (authAt !== undefined) auth!.currentUser.authAt = authAt;
 }
 
 export async function createUserWithEmailAndPassword(_a: FakeAuth, email: string, password: string) {
@@ -118,6 +125,7 @@ export async function reauthenticateWithCredential(user: FakeUser, cred: { email
   const u = cloud.users.get(user.uid);
   if (!u || u.email !== cred.email || u.password !== cred.password) throw fail('auth/invalid-credential');
   user.since = u.password;
+  user.authAt = nowSec(); // a new sign-in, as far as its token goes
 }
 // The hook returning 'lost' deletes the login but fails the call, like a reply that never
 // arrived: the device stays signed in (its token still works for a while).
@@ -132,6 +140,14 @@ export async function sendPasswordResetEmail(_a: FakeAuth, email: string) {
 }
 
 export const getFirestore = () => ({});
+// The database's own time, filled in as the write lands (kept as Firestore's plain shape).
+export const serverTimestamp = () => ({ __serverTimestamp: true });
+const isServerTime = (v: unknown) => !!v && typeof v === 'object' && (v as Doc).__serverTimestamp === true;
+const stamp = (d: Doc) => {
+  const now = Date.now();
+  for (const [k, v] of Object.entries(d)) if (isServerTime(v)) d[k] = { seconds: Math.floor(now / 1000), nanoseconds: (now % 1000) * 1e6 };
+  return d;
+};
 export const doc = (_db: unknown, ...path: string[]) => ({ path: path.join('/') });
 
 // ---------- the rules (mirrors firestore.rules)
@@ -211,6 +227,9 @@ function canWrite(path: string, d: Doc | null) {
   if (m[1] === 'meta') return only(d, ['rev', 'parts', 'enc', 'iv', 'schema']) && str(d.rev, 32) && Number.isInteger(d.parts) && (d.parts as number) >= 1 && (d.parts as number) <= 20 && d.enc === 1 && str(d.iv, 24) && Number.isInteger(d.schema);
   if (m[1] === 'keys') return only(d, ['v', 'iter', 'byPassword', 'byRecovery', 'byEmail', 'wasEmail']) && d.v === 1 && Number.isInteger(d.iter) && sealed(d.byPassword, 200) && sealed(d.byRecovery, 200) && (!('byEmail' in d) || rawKey(d.byEmail)) && (!('wasEmail' in d) || d.wasEmail === true);
   if (/^part([0-9]|1[0-9])$/.test(m[1])) return only(d, ['rev', 'ct']) && str(d.rev, 32) && str(d.ct, 700000);
+  // Sign out of all devices (lib/session-cut.ts): the database's own time, and whether those
+  // devices remove their data. Nothing else.
+  if (m[1] === 'signout') return only(d, ['v', 'at', 'wipe']) && has(d, ['v', 'at', 'wipe']) && d.v === 1 && isServerTime(d.at) && typeof d.wipe === 'boolean';
   return false;
 }
 
@@ -263,7 +282,7 @@ export function writeBatch() {
       const lost = cloud.hook ? (await cloud.hook('commit', ops.map((o) => o[1]).join(','))) === 'lost' : false;
       for (const [, p, v] of ops) if (!canWrite(p, v)) throw fail('permission-denied');
       for (const [op, p, v] of ops) {
-        if (op === 'set') cloud.docs.set(p, v!);
+        if (op === 'set') cloud.docs.set(p, stamp(v!));
         else cloud.docs.delete(p);
       }
       if (lost) throw fail('unavailable');
@@ -297,7 +316,7 @@ export async function runTransaction<T>(_db: unknown, fn: (tx: unknown) => Promi
     if ([...reads].some(([p, v]) => JSON.stringify(cloud.docs.get(p) ?? null) !== v)) continue;
     for (const [, p, v] of ops) if (!canWrite(p, v)) throw fail('permission-denied');
     for (const [op, p, v] of ops) {
-      if (op === 'set') cloud.docs.set(p, v!);
+      if (op === 'set') cloud.docs.set(p, stamp(v!));
       else cloud.docs.delete(p);
     }
     return result;

@@ -24,12 +24,14 @@
 // Cloud layout:
 //   users/{uid}/arise/keys  the data key, wrapped by the password and by the recovery code (and,
 //                           with Email reset, as it is)
+//   users/{uid}/arise/signout  when the Player last chose "Sign out of all devices" (lib/session-cut.ts)
 //   recovery/{login email}  the Firebase password, sealed with the recovery code, and whether the
 //                           account uses Email reset. Anyone may read it (it's useless without the
 //                           160-bit code); only its account can write it.
 
 import * as C from './lib/crypto';
 import * as K from './lib/keystore';
+import { parseCut, type Cut } from './lib/session-cut';
 import { FIREBASE } from './firebase-config.js';
 
 type FB = typeof import('./lib/firebase');
@@ -626,6 +628,38 @@ export async function deleteAccount(user: User, { gone = false, afterKeys = asyn
     await fb!.deleteUser(current);
   }
   await K.forgetKey();
+}
+
+// ---------- sign out of all devices (lib/session-cut.ts)
+
+const cutRef = (uid: string) => fb!.doc(db!, 'users', uid, 'arise', 'signout');
+
+// When the account last chose "Sign out of all devices", if ever.
+export async function readCut(uid: string): Promise<Cut | null> {
+  const snap = await fb!.getDoc(cutRef(uid));
+  return snap.exists() ? parseCut(snap.data()) : null;
+}
+
+// When this device signed in (ms), as its sign-in token says: Firebase's own clock, and a token
+// renewed later keeps it. Null when it can't tell.
+export async function signedInAt(): Promise<number | null> {
+  const u = auth?.currentUser;
+  if (!u) return null;
+  const t = Date.parse((await u.getIdTokenResult()).authTime);
+  return Number.isFinite(t) ? t : null;
+}
+
+// Every device signed in to the account before now signs itself out (see lib/session-cut.ts), and
+// with `wipe` also removes Arise's data. The password is checked first, here on the device.
+// `keepThis`: this device signs in again right after, with the same password, so it stays.
+export async function signOutEverywhere(user: User, password: string, { keepThis, wipe }: { keepThis: boolean; wipe: boolean }) {
+  const master = await C.deriveMaster(password, user.id);
+  const keys = await readKeys(user.uid);
+  if (!keys) throw new AccountError('state', 'Sign in again first.');
+  await C.unwrapKey(keys.byPassword, master.kek, user.uid); // a wrong password throws 'wrong-key'
+  // The time is the database's own: the rules take no other.
+  await fb!.setDoc(cutRef(user.uid), { v: 1, at: fb!.serverTimestamp(), wipe });
+  if (keepThis) await reauthenticate(user, master);
 }
 
 export async function signOut() {
