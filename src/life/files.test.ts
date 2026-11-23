@@ -58,7 +58,7 @@ describe('keeping files', () => {
   it('makes a preview for a photo and saves a big one smaller, as JPEG', async () => {
     const f = await F.putFile(new Blob([bytes(100_000)], { type: 'image/png' }), { name: 'beach.png' });
     expect(scaled).toEqual([F.SHRINK_TO, F.THUMB_PX]);
-    expect(f).toMatchObject({ type: 'image/jpeg', name: 'beach.jpg', size: 5000, w: 4000, h: 3000 });
+    expect(f).toMatchObject({ type: 'image/jpeg', name: 'beach.jpg', size: 5000, w: 2560, h: 1920 });
     expect(f.thumb?.length).toBe(200);
     const kept = await F.putFile(new Blob([bytes(100_000)], { type: 'image/png' }), { name: 'full.png', shrink: false });
     expect(kept).toMatchObject({ type: 'image/png', size: 100_000 });

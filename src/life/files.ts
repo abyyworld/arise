@@ -130,12 +130,15 @@ export async function putFile(data: Blob | ArrayBuffer | Uint8Array, opts: PutOp
     // screen). Its name says JPEG then.
     if (opts.shrink !== false && type !== 'image/gif') {
       const small = await tools.scale(blob, SHRINK_TO, 0.85).catch(() => null);
+      if (small) [w, h] = [small.w, small.h];
       if (small && small.blob.size > 0 && small.blob.size < bytes.length * 0.9) {
         bytes = await bytesOf(small.blob);
         if (type !== 'image/jpeg') name = name.replace(/\.[a-z0-9]{1,5}$/i, '') + '.jpg';
         type = 'image/jpeg';
+        // The size it's kept at.
+        const k = Math.min(1, SHRINK_TO / Math.max(w, h, 1));
+        [w, h] = [Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k))];
       }
-      if (small) [w, h] = [small.w, small.h];
     }
     const t = await tools.scale(blob, THUMB_PX, 0.7).catch(() => null);
     if (t) {
