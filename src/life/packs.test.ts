@@ -162,7 +162,7 @@ describe('what comes from the cloud', () => {
     expect(ids(c)).toEqual(['spotify:ok']);
     expect(c.tombs).toEqual({ 'spotify:x': 5 });
     expect(c.facts).toEqual([]); // not in an events pack
-    expect(cleanContent(MEM, { wipes: [{ at: 5, what: 'events', source: 'tiktok' }, { at: 5, what: 'all' }, { at: 5, what: 'events', from: 'x' }] }).wipes).toEqual([{ at: 5, what: 'all' }]);
+    expect(cleanContent(MEM, { wipes: [{ at: 5, what: 'events', source: 'myspace' }, { at: 5, what: 'all' }, { at: 5, what: 'events', from: 'x' }] }).wipes).toEqual([{ at: 5, what: 'all' }]);
   });
 
   it('looks the same on every device, so an unchanged pack is never sent again', () => {
