@@ -96,7 +96,7 @@ describe('the Connect screen', () => {
     expect($('#macPanel')).toBeNull();
     expect(text('#hub-mac')).toBe('Mac Mac only Calls (missed ones from your iPhone too), notifications, Messages, Safari and app use, through a small helper on your Mac.');
 
-    expect(text('#hub-history')).toBe('Files from your apps Google Takeout, Maps Timeline, Spotify, Netflix, Apple Health, WhatsApp and bank statements. Arise reads the file on this device. Bring in your history');
+    expect(text('#hub-history')).toBe('Files from your apps Google Takeout, Maps Timeline, Spotify, Netflix, Apple Health, WhatsApp and other chat apps, and bank statements. Arise reads the file on this device. Bring in your history');
     expect($('#hub-history [data-act="nav"]')!.dataset.v).toBe('life-import');
   });
 

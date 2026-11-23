@@ -1,6 +1,7 @@
 // The Import screen: bring in years of history from the files Google, Spotify, Netflix, Apple
-// Health, WhatsApp and banks give people. The file is read here, on the device (in a worker,
-// life/import/client.ts), and what it finds goes to the store it's given: the life log.
+// Health, WhatsApp and other chat apps, and banks give people. The file is read here, on the
+// device (in a worker, life/import/client.ts), and what it finds goes to the store it's given:
+// the life log.
 
 import { esc, icon } from '../ui.js';
 import { importer as sharedImporter } from './import/client';
@@ -82,6 +83,89 @@ export const SOURCES = [
     ],
   },
   {
+    id: 'telegram',
+    name: 'Telegram',
+    what: 'How much you talked with someone each day, with the first few words of each day. Calls too.',
+    steps: [
+      'Install Telegram Desktop on a computer. The phone apps can’t export.',
+      'Open Settings, then Advanced, then “Export Telegram data”.',
+      'Tick “Personal chats” and the groups you want. Untick photos and videos to keep it small. Under “Format”, choose “Machine-readable JSON”.',
+      'Tap “Export”, then choose result.json from the folder it makes.',
+    ],
+  },
+  {
+    id: 'instagram',
+    name: 'Instagram messages',
+    what: 'How much you talked with someone each day, with the first few words of each day.',
+    steps: [
+      'In Instagram, open your profile, then ☰, then “Accounts Center”, then “Your information and permissions”.',
+      'Tap “Download your information” (or “Export your information”), and choose your Instagram account.',
+      'Pick Messages, or all of it. Choose “Download to device” and set the format to JSON.',
+      'When Instagram emails you, download the zip and choose it here. If it comes in parts, choose them all.',
+    ],
+  },
+  {
+    id: 'messenger',
+    name: 'Facebook Messenger',
+    what: 'How much you talked with someone each day, with the first few words of each day.',
+    steps: [
+      'On Facebook, open Settings, then “Accounts Center”, then “Your information and permissions”.',
+      'Tap “Download your information” (or “Export your information”), and choose your Facebook account.',
+      'Pick Messages, or all of it. Choose “Download to device” and set the format to JSON.',
+      'When Facebook emails you, download the zip and choose it here. If it comes in parts, choose them all.',
+    ],
+  },
+  {
+    id: 'x',
+    name: 'X (Twitter) messages',
+    what: 'How much you talked with someone each day, with the first few words of each day.',
+    steps: [
+      'On x.com, open More, then “Settings and privacy”, then “Your account”.',
+      'Tap “Download an archive of your data” and follow the steps to request it.',
+      'It can take a day or more. When X says it’s ready, download the zip and choose it here.',
+    ],
+  },
+  {
+    id: 'tiktok',
+    name: 'TikTok messages',
+    what: 'How much you talked with someone each day, with the first few words of each day.',
+    steps: [
+      'In TikTok, open your profile, then ☰, then “Settings and privacy”, then Account, then “Download your data”.',
+      'Choose JSON as the file format, then tap “Request data”.',
+      'When it’s ready, open the “Download data” tab, download the zip and choose it here.',
+    ],
+  },
+  {
+    id: 'snapchat',
+    name: 'Snapchat chats',
+    what: 'How much you talked with someone each day, with the first few words of each day.',
+    steps: [
+      'Go to accounts.snapchat.com, log in and open “My Data”.',
+      'Turn on the JSON files, and make sure chat history is included.',
+      'Submit the request. When Snapchat emails you, download the zip and choose it here.',
+    ],
+  },
+  {
+    id: 'discord',
+    name: 'Discord messages',
+    what: 'How many messages you sent each day, and to whom, with the first few words. Discord only gives your own messages.',
+    steps: [
+      'In Discord, open User Settings, then “Data & Privacy”.',
+      'Tap “Request Data” (make sure Messages is included) and confirm.',
+      'It can take a few weeks. When Discord emails you, download package.zip and choose it here.',
+    ],
+  },
+  {
+    id: 'linkedin',
+    name: 'LinkedIn messages',
+    what: 'How much you talked with someone each day, with the first few words of each day.',
+    steps: [
+      'On linkedin.com, open Me, then “Settings & Privacy”, then “Data privacy”, then “Get a copy of your data”.',
+      'Tick Messages (or take everything) and tap “Request archive”.',
+      'When LinkedIn emails you, download the zip and choose it here, or messages.csv from inside it.',
+    ],
+  },
+  {
     id: 'bank',
     name: 'Bank or card statements',
     what: 'What you spent, where, and what came in.',
@@ -143,7 +227,7 @@ export function renderImport(root, { store = null, importer = null, back = 'sett
       <div class="col">
         <section class="panel" id="importPanel">
           <div class="panel-title"><span>Bring in a file</span></div>
-          <p>Choose a file you downloaded from Google, Spotify, Netflix, Apple Health, WhatsApp or your bank. Arise works out what it is.</p>
+          <p>Choose a file you downloaded from Google, Spotify, Netflix, Apple Health, WhatsApp, another chat app or your bank. Arise works out what it is.</p>
           <p class="muted small">${PRIVATE}</p>
           <input type="file" id="lifeImportFile" multiple hidden>
           <div id="importStatus">${statusHTML()}</div>

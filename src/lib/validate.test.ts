@@ -214,7 +214,7 @@ describe('the life log', () => {
     expect(cleanLifeEvent(ev({ id: 'netflix:abc' }))).toBeNull(); // not its source's id
     expect(cleanLifeEvent(ev({ id: 'spotify:has space' }))).toBeNull();
     expect(cleanLifeEvent(ev({ id: `spotify:${'x'.repeat(241)}` }))).toBeNull();
-    expect(cleanLifeEvent(ev({ source: 'tiktok', id: 'tiktok:1' }))).toBeNull();
+    expect(cleanLifeEvent(ev({ source: 'myspace', id: 'myspace:1' }))).toBeNull();
     expect(cleanLifeEvent(ev({ kind: 'dance' }))).toBeNull();
     expect(cleanLifeEvent(ev({ at: -1 }))).toBeNull();
     expect(cleanLifeEvent(ev({ at: Date.UTC(2300, 0, 1) }))).toBeNull();
