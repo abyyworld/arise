@@ -1,9 +1,11 @@
-// Reminders at a to-do's time in the web app (the phone apps schedule their own: native.js). The
-// reminders server never learns about to-dos, so these come while Arise is open (a tab, or the
-// installed app in the background), from this device only. Plain on the lock screen unless the
-// Player turned on details in notifications.
+// Reminders at a to-do's time, and for your own calendar events (lib/events.ts), in the web app
+// (the phone apps schedule their own: native.js). The reminders server never learns about to-dos
+// or events, so these come while Arise is open (a tab, or the installed app in the background),
+// from this device only. Plain on the lock screen unless the Player turned on details in
+// notifications.
 
 import * as S from './store';
+import * as EV from './lib/events';
 import { isNative } from './native.js';
 import * as WR from './web-reminders';
 
@@ -26,6 +28,25 @@ export function dueSoon(now = Date.now()) {
 // Only with reminders on in Settings (and the browser's permission, which turning them on asks for).
 export const allowed = () => !isNative && WR.isOn() && typeof Notification !== 'undefined' && Notification.permission === 'granted';
 
+// Your events' reminders due in the next day.
+export const eventsSoon = (now = Date.now()) => EV.reminders(S.state.events, now, now + AHEAD);
+
+async function notify(title, body, tag) {
+  try {
+    const reg = await globalThis.navigator?.serviceWorker?.getRegistration?.();
+    if (reg) await reg.showNotification(title, { body, tag });
+    else new Notification(title, { body, tag });
+  } catch {}
+}
+
+// Still due when its timer fires (not deleted or moved meanwhile).
+function showEvent(tag, now) {
+  const r = EV.reminders(S.state.events, now - 60_000, now + 60_000).find((x) => x.tag === tag);
+  if (!r) return;
+  const { title, body } = EV.reminderText(r, !!S.state.settings.notifyDetails);
+  void notify(title, body, tag);
+}
+
 async function show(id) {
   const t = S.state.todos[id];
   if (!t || t.gone || t.done) return;
@@ -46,7 +67,9 @@ export function planAlerts(now = Date.now()) {
   if (!allowed()) return [];
   const due = dueSoon(now);
   for (const { id, at } of due) timers.push(setTimeout(() => void show(id), at - now));
-  return due.map((x) => x.id);
+  const evs = eventsSoon(now);
+  for (const r of evs) timers.push(setTimeout(() => showEvent(r.tag, r.at), r.at - now));
+  return [...due.map((x) => x.id), ...evs.map((r) => r.tag)];
 }
 
 export function initTodoAlerts() {

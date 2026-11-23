@@ -5,6 +5,7 @@
 import * as S from './store';
 import * as R from './reminders.js';
 import * as LOCK from './lib/lock';
+import * as EV from './lib/events';
 
 const cap = window.Capacitor;
 export const isNative = !!cap?.isNativePlatform?.();
@@ -82,6 +83,15 @@ export function todoReminders(now = new Date(), until = S.addDays(S.todayKey(), 
     .map(({ t, at }) => ({ title: details ? t.title : 'Something on your to-do list', body: details ? 'On your to-do list in Arise.' : 'Open Arise to see it.', at }));
 }
 
+// Reminders for your own calendar events (lib/events.ts), from `now` until the day `until` (not
+// included). Planned on the phone only: no server ever learns when your events are.
+export function eventReminders(now = new Date(), until = S.addDays(S.todayKey(), MORNING_DAYS)) {
+  const details = !!S.state.settings.notifyDetails;
+  return EV.reminders(S.state.events, now.getTime(), S.parseKey(until).getTime() - 1)
+    .slice(0, 30)
+    .map((r) => ({ ...EV.reminderText(r, details), at: new Date(r.at) }));
+}
+
 // Everything that should be pending right now, soonest first. Done days, football days and rest
 // days get no quest reminders; the journal's come every day (each has its own switch). `open`:
 // the day whose journal a tap opens.
@@ -106,6 +116,8 @@ export function upcoming(now = new Date()) {
   // To-dos with a day and a time (lib/todos.ts), at that time. Plain on the lock screen unless the
   // Player turned on details in notifications.
   todoReminders(now, S.addDays(today, MORNING_DAYS)).forEach((r, i) => list.push({ id: 6000 + i, ...r }));
+  // Your own calendar events' reminders (lib/events.ts), the same way.
+  eventReminders(now, S.addDays(today, MORNING_DAYS)).forEach((r, i) => list.push({ id: 7000 + i, ...r }));
   list.sort((a, b) => a.at - b.at || a.id - b.id);
   // Within what iOS keeps: the soonest ones, and the note that they stop where they do.
   let stop = timeOn(S.addDays(today, MORNING_DAYS), st.remindAt, '07:00');
