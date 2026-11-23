@@ -32,6 +32,7 @@ import * as SYS from '../system.js';
 import * as APPLOCK from '../app-lock.js';
 import * as FILES from '../files-folder.js';
 import * as GHB_UI from '../github-backup-ui.js';
+import * as MYFILES from './files-ui.js';
 import { toast } from '../ui.js';
 
 export const VIEW = 'connect';
@@ -353,7 +354,7 @@ function connectHTML(s) {
   if (s === 'review') return setupPanel();
   return `<div class="cols hub">
       <div class="col">${phonePart()}${CONNECT.settingsPanel('Accounts')}</div>
-      <div class="col">${computerPart()}${historyPart()}${filesPart()}${GHB_UI.panel()}${appsPart()}</div>
+      <div class="col">${computerPart()}${historyPart()}${filesPart()}${MYFILES.hubPanel()}${GHB_UI.panel()}${appsPart()}</div>
     </div>`;
 }
 

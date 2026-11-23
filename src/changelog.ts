@@ -4,6 +4,18 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.30.0',
+    notes: [
+      'Photos and files: keep them with your days, locked on your device before they sync. Add one to a note, to a day on Days, or in Setup and connections, Photos and files.',
+      'Search by meaning: download a small model once (about 36 MB) and search your days by what you mean, not only the words. It runs on your device. In Days, search.',
+      'Sign out of all devices, from Account, More. Each device signs out the next time it is online.',
+      'GitHub backup (optional): keep your daily backup in a private GitHub repository too, locked with a backup password. GitHub only sees scrambled data.',
+      'Calendars by link: add any calendar by its private link (ICS or webcal), and its events show on your Calendar and in Days.',
+      'Google Drive: pick Drive files and Arise reads their text, like your GitHub notes. Marked less private.',
+      'Add to your day from Today too, with a title and a file or photo. A text file\'s words go into the note.',
+    ],
+  },
+  {
     version: '1.29.0',
     notes: [
       'Bring in your chats from Telegram, Instagram, Messenger, X, TikTok, Snapchat, Discord and LinkedIn. Download your data from the app, then add the file in Setup and connections. It is read on your device.',

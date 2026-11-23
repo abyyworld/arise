@@ -862,3 +862,90 @@ export function cleanOffLater(raw: unknown): OffLater[] {
   }
   return [...by].slice(-200).map(([id, owner]) => ({ id, owner }));
 }
+
+// ---------- photos and files (life/files.ts), and search by meaning (life/embed/)
+
+// A kept photo or file: its details, as this device stores them and as they sync, sealed
+// (life/files-sync.ts). `thumb` is a small JPEG made on the device (base64 in the cloud).
+export interface FileMeta {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  at: number; // when it was added
+  day: string; // the day it belongs to (2026-10-16)
+  note?: string; // the id of a note in the life log it was added with
+  w?: number; // a photo's width and height
+  h?: number;
+  thumb?: Uint8Array;
+  sync: boolean; // goes to the Player's other devices with their account
+}
+export const MAX_FILE_BYTES = 200 * 1024 * 1024;
+const FILE_ID = /^[A-Za-z0-9_-]{22}$/;
+const MIME = /^[a-z0-9][a-z0-9.+-]{0,60}\/[a-z0-9][a-z0-9.+-]{0,80}$/;
+const THUMB_MAX = 96 * 1024;
+const bytesOf = (v: unknown): Uint8Array | undefined => {
+  // (Typed arrays from another realm too, as jsdom and some stored copies give.)
+  if (ArrayBuffer.isView(v)) return new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));
+  if (Object.prototype.toString.call(v) === '[object ArrayBuffer]') return new Uint8Array((v as ArrayBuffer).slice(0));
+  if (typeof v === 'string' && v.length <= (THUMB_MAX * 4) / 3 + 4 && /^[A-Za-z0-9+/]*={0,2}$/.test(v)) {
+    try {
+      return Uint8Array.from(atob(v), (c) => c.charCodeAt(0));
+    } catch {}
+  }
+  return undefined;
+};
+export function cleanFileMeta(raw: unknown): FileMeta | null {
+  const d = obj(raw);
+  if (typeof d.id !== 'string' || !FILE_ID.test(d.id) || !isDate(d.day)) return null;
+  const size = typeof d.size === 'number' && Number.isInteger(d.size) && d.size >= 0 && d.size <= MAX_FILE_BYTES ? d.size : -1;
+  const at = time(d.at);
+  if (size < 0 || !at) return null;
+  const name = str(d.name, 200).replace(/[\u0000-\u001f\u007f/\\]/g, ' ').trim() || 'File';
+  const type = typeof d.type === 'string' && MIME.test(d.type.toLowerCase()) ? d.type.toLowerCase() : 'application/octet-stream';
+  const out: FileMeta = { id: d.id, name, type, size, at, day: d.day as string, sync: d.sync !== false };
+  if (typeof d.note === 'string' && d.note.length > 0 && d.note.length <= 120) out.note = d.note;
+  const w = int(d.w, 0, 100000, 0);
+  const h = int(d.h, 0, 100000, 0);
+  if (w && h) Object.assign(out, { w, h });
+  const thumb = bytesOf(d.thumb);
+  if (thumb && thumb.length > 0 && thumb.length <= THUMB_MAX) out.thumb = thumb;
+  return out;
+}
+
+// The list of synced files (life/files-sync.ts): each file's number of parts and size, and the
+// files deleted, with when, kept a while so a device that still has one deletes it too.
+export interface FilesIndex {
+  schema: number;
+  seq: number;
+  files: Record<string, { n: number; size: number }>;
+  gone: Record<string, { at: number; n: number }>;
+}
+export function cleanFilesIndex(raw: unknown): FilesIndex {
+  const d = obj(raw);
+  const files: FilesIndex['files'] = {};
+  const gone: FilesIndex['gone'] = {};
+  for (const [id, v] of Object.entries(obj(d.files)).slice(0, 100000)) {
+    const x = obj(v);
+    const n = int(x.n, 1, 1000, 0);
+    const size = int(x.size, 0, MAX_FILE_BYTES, -1);
+    if (FILE_ID.test(id) && n && size >= 0) files[id] = { n, size };
+  }
+  for (const [id, v] of Object.entries(obj(d.gone)).slice(0, 100000)) {
+    const x = obj(v);
+    const at = time(x.at);
+    if (FILE_ID.test(id) && at && !files[id]) gone[id] = { at, n: int(x.n, 0, 1000, 0) };
+  }
+  return { schema: int(d.schema, 1, 1000, 1), seq: int(d.seq, 0, Number.MAX_SAFE_INTEGER, 0), files, gone };
+}
+
+// Search by meaning with the model on this device (life/embed/model.ts): on, and when it was
+// downloaded. Kept on this device only.
+export interface MeaningPrefs {
+  on: boolean;
+  at: number;
+}
+export function cleanMeaningPrefs(raw: unknown): MeaningPrefs {
+  const d = obj(raw);
+  return { on: d.on === true, at: time(d.at) };
+}

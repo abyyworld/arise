@@ -32,6 +32,7 @@ import { addDays, dayEnd, dayKey, dayStart, mondayOf, parseDay, parseWhen, witho
 import { LIFE_KINDS, shareTier, SOURCE_NAMES } from './tiers';
 import type { LifeEvent, LifeTier } from './types';
 import { strongBy } from './strength';
+import { byMeaning } from './embed/index';
 import { PARTS, buildJournal, parseText, toText, type Built, type JournalDoc, type Own, type Part, type Voice } from './diary';
 
 export type { LifeFact, LifeSummary };
@@ -1192,6 +1193,9 @@ export async function notesFor(question: string, e: Engine | null, now: Date = n
   try {
     if (kw.length) {
       let raw = await L.search(kw.join(' '), { from, to, limit: 80 });
+      // Nothing with every word: what's closest in meaning, with the search model on this device
+      // if it's downloaded (embed/index.ts), then anything with some of the words.
+      if (!raw.length) raw = await byMeaning(withoutWhen(q, when), { from, to, limit: 40 }).catch(() => []);
       if (!raw.length) raw = await L.search(kw.join(' '), { from, to, limit: 60, any: true });
       events = P.visible(raw, cap);
       if (events.length < raw.length) hidden = true;

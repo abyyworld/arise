@@ -74,7 +74,7 @@ describe('the Connect screen', () => {
     expect(text('h1')).toBe('Connect');
     expect(text('.kicker')).toBe('Setup and connections');
     expect(text('.hub-lead')).toBe("Connect what you use, and Arise writes your days from it. Everything stays private: it's read on your devices and only leaves them encrypted.");
-    expect(titles()).toEqual(['Your phone', 'Accounts', 'This computer', 'Your history', 'Your files', 'GitHub backup Optional', 'AI apps']);
+    expect(titles()).toEqual(['Your phone', 'Accounts', 'This computer', 'Your history', 'Your files', 'Photos and files', 'GitHub backup Optional', 'AI apps']);
 
     expect(text('#hub-iphone')).toBe('iPhone Needs the iPhone app Health, sleep, steps, workouts, calendar, places and Shortcuts need the Arise app on your iPhone. How to get it');
     expect($('#hub-iphone a')!.getAttribute('href')).toBe(HUB.IPHONE_HOW);
@@ -162,7 +162,7 @@ describe('the Connect screen', () => {
       await screen('account');
       expect($('.wiz')).toBeNull();
       expect($('#hubSetup')).not.toBeNull();
-      expect(titles()).toEqual(['Your phone', 'Accounts', 'This computer', 'Your history', 'Your files', 'GitHub backup Optional', 'AI apps']);
+      expect(titles()).toEqual(['Your phone', 'Accounts', 'This computer', 'Your history', 'Your files', 'Photos and files', 'GitHub backup Optional', 'AI apps']);
     } finally {
       delete document.documentElement.dataset.theme;
     }
@@ -187,7 +187,7 @@ describe('the Connect screen', () => {
   it("in the iPhone app: the iPhone's own switches, and this computer says where", async () => {
     phone('ios', ['AriseSense']);
     await screen();
-    expect(titles()).toEqual(['Your phone', 'Accounts', 'This computer', 'Your history', 'Your files', 'GitHub backup Optional', 'AI apps']);
+    expect(titles()).toEqual(['Your phone', 'Accounts', 'This computer', 'Your history', 'Your files', 'Photos and files', 'GitHub backup Optional', 'AI apps']);
     expect($('#hubPhone')).toBeNull();
     expect([...document.querySelectorAll<HTMLElement>('#lifePanel [data-act="life-toggle"]')].map((b) => b.dataset.src)).toEqual(['health', 'motion', 'calendar', 'places', 'shortcuts']);
     expect($('#browserPanel')).toBeNull();
