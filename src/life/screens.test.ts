@@ -201,6 +201,24 @@ describe('Your days', () => {
   });
 });
 
+describe('a quick note from Today', () => {
+  it('adds a note with a title and a text file to today', async () => {
+    const { L } = await boot('today');
+    click('[data-act="life-add"][data-day="today"]');
+    expect(text('.sheet-body .kicker')).toBe('Add to your day');
+    (document.getElementById('lifeNoteTitle') as HTMLInputElement).value = 'Packing list';
+    const input = document.getElementById('lifeFile') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File(['Tent\nStove'], 'packing.txt', { type: 'text/plain' })] });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(text('#lifeFileNote')).toBe('packing.txt: its words go into the note.');
+    (document.getElementById('lifeTime') as HTMLInputElement).value = '08:15';
+    click('[data-act="life-add-save"]');
+    await vi.waitFor(async () => expect(await L.countBySource()).toMatchObject({ manual: 1 }));
+    const [note] = await L.eventsBetween(0, Infinity, { sources: ['manual'] });
+    expect(note).toMatchObject({ kind: 'note', title: 'Packing list', detail: 'packing.txt:\nTent\nStove', at: T('2026-10-17', 8, 15), meta: { file: 'packing.txt', fileType: 'text/plain' } });
+  });
+});
+
 describe('the calendar in Your days', () => {
   const many = (k: string, n: number, h = 10): LifeEvent[] => Array.from({ length: n }, (_, i) => ({ id: `browser:${k}-${i}`, source: 'browser', kind: 'visit', at: T(k, h, i % 60), title: `Visited page ${i}`, tier: 3 }));
   const cell = (k: string) => document.querySelector(`#lifeCal .cal-day[data-day="${k}"]`) as HTMLButtonElement;
