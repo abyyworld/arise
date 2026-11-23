@@ -43,6 +43,7 @@ import * as BROWSER from './life/browser-ui.js';
 import * as YOU from './you.js';
 import * as HUB from './life/connect-hub.js';
 import * as TODOS from './todos-ui.js';
+import * as CAL from './calendar-ui.js';
 import * as PAUSEUI from './life/pause-ui';
 import * as SKIPUI from './life/app-skip-ui';
 import { forget as forgetAppSkip } from './life/app-skip';
@@ -137,7 +138,7 @@ const VIEWS = {
   study: () => STUDY.renderStudy(app),
   quiz: () => STUDY.renderQuiz(app),
   [HUB.VIEW]: () => HUB.renderConnect(app),
-  [TODOS.VIEW]: () => TODOS.renderCalendar(app),
+  [CAL.VIEW]: () => CAL.renderCalendar(app),
   [IMPORT.VIEW]: () => IMPORT.renderImport(app, { store: loadLifeStore, back: importBack }),
 };
 
@@ -165,7 +166,7 @@ function render() {
   if (applyLook()) buildNav();
   document.body.dataset.view = view;
   // Screens without a tab of their own light up the one they open from.
-  const tab = view === 'plan' || view === 'training' ? 'goals' : view === 'knows' || view === HUB.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' || view === TODOS.VIEW ? 'today' : view;
+  const tab = view === 'plan' || view === 'training' ? 'goals' : view === 'knows' || view === HUB.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
   for (const b of document.querySelectorAll('#tabs [data-v]')) {
     b.classList.toggle('on', b.dataset.v === tab);
     if (b.dataset.v === tab) b.setAttribute('aria-current', 'page');
@@ -287,7 +288,7 @@ function heroHTML(k) {
     <p class="hero-hi">${esc(hi)}${name ? `, <span class="hero-name">${esc(name)}</span>` : ''}.</p>
     <p class="hero-sub">${esc(line)}</p>
     <div class="hero-glance">
-      <button data-act="nav" data-v="${TODOS.VIEW}"><b id="heroCal">·</b> <span>on your calendar today</span></button>
+      <button data-act="nav" data-v="${CAL.VIEW}"><b id="heroCal">·</b> <span>on your calendar today</span></button>
       <button data-act="to-todo-card"><b>${todos}</b> <span>${todos === 1 ? 'to-do' : 'to-dos'}</span></button>
       <button data-act="nav" data-v="goals"><b>${left}</b> <span>${left === 1 ? 'quest' : 'quests'} left</span></button>
     </div>
@@ -296,7 +297,7 @@ function heroHTML(k) {
 
 // The calendar's count, once the life log has it.
 function fillHero(k) {
-  TODOS.calendarCount(k)
+  CAL.calendarCount(k)
     .then((n) => {
       const b = $('#heroCal');
       if (!b) return;
@@ -2347,6 +2348,7 @@ document.addEventListener('click', async (e) => {
       if (GOALS.handleAction(d.act, el)) break;
       if (STUDY.handleAction(d.act, el)) break;
       if (TODOS.handleAction(d.act, el)) break;
+      if (CAL.handleAction(d.act, el)) break;
       if (YOU.handleAction(d.act, el)) break;
       if (await LIFE.handleAction(d.act, el)) break;
       if (PAUSEUI.handleAction(d.act, el)) break;
@@ -2572,6 +2574,7 @@ function buildNav() {
   // Each tab's view, its name and its icon. Me (the progress view) comes right after the days.
   const tabs = [
     ['today', 'Today', 'today'],
+    [CAL.VIEW, 'Calendar', 'calendar'],
     ['days', 'Days', 'days'],
     ['progress', w('youTab'), 'person'],
     ['goals', 'Goals', 'target'],
