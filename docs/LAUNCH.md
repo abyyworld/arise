@@ -88,12 +88,14 @@ Accounts (on the Connect screen, and in Settings, Your life) reads Google Calend
 
 **Google** (the web app; the iPhone app sends people to the web for it):
 
-1. In Google Cloud console, make a project and turn on the **Google Calendar API** and the **Gmail API**.
-2. Google Auth Platform: audience **External**, left in **Testing**. Add the scopes `https://www.googleapis.com/auth/calendar.readonly` and `https://www.googleapis.com/auth/gmail.readonly`. Add each person as a test user (up to 100).
+1. In Google Cloud console, make a project and turn on the **Google Calendar API**, the **Gmail API** and the **Google Drive API**.
+2. Google Auth Platform: audience **External**, left in **Testing**. Add the scopes `https://www.googleapis.com/auth/calendar.readonly`, `https://www.googleapis.com/auth/gmail.readonly` and `https://www.googleapis.com/auth/drive.readonly`. Add each person as a test user (up to 100).
 3. Clients, create a **Web application** client. Authorized JavaScript origins: `https://abyyworld.github.io`. Authorized redirect URIs: `https://abyyworld.github.io/arise/` (with the slash). For `npm run dev`, also `http://localhost:5173` and `http://localhost:5173/`.
 4. Put its Client ID in `src/connect-config.ts` (`GOOGLE.clientId`) and push.
 
-In Testing, only test users can connect, Google warns that it hasn't verified the app (they choose Continue), and it asks them to say yes again every 7 days. The app tells them. Gmail read access is a restricted scope: opening it to everyone means publishing the app, Google's verification and a paid security assessment. Then set `GOOGLE.testing` to `false`.
+In Testing, only test users can connect, Google warns that it hasn't verified the app (they choose Continue), and it asks them to say yes again every 7 days. The app tells them. Gmail read access and Drive read-only are restricted scopes: opening them to everyone means publishing the app, Google's verification and a paid security assessment. Then set `GOOGLE.testing` to `false`.
+
+Why Drive asks for read-only on all of Drive and not `drive.file` (only the files picked): `drive.file` needs Google's file picker, a script of Google's that would have to run inside Arise, which Arise's rules don't allow (`index.html`). Arise only ever opens the files each person picks. If that changes (a picker page on an address of its own, apart from Arise's), switch `SCOPES.drive` in `src/connect/google.ts` to `https://www.googleapis.com/auth/drive.file`, which is not a restricted scope.
 
 **Microsoft** (the web app and the iPhone app):
 

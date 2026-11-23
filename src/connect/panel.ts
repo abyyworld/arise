@@ -9,12 +9,13 @@ import * as MS from './microsoft';
 import * as STEAM from './steam';
 import * as PSN from './psn';
 import * as GH from './github';
+import * as DRIVE from './drive';
 import * as OAUTH from './oauth';
 import * as ICSUI from './ics-ui';
 import { initFeeds } from './ics-feeds';
 import { ConnectError, isNative } from './http';
 import { INFO, available, busy, deleteData, disconnect, finish, linked, syncNow, initEngine } from './engine';
-import { SERVICES, load, type ServiceId } from './state';
+import { SERVICES, load, save, type ServiceId } from './state';
 
 const $ = <T extends Element = HTMLElement>(sel: string) => document.querySelector<T>(sel);
 const isService = (v: unknown): v is ServiceId => SERVICES.includes(v as ServiceId);
@@ -57,7 +58,8 @@ function card(id: ServiceId): string {
   } else if (!st.on) {
     buttons.push(btn('acct-connect', id, 'Connect', 'primary'));
   } else {
-    const what = st.parts.length && info.parts ? info.parts.filter((p) => st.parts.includes(p.id)).map((p) => p.label).join(' and ') : '';
+    const names = st.parts.length && info.parts ? info.parts.filter((p) => st.parts.includes(p.id)).map((p) => p.label) : [];
+    const what = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names.join('');
     const who = st.account ? ` as ${esc(st.account)}` : '';
     if (busy(id)) lines.push('<small>Syncing…</small>');
     else if (st.needs === 'reconnect') lines.push(`<small class="error">${esc(st.error || 'Signed out. Connect again.')}</small>`);
@@ -66,6 +68,13 @@ function card(id: ServiceId): string {
     lines.push(`<small>Connected${who}${what ? ` (${esc(what)})` : ''}. ${st.last ? `Last sync ${ago(st.last)}` : 'Not synced yet'}. ${items(st.count)} so far.</small>`);
     if (st.needs === 'reconnect') buttons.push(btn('acct-connect', id, 'Connect again', 'primary'));
     else buttons.push(`<button class="btn small primary" data-act="acct-sync" data-s="${id}" ${busy(id) ? 'disabled' : ''}>${icon('refresh')} Sync now</button>`);
+    if (id === 'google' && st.needs !== 'reconnect') {
+      if (st.parts.includes('drive')) {
+        const n = DRIVE.picks(st).length;
+        lines.push(`<small>Drive: ${n ? `${n} ${n === 1 ? 'file' : 'files'} picked` : 'no files picked yet'}.</small>`);
+        buttons.push(btn('acct-drive', id, 'Pick Drive files'));
+      } else buttons.push(btn('acct-drive-add', id, 'Add Drive files'));
+    }
     buttons.push(btn('acct-off', id, 'Disconnect'));
   }
   if (!st.on && st.count) lines.push(`<small>${items(st.count)} from it on this device.</small>`);
@@ -118,7 +127,11 @@ const err = (text: string) => {
 };
 
 const partBoxes = (id: ServiceId) =>
-  (INFO[id].parts || []).map((p) => `<label class="check"><input type="checkbox" class="acct-part" value="${p.id}" checked> ${esc(p.label)}</label>`).join('');
+  (INFO[id].parts || []).map((p) => `<label class="check"><input type="checkbox" class="acct-part" value="${p.id}"${p.off ? '' : ' checked'}> ${esc(p.label)}</label>`).join('');
+
+// Why Drive asks for more than the files picked, said before connecting.
+export const DRIVE_NOTE =
+  "Drive: Google's own file picker can't run inside Arise, so Google asks to let Arise see all your Drive files, read-only. Arise only ever opens the files you pick, on this device.";
 
 function connectSheet(id: ServiceId) {
   const native = isNative();
@@ -126,6 +139,7 @@ function connectSheet(id: ServiceId) {
     openSheet(`<p class="kicker">Your life</p><h2 class="display sheet-title">Connect Google</h2>
       <p>${esc(INFO.google.reads)}</p>
       ${partBoxes('google')}
+      <p class="muted small"><span class="tag less">Less private</span> ${esc(DRIVE_NOTE)}</p>
       <p class="muted small">Google asks you to sign in and say yes. Arise reads straight from Google and keeps what it gets on this device.</p>
       ${GOOGLE.testing ? "<p class=\"muted small\">Arise's Google access is still in test mode: only people Arise's owner adds can connect, and Google asks you to say yes again every 7 days.</p>" : ''}
       <p class="error small" id="acctErr" role="alert" hidden></p>
@@ -331,6 +345,85 @@ async function connectPsn(button: HTMLButtonElement) {
   }
 }
 
+// ---------- Drive files (a part of the Google link, drive.ts)
+
+const KIND_NAMES: Record<DRIVE.Kind, string> = { doc: 'Google Doc', text: 'Text', pdf: 'PDF' };
+const driveRow = (f: { id: string; name: string }, on: boolean, note = '') =>
+  `<label class="check"><input type="checkbox" class="drive-pick" value="${esc(f.id)}" data-name="${esc(f.name)}"${on ? ' checked' : ''}> ${esc(f.name)}${note ? ` <span class="muted small">${esc(note)}</span>` : ''}</label>`;
+const pickedFiles = () => [...document.querySelectorAll<HTMLInputElement>('.drive-pick')].filter((b) => b.checked).map((b) => ({ id: b.value, name: b.dataset.name || 'Drive file' }));
+const TAP_FIRST = `${G.TAP} Close this, tap Sync now, then try again.`;
+
+function driveAddSheet() {
+  openSheet(`<p class="kicker">Google</p><h2 class="display sheet-title">Add Drive files</h2>
+    <p>Pick Drive files whose text Arise may read: Google Docs, Markdown, text files and PDFs. Google asks you to say yes once more.</p>
+    <p class="muted small"><span class="tag less">Less private</span> ${esc(DRIVE_NOTE)}</p>
+    <button class="btn primary block" data-act="acct-drive-go" data-s="google">Continue to Google</button>`);
+}
+
+function driveSheet() {
+  const picked = DRIVE.picks(load('google'));
+  openSheet(`<p class="kicker">Google</p><h2 class="display sheet-title">Drive files</h2>
+    <p>Pick the files whose text Arise may read: Google Docs, Markdown, text files and PDFs (when their text can be read). It goes into your life log as notes, end-to-end encrypted, and only the private AI or the AI on your device reads it, unless you allow the less private ones. A file that changes is read again.</p>
+    <p class="muted small">${esc(DRIVE_NOTE)}</p>
+    <div class="row"><label class="sr-only" for="driveQ">Search your Drive by name</label><input id="driveQ" type="search" maxlength="100" placeholder="Search by name" autocomplete="off"><button class="btn small ghost" data-act="acct-drive-find" data-s="google">${icon('search')} Search</button></div>
+    <div id="driveList">${picked.map((p) => driveRow(p, true)).join('')}<p class="muted small" id="driveWait">Looking in your Drive…</p></div>
+    <label class="field"><span class="k">Or paste a link to a Drive file</span><input id="driveLink" type="url" autocomplete="off" spellcheck="false" placeholder="https://docs.google.com/document/d/…"></label>
+    <p class="error small" id="acctErr" role="alert" hidden></p>
+    <button class="btn primary block" data-act="acct-drive-save" data-s="google">Save</button>`);
+  void driveFind('');
+}
+
+// Files that match, after the ones already ticked.
+async function driveFind(words: string) {
+  const st = load('google');
+  const ticked = pickedFiles();
+  err('');
+  try {
+    if (!st.auth.token || (st.auth.expires || 0) - 60_000 < Date.now()) throw new ConnectError('tap', G.TAP);
+    const found = await DRIVE.search(st, words);
+    const el = document.getElementById('driveList');
+    if (!el) return;
+    const rows = ticked.map((f) => driveRow(f, true));
+    for (const f of found) if (!ticked.some((t) => t.id === f.id)) rows.push(driveRow(f, false, KIND_NAMES[DRIVE.kindOf(f.mime, f.name) || 'text']));
+    el.innerHTML = rows.join('') || '<p class="muted small">No files like that.</p>';
+  } catch (e) {
+    document.getElementById('driveWait')?.remove();
+    err(e instanceof ConnectError ? (e.kind === 'tap' ? TAP_FIRST : e.message) : "Couldn't reach Google. Try again.");
+  }
+}
+
+async function driveSave(button: HTMLButtonElement) {
+  const files = pickedFiles();
+  const link = ($<HTMLInputElement>('#driveLink')?.value || '').trim();
+  if (link) {
+    const id = DRIVE.fileIdFrom(link);
+    if (!id) return err("That isn't a link to a Drive file.");
+    button.disabled = true;
+    try {
+      const f = await DRIVE.fileInfo(load('google'), id);
+      if (!f || !DRIVE.kindOf(f.mime, f.name)) {
+        button.disabled = false;
+        return err("Arise can't read the text of that file. Pick a Google Doc, a Markdown or text file, or a PDF.");
+      }
+      if (!files.some((x) => x.id === f.id)) files.push({ id: f.id, name: f.name });
+    } catch (e) {
+      button.disabled = false;
+      return err(e instanceof ConnectError && e.kind === 'tap' ? TAP_FIRST : "Arise can't open that file. Check the link, and that it's in this Google account's Drive.");
+    }
+  }
+  if (files.length > DRIVE.MAX_PICKS) return err(`Pick up to ${DRIVE.MAX_PICKS} files.`);
+  // A sync running now saves the Google link when it ends: let it, then change the list.
+  if (busy('google')) await syncNow('google').catch(() => {});
+  const st = load('google');
+  const gone = DRIVE.setPicks(st, files);
+  save('google', st);
+  closeSheet();
+  if (gone.length) await DRIVE.forgetFiles(gone).catch(() => {});
+  toast(files.length ? `Arise reads ${files.length} Drive ${files.length === 1 ? 'file' : 'files'}. Reading them…` : 'No Drive files picked.');
+  refresh();
+  if (files.length) void syncNow('google', { manual: true });
+}
+
 // ---------- taps
 
 // True when it was one of this panel's buttons.
@@ -382,6 +475,24 @@ export async function handleAction(act: string, el: HTMLElement): Promise<boolea
       }
       return true;
     }
+    case 'acct-drive':
+      if (load('google').on) driveSheet();
+      return true;
+    case 'acct-drive-add':
+      if (load('google').on) driveAddSheet();
+      return true;
+    case 'acct-drive-go': {
+      // Straight from the tap, so the pop-up may open.
+      const st = load('google');
+      if (st.on && available('google') === 'ok') signInWeb('google', [...new Set([...st.parts, 'drive'])], st.user);
+      return true;
+    }
+    case 'acct-drive-find':
+      await driveFind($<HTMLInputElement>('#driveQ')?.value || '');
+      return true;
+    case 'acct-drive-save':
+      await driveSave(el as HTMLButtonElement);
+      return true;
     case 'acct-copy':
       try {
         await navigator.clipboard.writeText(el.dataset.code || '');

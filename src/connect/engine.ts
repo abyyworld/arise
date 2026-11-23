@@ -20,7 +20,7 @@ import { SERVICES, blank, load, remove, save, type ServiceId, type SvcState } fr
 export interface Info {
   name: string;
   reads: string; // what it reads, in one line
-  parts?: { id: string; label: string }[];
+  parts?: { id: string; label: string; off?: boolean }[]; // off: not ticked unless the Player ticks it
   unofficial?: boolean;
   gap: number; // between automatic syncs
 }
@@ -28,10 +28,11 @@ export interface Info {
 export const INFO: Record<ServiceId, Info> = {
   google: {
     name: 'Google',
-    reads: 'Calendar events, and for each email: who wrote, the subject, date, labels and a short preview. Never the whole email.',
+    reads: 'Calendar events, and for each email: who wrote, the subject, date, labels and a short preview. Never the whole email. If you like, the text of Drive files you pick.',
     parts: [
       { id: 'calendar', label: 'Calendar' },
       { id: 'mail', label: 'Gmail' },
+      { id: 'drive', label: 'Drive files you pick', off: true },
     ],
     gap: 10 * 60_000,
   },
