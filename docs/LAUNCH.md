@@ -115,6 +115,15 @@ What was set up, in case it needs doing again:
 
 Arise signs in with Google through a plain pop-up and an ID token (`src/signin-google.ts`), so no Google script runs inside Arise and `index.html`'s rules stay as they are. Microsoft isn't offered: Firebase can't sign in with a Microsoft token this way, and its own pop-up would need a Google script inside Arise.
 
+## For 1.35: passkeys and the AI apps' rules (once)
+
+1. Firebase console: Project settings, Service accounts, Generate new private key. A file downloads.
+2. Run the one command in CLAUDE.md. `setup-workers.sh` deploys the passkey helper (`arise-passkey`) and asks you to drag that key file in; it checks the key, saves it as a secret and puts the helper's address into the app. It also deploys the connector 1.1.0 (the AI apps' rules) and the Firestore rules (passkey wraps).
+3. Delete the downloaded key file and empty the Trash.
+4. Check: the passkey helper's `/health` answers `"ready":true`, and the connector's `/health` lists `rules`.
+
+Until then the passkey button stays hidden and the AI apps screen says "Needs the connector update".
+
 ## Signing the Android app (once)
 
 GitHub builds Arise.apk on every push to `main` (`.github/workflows/android.yml`), but only publishes it once the repo has a signing key. Android only installs an update signed with the same key as the app on the phone, so make it once and keep a copy somewhere safe, like a password manager. If it's lost, everyone has to uninstall the app and install it again.

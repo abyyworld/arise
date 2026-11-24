@@ -231,6 +231,7 @@ The original weekly split (four workouts over six fixed weekdays, Thursday off) 
 - Morning brief: your day in a few lines, on Today and as a notification at the time you pick.
 - Invite people to an event: add who's coming, then send the invite file yourself.
 - Rules for each AI app (Me, AI apps): may just do, ask me first, never, and house rules.
+- Passkeys (Settings, Account, More): sign in with your face, fingerprint or screen lock, and where your device can, unlock your data with it too.
 - System health (Setup and connections): one check of sync, the AI, reminders, AI apps, calendars and storage.
 - One box on Today: write anything, and Arise works out on your device if it's a to-do (with its day and time), groceries, money owed, a question for your coach or a note for your day. It shows what it will save first, and you can pick another kind.
 - Who owes whom: money you lent or borrowed, per person and currency, with a day to pay it back. Tap a person to mark things paid back.

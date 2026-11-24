@@ -14,6 +14,7 @@ export const CHANGES: { version: string; notes: string[] }[] = [
       'A quick one: short questions from your coach on Today, like the 3 things that matter this week, or whether a late to-do still matters. Your answer does the thing straight away.',
       'Morning brief: your day in a few lines, on Today and as a notification at the time you pick (Settings, Your plan and next steps).',
       'Invite people to an event: add who is coming, then send an invite they can accept in their own calendar.',
+      'Sign in with a passkey: your face, fingerprint or screen lock instead of your password. Where your device can, the passkey unlocks your data too. Add or remove them in Settings, Account, More, Passkeys.',
       'Rules for each AI app: what it may just do, what it must ask you first, and what it may never do, plus house rules in your own words.',
       'System health, in Setup and connections: one check that says whether sync, the AI, reminders, AI apps, calendars and your storage are working.',
     ],
