@@ -26,7 +26,16 @@ export type ImportKind =
   | 'claude' // conversations.json from Claude's Export data
   | 'chatgpt' // conversations.json from ChatGPT's Export data
   | 'gemini' // My Activity for Gemini Apps in a Google Takeout (JSON, or HTML when there's no JSON)
-  | 'bank-csv'; // a bank or card statement saved as CSV
+  | 'bank-csv' // a bank or card statement saved as CSV
+  | 'obsidian' // a zip of an Obsidian vault: Markdown files, with its .obsidian folder
+  | 'notion' // Notion's "Markdown & CSV" export: pages and databases, names ending in a long id
+  | 'apple-notes' // the "iCloud Notes" folder from Apple's data download (privacy.apple.com)
+  | 'notes' // other Markdown or text notes in a zip
+  | 'note-file' // one note on its own: .md, .txt or .html
+  | 'keep' // Google Keep in a Takeout: one .json per note
+  | 'word' // a Word document (.docx)
+  | 'pdf' // a PDF: its words, when it has any
+  | 'fitbit'; // Fitbit's export (Google Takeout or the older Fitbit one): steps, sleep, resting heart rate
 
 // Which column is which in a bank statement. Columns are counted from 0.
 export interface CsvMapping {
@@ -61,6 +70,7 @@ export interface Found {
   encoding?: string; // when it isn't UTF-8 (some banks write Windows-1252)
   parts?: string[]; // several entries of a zip read as one, in this order (a Meta inbox, a Discord package)
   chats?: AiChatInfo[]; // chats with an AI app: each one, to pick from before reading
+  file?: string; // a document read from inside its own file (Word): that file's name
 }
 
 // One chat with an AI app, as the picker lists it.
@@ -76,6 +86,7 @@ export type Problem =
   | 'html' // a Google Takeout made with HTML instead of JSON
   | 'tgz' // a Takeout saved as .tgz
   | 'zip-method' // a zip packed in a way this can't open
+  | 'no-text' // a document with no words Arise can read (a scanned PDF, or one locked with a password)
   | 'unknown'; // not a file Arise knows
 
 export interface Detection {
@@ -129,4 +140,6 @@ export interface ImportResult {
 export interface TextInput {
   name: string;
   text: AsyncIterable<string>;
+  modified?: number; // when the file (or zip entry) was last changed, ms, when that's known
+  raw?: () => AsyncIterable<Uint8Array>; // its bytes instead of its text (a PDF)
 }
