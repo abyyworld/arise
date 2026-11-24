@@ -1404,6 +1404,24 @@ export function removeTodo(id: string) {
   save();
 }
 
+// To-dos read from a calendar file (lib/events-ics.ts): new ones added, ones read before changed
+// to what the file says now. One ticked off here stays done, and one deleted here stays deleted.
+// How many came in.
+export function importTodos(list: TD.Todo[]): number {
+  const now = Date.now();
+  const next: Record<string, unknown> = { ...state.todos };
+  let n = 0;
+  for (const t of list) {
+    const was = state.todos[t.id];
+    if (was?.gone) continue;
+    next[t.id] = { ...t, created: was ? was.created : now, at: now, ...(was?.done && !t.done ? { done: was.done } : {}) };
+    n++;
+  }
+  state.todos = TD.cleanTodos(next);
+  save();
+  return n;
+}
+
 // ---------- your own calendar events (lib/events.ts)
 
 export type { CalEvent, Change, Occurrence } from './lib/events';

@@ -814,3 +814,17 @@ describe("the Player's own data", () => {
     expect(T.hasOwnData()).toBe(true);
   });
 });
+
+describe('to-dos from a calendar file', () => {
+  it('adds new ones, changes ones read before, and keeps what was ticked off or deleted here', async () => {
+    const S = await fresh();
+    const t = (id: string, o: object = {}) => ({ id, title: id, created: 1, at: 1, from: 'Events', ...o });
+    expect(S.importTodos([t('a', { day: '2026-11-24' }), t('b'), t('c')] as never)).toBe(3);
+    S.setTodoDone('b', true);
+    S.removeTodo('c');
+    expect(S.importTodos([t('a', { title: 'a, renamed', day: '2026-11-25' }), t('b'), t('c')] as never)).toBe(2);
+    expect(S.state.todos.a).toMatchObject({ title: 'a, renamed', day: '2026-11-25', from: 'Events' });
+    expect(S.state.todos.b.done).toBeTruthy();
+    expect(S.state.todos.c.gone).toBe(true);
+  });
+});

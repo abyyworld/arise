@@ -11,6 +11,7 @@ export const CHANGES: { version: string; notes: string[] }[] = [
       'Help me decide: on Coach, ask about a choice. Arise lays out the options with what each costs you, says which it would pick and why, and asks later how it went.',
       'Next-step messages: a few at the right moment, from your plan. Choose how many a day and when Arise stays quiet, in Settings.',
       'Bring in your chats with Claude, ChatGPT and Gemini. Pick the ones you want, and delete any of them later.',
+      'Import a calendar file now brings in its to-dos too, with their day and time, on your to-do list.',
     ],
   },
   {
