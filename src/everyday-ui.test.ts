@@ -161,6 +161,60 @@ describe('what matters, and when', () => {
   });
 });
 
+describe('a quick one on Today', () => {
+  it('asks the 3 things that matter this week, adds them as to-dos, and asks the next one', async () => {
+    const { S } = await boot(); // a Tuesday, with the best time not said yet
+    expect(text('#askCard')).toContain('What are the 3 things that matter most this week?');
+    (document.querySelector('#askIn') as HTMLTextAreaElement).value = 'Finish the essay\nEmail Eyal';
+    await submit('[data-form="q-write"]');
+    const added = Object.values(S.state.todos).sort((a, b) => a.title.localeCompare(b.title));
+    expect(added.map((t) => [t.title, t.day, t.big])).toEqual([
+      ['Email Eyal', '2026-11-29', true],
+      ['Finish the essay', '2026-11-29', true],
+    ]);
+    expect(S.state.dismissed['q:week:2026-11-23']).toBeTruthy();
+    expect(text('#askCard')).toContain('When do you think best?');
+    await tap('[data-act="q-best"][data-v="evening"]');
+    expect(S.state.settings.bestTime).toBe('evening');
+    expect(text('#askCard')).toBe('');
+  });
+
+  it('marks money paid back from the question', async () => {
+    const { S } = await boot({ settings: { bestTime: 'morning' } });
+    S.addDebt({ who: 'Sam', amount: 12, cur: 'GBP', dir: 'owed', due: '2026-11-20' });
+    const t = S.addTodo({ title: 'Big one' })!;
+    S.editTodo(t.id, { big: true });
+    (await import('./everyday-ui.js')).repaint();
+    const app = await import('./everyday-ui.js');
+    document.querySelector('#askCard')!.outerHTML = app.questionCard();
+    expect(text('#askCard')).toContain('Did Sam pay you back?');
+    await tap('#askCard [data-act="q-paid"]');
+    expect(S.balances()).toEqual([]);
+  });
+});
+
+describe('the morning brief', () => {
+  it('shows on Today in the morning when it is on, and plans plain notifications', async () => {
+    const { S } = await boot({ settings: { bestTime: 'morning', briefAt: '08:00' } });
+    S.addTodo({ title: 'Email Eyal', day: '2026-11-24' });
+    S.addTodo({ title: 'Pay rent', day: '2026-11-25' });
+    const UI = await import('./everyday-ui.js');
+    expect(UI.briefCard()).toContain('1 to-do: Email Eyal.');
+    expect(UI.briefCard(new Date(2026, 10, 24, 13))).toBe('');
+    const B = await import('./brief');
+    const list = B.nudges(Date.now(), 3);
+    expect(list.map((n) => [new Date(n.at).getDate(), new Date(n.at).getHours(), n.body])).toEqual([
+      [25, 8, 'Your day: 2 to-dos.'],
+      [26, 8, 'Your day: 2 to-dos.'],
+    ]);
+    S.state.settings.notifyDetails = true;
+    expect(B.nudges(Date.now(), 2)[0].body).toContain('Pay rent');
+    S.state.settings.briefAt = '';
+    expect(B.nudges(Date.now(), 3)).toEqual([]);
+    expect(UI.briefCard()).toBe('');
+  });
+});
+
 describe('Write it my way', () => {
   it('writes from rough notes on Coach, keeps the sample of how you write, and copies the result', async () => {
     const { S, AI } = await boot({}, 'coach');

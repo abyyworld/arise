@@ -464,3 +464,53 @@ describe('elsewhere in the app', () => {
     expect(document.querySelector('#app [data-act="nav"][data-v="knows"]')).not.toBeNull();
   });
 });
+
+describe('putting things right', () => {
+  it('fixes an event from its sheet, and it stays fixed when the same thing is imported again', async () => {
+    const { L } = await boot('days');
+    click('[data-act="life-day"][data-d="-1"]');
+    await vi.waitFor(() => expect(document.querySelector('#lifeDay .tl-ev[data-id="spotify:a1"]')).not.toBeNull());
+    click('#lifeDay .tl-ev[data-id="spotify:a1"]');
+    await vi.waitFor(() => expect(document.querySelector('.sheet-body [data-act="fix-ev"]')).not.toBeNull());
+    expect(text('.sheet-body [data-act="fix-ev"]')).toBe('Not quite? Fix it');
+    click('.sheet-body [data-act="fix-ev"]');
+    await vi.waitFor(() => expect(document.querySelector('#fixTitle')).not.toBeNull());
+    (document.querySelector('#fixTitle') as HTMLInputElement).value = 'Listened to the radio';
+    (document.querySelector('#fixTime') as HTMLInputElement).value = '10:15';
+    click('[data-act="fix-ev-save"]');
+    await vi.waitFor(async () => expect(await L.getEvent('spotify:a1')).toMatchObject({ title: 'Listened to the radio', at: T('2026-10-16', 10, 15) }));
+    await L.addEvents(EVENTS);
+    expect((await L.getEvent('spotify:a1'))?.title).toBe('Listened to the radio');
+  });
+
+  it('teaches Arise when a fact is wrong', async () => {
+    const { M } = await boot('knows', { facts: ['I live in Leeds.'] });
+    await vi.waitFor(() => expect(document.querySelector('#lifeFacts [data-act="fix-fact"]')).not.toBeNull());
+    click('#lifeFacts [data-act="fix-fact"]');
+    await vi.waitFor(() => expect(text('.sheet-body')).toContain('Arise thinks: “I live in Leeds.”'));
+    (document.querySelector('#teachText') as HTMLTextAreaElement).value = 'I live in York.';
+    click('[data-act="fix-fact-save"]');
+    await vi.waitFor(() => expect(M.allFacts().map((f) => f.text)).toEqual(['I live in York.']));
+    expect(app().textContent).toContain('Your life, worked out');
+  });
+
+  it('looks back over a month and a day, and says when Arise started keeping what it knew', async () => {
+    const { M } = await boot('days', { facts: ['I live in Leeds.'] });
+    await M.noteKnew();
+    click('[data-act="lookback-open"]');
+    await vi.waitFor(() => expect(text('#lookBody')).toContain('4 things in your log.'));
+    expect(text('.lookback-title')).toBe(new Date(2026, 9, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }));
+    expect(text('#lookBody')).toContain('2 things listened to');
+    expect(text('#lookBody')).toContain('Busiest days');
+    expect(text('#lookBody')).toContain('I live in Leeds.');
+    // The month before: nothing, and nothing kept yet then.
+    click('#lookBack [data-act="lookback-step"][data-d="-1"]');
+    await vi.waitFor(() => expect(text('#lookBody')).toContain('Nothing in your log for this month.'));
+    expect(text('#lookBody')).toContain(`Arise started keeping this on ${new Date(2026, 9, 17).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}.`);
+    expect(document.querySelector('#lookBack [data-act="lookback-step"][data-d="1"]')?.hasAttribute('disabled')).toBe(false);
+    // By day.
+    click('#lookBack [data-act="lookback-span"][data-v="day"]');
+    await vi.waitFor(() => expect(document.querySelector('#lookPick')?.getAttribute('type')).toBe('date'));
+    expect(document.querySelector('#lookBack [data-act="lookback-span"][data-v="day"]')?.getAttribute('aria-pressed')).toBe('true');
+  });
+});

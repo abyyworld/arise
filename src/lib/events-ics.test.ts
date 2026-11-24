@@ -195,3 +195,22 @@ describe('to-dos in a calendar file', () => {
     expect(fromIcs(file('BEGIN:VTODO\r\nUID:hx-todo-a@example\r\nSUMMARY:Renamed\r\nEND:VTODO\r\n'), NOW).todos[0].id).toBe(todos[0].id);
   });
 });
+
+describe('inviting people to an event', () => {
+  it('keeps who is coming, and makes an invite they can accept', async () => {
+    const { cleanEvent, guestsFrom } = await import('./events');
+    const { inviteIcs, fromIcs } = await import('./events-ics');
+    expect(guestsFrom('sam@example.com, Jo; "Ali" <ali@example.org>\nsam@example.com')).toEqual(['sam@example.com', 'Jo', 'ali@example.org']);
+    const e = cleanEvent({ id: 'e1', title: 'Lab lunch', start: '2026-12-02T12:30', end: '2026-12-02T13:30', tz: 'Europe/London', guests: ['sam@example.com', 'Jo', ''], created: 1, at: 1 })!;
+    expect(e.guests).toEqual(['sam@example.com', 'Jo']);
+    const raw = inviteIcs(e, { organizer: 'me@example.com', now: Date.UTC(2026, 10, 25) });
+    const text = raw.replace(/\r\n /g, ''); // long lines are folded
+    expect(text).toContain('METHOD:REQUEST');
+    expect(text).toContain('ORGANIZER:mailto:me@example.com');
+    expect(text).toContain('ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:sam@example.com');
+    expect(text).not.toContain('Jo'); // a name with no address can't be invited by the file
+    expect(inviteIcs(e)).toContain('METHOD:PUBLISH');
+    // Read back: the guests come with it.
+    expect(fromIcs(raw).events[0].guests).toEqual(['sam@example.com']);
+  });
+});

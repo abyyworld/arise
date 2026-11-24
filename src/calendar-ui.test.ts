@@ -312,3 +312,24 @@ describe('calendar files', () => {
     expect(out.match(/BEGIN:VEVENT/g)).toHaveLength(Object.keys(S.state.events).length);
   });
 });
+
+describe('inviting people', () => {
+  it('saves who is coming and sends the invite through the email app with the file saved', async () => {
+    const { S, CAL } = await boot();
+    const created: string[] = [];
+    URL.createObjectURL = vi.fn(() => 'blob:x');
+    URL.revokeObjectURL = vi.fn();
+    const clicks = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      created.push(this.download);
+    });
+    S.addEvent({ id: 'ev1', title: 'Lab lunch', start: '2026-12-02T12:30', end: '2026-12-02T13:30' });
+    const e = S.state.events.ev1;
+    S.updateEvent('ev1', { ...e, guests: ['sam@example.com', 'Jo'] });
+    const how = await CAL.sendInvite(S.state.events.ev1);
+    expect(how).toBe('email');
+    expect(created).toEqual(['Lab-lunch.ics']);
+    expect(document.querySelector('#toast')!.textContent).toContain('Attach it to the email');
+    expect(await CAL.sendInvite({ ...S.state.events.ev1, guests: ['Jo'] })).toBe('none');
+    clicks.mockRestore();
+  });
+});

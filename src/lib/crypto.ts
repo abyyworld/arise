@@ -10,6 +10,8 @@
 //                           can't turn what it sees back into the keys below.
 //   master ──HKDF "kek"───▶ wraps the data key
 //   recovery code ──HKDF──▶ also wraps the data key (for a forgotten password)
+//   a passkey's own secret (made on the device, never sent) ──HKDF──▶ also wraps the data key,
+//                           one wrap per passkey, so signing in with it unlocks the data too
 //   data key (random AES-256-GCM) ──▶ encrypts the synced data
 //   Email reset accounts only: the data key itself, kept where only the signed-in account
 //   (and whoever runs the database) can read it, so a password reset by email can open it.
@@ -136,6 +138,19 @@ export function parseRecoveryCode(text: string): Uint8Array<ArrayBuffer> {
 export async function recoveryKek(code: string): Promise<CryptoKey> {
   const raw = await subtle().importKey('raw', parseRecoveryCode(code), 'HKDF', false, ['deriveKey']);
   return subtle().deriveKey(hkdf('arise recovery v1'), raw, { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey', 'encrypt', 'decrypt']);
+}
+
+// ---------- passkeys
+
+// A passkey can make a secret of its own on the device (the WebAuthn `prf` extension): the same 32
+// bytes every time for the same passkey and the same input, and never sent anywhere. It wraps
+// the data key too, so signing in with the passkey unlocks the data, as the password does.
+export const PASSKEY_PRF_INPUT = 'arise passkey unlock v1';
+
+export async function passkeyKek(secret: Uint8Array): Promise<CryptoKey> {
+  if (!(secret instanceof Uint8Array) || secret.length < 32) throw new CryptoError('bad-data', "The passkey didn't give a secret Arise can use.");
+  const raw = await subtle().importKey('raw', new Uint8Array(secret), 'HKDF', false, ['deriveKey']);
+  return subtle().deriveKey(hkdf('arise passkey v1'), raw, { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey']);
 }
 
 // A no-email account is known by a code like ARISE-7KQ2-9XMP-4HTR-3C8D. It isn't a secret, but

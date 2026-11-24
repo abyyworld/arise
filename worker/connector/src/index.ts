@@ -15,6 +15,11 @@
 // them back with, as the page says (only the Player's account writes the page, and the app never
 // has the token, so it can't read or wipe the log). Arise takes them, then they're deleted;
 // anything left is deleted after 60 days without use. No request logs.
+//
+// The Player's rules for the app travel in the same page (lib/me.ts MeRules), so this learns them
+// only while it answers for that app. mcp/core.mjs keeps to them: what a rule says never isn't
+// offered, and what it says to ask first goes into the log as a sealed request ('ask'), which
+// their Arise shows them to allow or not. Nothing is added until they do.
 
 import { createServer } from '../../../mcp/core.mjs';
 import { parseMeLink, readMe } from '../../../public/me.js';
@@ -53,7 +58,10 @@ export interface Deps {
   now?: () => number;
 }
 
-export const VERSION = '1.0.0';
+// 1.1.0: the Player's rules (ask first, never, house rules). Arise reads `rules` from /health to
+// know this connector keeps to them.
+export const VERSION = '1.1.0';
+export const FEATURES = ['rules'] as const;
 const MAX_BODY = 64 * 1024;
 const PAGE_MS = 15_000; // a page read is reused this long, so a burst of calls reads it once
 const KEEP_MS = 60 * 86_400_000;
@@ -165,6 +173,11 @@ async function mcp(req: Request, env: Env, ref: { id: string; key: string }, dep
       await append(env, ref.id, hash, s, true);
       noted = true;
     },
+    askFirst: async (want: 'add_note' | 'add_todo', words: string, day: string) => {
+      const { hash, sealed: s } = await sealed({ at: now(), tool: 'ask', want, ok: true, ...(client ? { client } : {}), note: words, ...(day ? { day } : {}) });
+      await append(env, ref.id, hash, s, true);
+      noted = true;
+    },
     onCall: async (name: string, ok: boolean) => {
       if ((name === 'add_note' || name === 'add_todo') && noted) return;
       if (!['about_me', 'my_goals', 'recent_days', 'search', 'fetch', 'add_note', 'add_todo'].includes(name)) return;
@@ -220,7 +233,7 @@ export async function handle(req: Request, env: Env, deps: Deps = {}): Promise<R
   const path = url.pathname.replace(/\/+$/, '') || '/';
   if (path === '/' || path === '/health') {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: appCors(req, env) });
-    return json({ ok: true, name: 'arise-connector', version: VERSION }, 200, appCors(req, env));
+    return json({ ok: true, name: 'arise-connector', version: VERSION, features: FEATURES }, 200, appCors(req, env));
   }
   const m = /^\/mcp\/([^/]+)$/.exec(path);
   if (m) {

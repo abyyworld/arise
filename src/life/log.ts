@@ -6,6 +6,9 @@
 // checked (cleanLifeEvent in lib/validate.ts); bad ones are dropped, and ones already in the log
 // (same id) are skipped, so importing the same file twice adds nothing. It resolves with how many
 // were new. onChange tells every screen and the memory what changed.
+//
+// An event the Player corrected ("Not quite? Fix it": fixEvent) stays as they left it: what comes
+// in again with its id is corrected the same way first, or left out if they deleted it (fixes.ts).
 
 import { cleanLifeEvent, cleanLifeFact, cleanLifeSummary, type LifeFact, type LifeSummary, type LifeWipe } from '../lib/validate';
 import type { LifeEvent, LifeKind, LifeSource } from './types';
@@ -14,6 +17,8 @@ import { addDays, dayEnd, dayKey, dayStart } from './dates';
 import { done, onOtherTabs, open, req, tellOtherTabs } from './db';
 import { addTomb, addWipe, clearNotes, dirtied, markDirty } from './journal';
 import { askedCoach, eventPack, MEM, syncable } from './packs';
+import { applyFix, fixMap } from './fixes';
+import { readFixes, saveFix } from './fix-store';
 
 export type { LifeEvent, LifeKind, LifeSource };
 export { LifeLogError } from './db';
@@ -147,7 +152,7 @@ const rows = (list: unknown[]) => list.map(fromRow).filter((e): e is LifeEvent =
 
 // Adds new events; ones already in the log (same id) stay as they are. Resolves with how many were new.
 export async function addEvents(events: readonly unknown[]): Promise<number> {
-  const clean = (Array.isArray(events) ? events : []).map(cleanLifeEvent).filter((e): e is LifeEvent => !!e);
+  const clean = await asFixed((Array.isArray(events) ? events : []).map(cleanLifeEvent).filter((e): e is LifeEvent => !!e));
   if (!clean.length) return 0;
   const db = await open();
   let added = 0;
@@ -180,6 +185,46 @@ export async function addEvents(events: readonly unknown[]): Promise<number> {
   return added;
 }
 
+// Events as the Player corrected them; the ones they deleted are left out.
+async function asFixed(list: LifeEvent[]): Promise<LifeEvent[]> {
+  if (!list.length) return list;
+  const fixes = fixMap(await readFixes());
+  if (!fixes.size) return list;
+  return list.map((e) => applyFix(e, fixes.get(e.id))).filter((e): e is LifeEvent => !!e);
+}
+
+// ---------- the Player's corrections
+
+export interface EventChange {
+  title?: string;
+  kind?: LifeKind;
+  at?: number; // a new time
+}
+
+// "Not quite? Fix it": changes an event's title, kind or time, or deletes it (`'delete'`), and
+// keeps the correction so an importer or another device never brings it back the way it was.
+// Arise's own events are made from the app's data, so they're changed there instead (except a
+// question to the coach, which ingest.ts deletes). Resolves with the event as it is now, null when
+// it was deleted, or false when there was nothing to change.
+export async function fixEvent(id: string, change: EventChange | 'delete'): Promise<LifeEvent | null | false> {
+  const e = await getEvent(id);
+  if (!e || e.source === 'arise') return false;
+  const at = Date.now();
+  if (change === 'delete') {
+    await saveFix({ id, at, gone: true });
+    await removeIds([id]);
+    return null;
+  }
+  const title = typeof change.title === 'string' ? cleanLifeEvent({ ...e, title: change.title })?.title : undefined;
+  const fix = { id, at, ...(title && title !== e.title ? { title } : {}), ...(change.kind && change.kind !== e.kind ? { kind: change.kind } : {}), ...(change.at && change.at !== e.at ? { start: change.at } : {}) };
+  if (Object.keys(fix).length <= 2) return false;
+  const kept = await saveFix(fix);
+  const next = applyFix(e, kept);
+  if (!next) return null;
+  await upsertEvents([next]);
+  return (await getEvent(id)) || next;
+}
+
 // The pack of an event that syncs changed: noted once per pack in this change.
 function touch(tx: IDBTransaction, packs: Set<string>, e: { id: string; source: string; at: number }) {
   if (!syncable(e)) return;
@@ -194,7 +239,7 @@ const same = (a: LifeEvent, b: LifeEvent) => JSON.stringify(a) === JSON.stringif
 // Adds events, or replaces the ones that changed (for Arise's own data, which can be edited).
 // Resolves with how many were added or changed.
 export async function upsertEvents(events: readonly unknown[]): Promise<number> {
-  const clean = (Array.isArray(events) ? events : []).map(cleanLifeEvent).filter((e): e is LifeEvent => !!e);
+  const clean = await asFixed((Array.isArray(events) ? events : []).map(cleanLifeEvent).filter((e): e is LifeEvent => !!e));
   if (!clean.length) return 0;
   const db = await open();
   let changed = 0;

@@ -3,10 +3,12 @@
 // device's copy of a pack taken in. Each pack is read and written in one transaction, so a change
 // made here meanwhile is never lost.
 
-import { cleanLifeFact, cleanLifeSummary, cleanLifeSyncState, type LifeFact, type LifeSummary, type LifeSyncState, type LifeWipe } from '../lib/validate';
+import { cleanLifeFact, cleanLifeSummary, cleanLifeSyncState, type LifeFact, type LifeFix, type LifeSummary, type LifeSyncState, type LifeWipe } from '../lib/validate';
 import { done, open, req, tellOtherTabs } from './db';
-import { beforeClear, changedAt, emit, fromRow, toRow } from './log';
-import { cleanWipes, clearNotes, markDirty } from './journal';
+import { beforeClear, changedAt, deletedAt, emit, fromRow, toRow } from './log';
+import { addTomb, cleanWipes, clearNotes, markDirty } from './journal';
+import { applyFix, changes, cleanFixes, cleanKnew, isEventFix } from './fixes';
+import { FIXES, KNEW } from './fix-store';
 import { askedCoach, canonical, emptyContent, eventPack, isPackKey, MEM, mergeContent, monthSpan, packKind, summaryPack, syncable, syncedPrefs, tidy, wipesEvent, type Content, type SyncedEvent } from './packs';
 import { prefs, takePaused } from './prefs';
 import { dayKey } from './dates';
@@ -161,9 +163,10 @@ export async function localPacks(): Promise<string[]> {
 interface Local {
   content: Content; // as stored, not tidied
   wipes: LifeWipe[];
+  fixes: LifeFix[]; // the Player's corrections (kv), which every month's events follow
 }
 
-const STORES = { e: ['events', 'tomb', 'sync'], s: ['summaries', 'tomb', 'sync'], mem: ['facts', 'tomb', 'sync'] } as const;
+const STORES = { e: ['events', 'tomb', 'sync', 'kv'], s: ['summaries', 'tomb', 'sync'], mem: ['facts', 'tomb', 'sync', 'kv'] } as const;
 
 // Reads this device's copy of a pack in `tx`, then calls `then` while the transaction is still
 // open (so it can write in the same go).
@@ -174,6 +177,10 @@ function readLocal(tx: IDBTransaction, key: string, then: (l: Local) => void) {
   const tombs = tx.objectStore('tomb').index('pack').getAll(key);
   const wipes = tx.objectStore('sync').get('wipes');
   reqs.push(items, tombs, wipes);
+  const kv = kind === 's' ? null : tx.objectStore('kv');
+  const fixes = kv?.get(FIXES);
+  const knew = kind === 'mem' ? kv?.get(KNEW) : undefined;
+  for (const r of [fixes, knew]) if (r) reqs.push(r);
   let left = reqs.length;
   const fail = (err: unknown) => {
     failures.set(tx, err);
@@ -198,8 +205,13 @@ function readLocal(tx: IDBTransaction, key: string, then: (l: Local) => void) {
         }
         for (const t of tombs.result as { id?: unknown; m?: unknown }[]) if (typeof t.id === 'string' && typeof t.m === 'number') c.tombs[t.id] = t.m;
         const w = cleanWipes((wipes.result as { v?: unknown } | undefined)?.v);
-        if (kind === 'mem') c.wipes = w;
-        then({ content: c, wipes: w });
+        const fx = cleanFixes((fixes?.result as { v?: unknown } | undefined)?.v);
+        if (kind === 'mem') {
+          c.wipes = w;
+          c.fixes = fx;
+          c.knew = cleanKnew((knew?.result as { v?: unknown } | undefined)?.v);
+        }
+        then({ content: c, wipes: w, fixes: fx });
       } catch (err) {
         fail(err);
       }
@@ -223,7 +235,7 @@ export async function buildPack(key: string, now = Date.now()): Promise<Content>
   const tx = db.transaction([...STORES[packKind(key)]]);
   let out: Content = emptyContent();
   readLocal(tx, key, (l) => {
-    out = tidy(key, l.content, { now, wipes: l.wipes });
+    out = tidy(key, l.content, { now, wipes: l.wipes, fixes: l.fixes });
   });
   await finish(tx);
   return out;
@@ -236,6 +248,7 @@ export interface Applied {
   changed: number; // items changed here
   ahead: boolean; // this device had something the cloud didn't: the pack goes up again
   newWipes: LifeWipe[]; // mem: wipes this device didn't have yet (applied here with the pack)
+  newFixes: LifeFix[]; // mem: corrections this device didn't have yet (applied here with the pack)
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -248,14 +261,14 @@ export async function applyPack(key: string, remote: Content, { now = Date.now()
   const kind = packKind(key);
   // (kv: the questions to the coach the Player deleted, ingest.ts; events and summaries: what the
   // memory's wipes cover.)
-  const tx = db.transaction([...STORES[kind], ...(kind === 'e' ? ['kv'] : kind === 'mem' ? ['events', 'summaries'] : [])], 'readwrite');
-  const result: Applied = { merged: emptyContent(), changed: 0, ahead: false, newWipes: [] };
+  const tx = db.transaction([...new Set([...STORES[kind], ...(kind === 'e' ? ['kv'] : kind === 'mem' ? ['events', 'summaries'] : [])])], 'readwrite');
+  const result: Applied = { merged: emptyContent(), changed: 0, ahead: false, newWipes: [], newFixes: [] };
   const days = new Set<string>();
   const sources = new Set<LifeSource>();
   const wiped = { n: 0, sums: 0, days, sources };
   let prefsTo: Content['prefs'] | null = null;
-  readLocal(tx, key, ({ content: here, wipes }) => {
-    const merged = mergeContent(key, here, remote, { now, staleBefore, wipes });
+  readLocal(tx, key, ({ content: here, wipes, fixes }) => {
+    const merged = mergeContent(key, here, remote, { now, staleBefore, wipes, fixes });
     result.merged = merged;
     if (kind === 'e') {
       const store = tx.objectStore('events');
@@ -326,6 +339,17 @@ export async function applyPack(key: string, remote: Content, { now = Date.now()
           wipeIn(tx, result.newWipes, wiped);
         }
         if (!same(merged.wipes, wipes)) tx.objectStore('sync').put({ k: 'wipes', v: merged.wipes });
+        // Corrections from another device: their events here change the same way, in every month.
+        if (!same(merged.fixes, here.fixes)) {
+          const known = new Map(here.fixes.map((f) => [f.id, JSON.stringify(f)]));
+          result.newFixes = merged.fixes.filter((f) => known.get(f.id) !== JSON.stringify(f));
+          tx.objectStore('kv').put({ k: FIXES, v: merged.fixes });
+          fixIn(tx, result.newFixes, wiped);
+        }
+        if (!same(merged.knew, here.knew)) {
+          tx.objectStore('kv').put({ k: KNEW, v: merged.knew });
+          result.changed++;
+        }
         if (!same(merged.prefs, here.prefs)) {
           prefsTo = merged.prefs;
           result.changed++;
@@ -346,6 +370,34 @@ export async function applyPack(key: string, remote: Content, { now = Date.now()
   if (result.changed) emit({ type: 'sync', count: result.changed, days: [...days].sort(), sources: [...sources], memory: kind !== 'e' });
   if (result.changed && kind !== 'e') tellOtherTabs('memory');
   return result;
+}
+
+// Corrections from another device: the events they're about change here too (or go), and their
+// months' packs go up again that way. In `tx`, the one that takes in the memory's pack with them.
+function fixIn(tx: IDBTransaction, fixes: readonly LifeFix[], out: { n: number; days: Set<string>; sources: Set<LifeSource> }) {
+  const store = tx.objectStore('events');
+  for (const f of fixes.filter(isEventFix)) {
+    const g = store.get(f.id);
+    g.onsuccess = () => {
+      const row = g.result;
+      const e = row ? fromRow(row) : null;
+      if (!e || !changes(e, f)) return;
+      const m = changedAt(row);
+      const next = applyFix(e, f);
+      out.n++;
+      out.days.add(dayKey(e.at));
+      out.sources.add(e.source);
+      if (!next || eventPack(next) !== eventPack(e)) {
+        store.delete(e.id);
+        if (syncable(e)) addTomb(tx, eventPack(e), e.id, deletedAt(m, Math.max(f.at, m)));
+      }
+      if (next) {
+        store.put(toRow(next, Math.max(m, f.at)));
+        out.days.add(dayKey(next.at));
+      }
+      if (syncable(e)) markDirty(tx, next ? [eventPack(e), eventPack(next)] : [eventPack(e)]);
+    };
+  }
 }
 
 // Wipes from another device: what they cover goes from this device too, in every month (even

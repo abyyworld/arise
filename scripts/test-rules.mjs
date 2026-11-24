@@ -123,5 +123,29 @@ await expectDenied('nobody signed in reads it', getDoc(arise(nobody, 'alice', 's
 await expectDenied('nobody signed in writes it', setDoc(arise(nobody, 'alice', 'signout'), cut()));
 await expectAllowed('the owner deletes it (with the account)', deleteDoc(arise(alice, 'alice', 'signout')));
 
+console.log('The keys, with passkeys (users/{uid}/arise/keys)');
+const sealedKey = () => ({ iv: b64(16), ct: b64(64) });
+const keysDoc = (extra = {}) => ({ v: 1, iter: 600000, byPassword: sealedKey(), byRecovery: sealedKey(), ...extra });
+const slot = (i) => (String(i).padStart(2, '0') + 'A'.repeat(41)).slice(0, 43);
+const wrap = (i, extra = {}) => ({ id: slot(i), ...sealedKey(), ...extra });
+const wraps = (n) => Array.from({ length: n }, (_, i) => wrap(i));
+await expectAllowed('keys with no passkeys', setDoc(arise(alice, 'alice', 'keys'), keysDoc()));
+await expectAllowed('keys with one passkey wrap', setDoc(arise(alice, 'alice', 'keys'), keysDoc({ byPasskey: wraps(1) })));
+await expectAllowed('keys with ten passkey wraps', setDoc(arise(alice, 'alice', 'keys'), keysDoc({ byPasskey: wraps(10) })));
+await expectAllowed('keys with no passkey wraps left', setDoc(arise(alice, 'alice', 'keys'), keysDoc({ byPasskey: [] })));
+await expectAllowed('the owner reads the keys', getDoc(arise(alice, 'alice', 'keys')));
+await expectDenied('eleven passkey wraps', setDoc(arise(alice, 'alice', 'keys'), keysDoc({ byPasskey: wraps(11) })));
+await expectDenied('a wrap with an id that is not a hash', setDoc(arise(alice, 'alice', 'keys'), keysDoc({ byPasskey: [wrap(0, { id: 'My iPhone' })] })));
+await expectDenied('a wrap with an extra field', setDoc(arise(alice, 'alice', 'keys'), keysDoc({ byPasskey: [wrap(0, { name: 'My iPhone' })] })));
+await expectDenied('a wrap without its ciphertext', setDoc(arise(alice, 'alice', 'keys'), keysDoc({ byPasskey: [{ id: slot(0), iv: b64(16) }] })));
+await expectDenied('a wrap with too much ciphertext', setDoc(arise(alice, 'alice', 'keys'), keysDoc({ byPasskey: [wrap(0, { ct: b64(201) })] })));
+await expectDenied('a bad wrap last of ten', setDoc(arise(alice, 'alice', 'keys'), keysDoc({ byPasskey: [...wraps(9), 'plain text'] })));
+await expectDenied('passkeys as plain text', setDoc(arise(alice, 'alice', 'keys'), keysDoc({ byPasskey: 'my passkeys' })));
+await expectDenied('passkeys as a map', setDoc(arise(alice, 'alice', 'keys'), keysDoc({ byPasskey: { a: wrap(0) } })));
+await expectDenied('someone else reads the keys', getDoc(arise(bob, 'alice', 'keys')));
+await expectDenied('someone else adds a passkey wrap', setDoc(arise(bob, 'alice', 'keys'), keysDoc({ byPasskey: wraps(1) })));
+await expectDenied('nobody signed in writes the keys', setDoc(arise(nobody, 'alice', 'keys'), keysDoc()));
+await expectAllowed('the owner deletes the keys (with the account)', deleteDoc(arise(alice, 'alice', 'keys')));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

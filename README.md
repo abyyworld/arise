@@ -223,6 +223,16 @@ The original weekly split (four workouts over six fixed weekdays, Thursday off) 
 
 ## What else it does
 
+- Your places on a map (Days, Your places): where your time goes, with visits and time for each place, and names like Home or Lab. Drawn on your device; the street map underneath is optional and less private.
+- Your world (Me): your goals, people and places as a constellation, a turning globe or a simple list.
+- Look back (Days): any day, month or year, and what Arise knew about you then. Fix any record that's not quite right, or teach Arise what's true, and it stays fixed.
+- Photos and files as a file manager: folders (link one to a goal as a project), search, sorting, grid or list, the trash (30 days) and a finder for exact copies.
+- A quick one, on Today: short questions from your coach that act on your answer.
+- Morning brief: your day in a few lines, on Today and as a notification at the time you pick.
+- Invite people to an event: add who's coming, then send the invite file yourself.
+- Rules for each AI app (Me, AI apps): may just do, ask me first, never, and house rules.
+- Passkeys (Settings, Account, More): sign in with your face, fingerprint or screen lock, and where your device can, unlock your data with it too.
+- System health (Setup and connections): one check of sync, the AI, reminders, AI apps, calendars and storage.
 - One box on Today: write anything, and Arise works out on your device if it's a to-do (with its day and time), groceries, money owed, a question for your coach or a note for your day. It shows what it will save first, and you can pick another kind.
 - Who owes whom: money you lent or borrowed, per person and currency, with a day to pay it back. Tap a person to mark things paid back.
 - Groceries: a shopping list on Today. Tick things as you buy them, then clear them.

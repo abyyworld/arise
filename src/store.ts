@@ -14,6 +14,7 @@ import * as EV2 from './lib/everyday';
 import * as EV from './lib/events';
 import * as DC from './lib/decisions';
 import * as OS from './lib/own-storage';
+import * as PN from './lib/place-names';
 
 export type { Goal, Quest };
 
@@ -42,7 +43,7 @@ const BAR_SWAPS = BAR_SWAPS_JS as unknown as Record<string, { ex: string; min: n
 
 const KEY = 'pit-data-v1';
 
-export const DEFAULT_SETTINGS: Settings = { restBig: 120, restSmall: 60, sound: true, vibrate: true, name: '', remindAt: '07:00', aiDaily: true, template: 'ab', perWeek: 5, notify: false, evening: true, eveningAt: '20:30', aiProvider: '', aiModel: '', aiBase: '', aiEngine: '', bar: 'home', dayOff: true, privateModel: '', freeModel: '', look: 'auto', checkin: true, checkinAt: '21:30', recap: true, recapAt: '', notifyDetails: false, journalVoice: 'first', nudges: 2, quietFrom: '22:00', quietTo: '08:00', bestTime: '', currency: '', voice: '' };
+export const DEFAULT_SETTINGS: Settings = { restBig: 120, restSmall: 60, sound: true, vibrate: true, name: '', remindAt: '07:00', aiDaily: true, template: 'ab', perWeek: 5, notify: false, evening: true, eveningAt: '20:30', aiProvider: '', aiModel: '', aiBase: '', aiEngine: '', bar: 'home', dayOff: true, privateModel: '', freeModel: '', look: 'auto', checkin: true, checkinAt: '21:30', recap: true, recapAt: '', notifyDetails: false, journalVoice: 'first', nudges: 2, quietFrom: '22:00', quietTo: '08:00', bestTime: '', currency: '', voice: '', briefAt: '' };
 
 export const blank = (): State => cleanState({}, DEFAULT_SETTINGS);
 export const clean = (data: unknown): State => migrate(cleanState(data, DEFAULT_SETTINGS));
@@ -1313,6 +1314,7 @@ export function importData(raw: unknown): number {
   state.todos = TD.mergeTodos(state.todos, data.todos);
   state.debts = EV2.mergeDebts(state.debts, data.debts);
   state.groceries = EV2.mergeGroceries(state.groceries, data.groceries);
+  state.placeNames = PN.mergePlaceNames(state.placeNames, data.placeNames);
   state.events = EV.mergeEvents(state.events, data.events);
   state.decisions = DC.mergeDecisions(state.decisions, data.decisions);
   state.dismissed = DC.mergeDismissed(state.dismissed, data.dismissed);
@@ -1407,6 +1409,20 @@ export function removeTodo(id: string) {
   if (!t || t.gone) return;
   state.todos = TD.cleanTodos({ ...state.todos, [id]: { id, title: '', created: t.created, at: Date.now(), gone: true } });
   save();
+}
+
+// ---------- names for places (lib/place-names.ts): "Home", "Lab", synced with the rest
+
+export const placeNames = () => state.placeNames;
+
+// Names the place kept under `key` (no name: takes its name away). False if the key isn't a place.
+export function namePlace(key: string, name: string): boolean {
+  const next = PN.setPlaceName(state.placeNames, key, name);
+  if (!next) return false;
+  if (next === state.placeNames) return true;
+  state.placeNames = next;
+  save();
+  return true;
 }
 
 // ---------- money owed and groceries (lib/everyday.ts)

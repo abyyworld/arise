@@ -31,6 +31,7 @@ export interface LifeArea {
   sources: SourceWord[];
   help?: string; // when there isn't enough to go on: what would help
   said?: { score: number; word: string }; // their own rating from the life check-in, when they gave one
+  fixed?: boolean; // the Player said it wasn't right: their words for now (fixes.ts withAreaFixes)
 }
 
 export const NOT_ENOUGH = 'Not enough to go on yet.';

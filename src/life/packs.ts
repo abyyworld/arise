@@ -16,11 +16,16 @@
 // Wipes (validate.ts, LifeWipe) delete everything they cover that's older than they are, even
 // what the device that made them never had. Tombstones and wipes are kept for 400 days, like the
 // change stamps of the main copy (lib/merge.ts).
+// The memory's pack also carries the Player's corrections and the snapshots of what Arise knew
+// (fixes.ts): for each, the newest wins. A correction changes or deletes its event in every month's
+// pack too, whichever device's copy comes in, so a fixed event never comes back the way it was.
 
 import { cleanLifeEvent, cleanLifeFact, cleanLifePrefs, cleanLifeSummary, cleanLifeTombs, cleanLifeWipe, type LifeFact, type LifeSummary, type LifeWipe } from '../lib/validate';
 import type { LifeEvent } from './types';
+import { applyFix, cleanFixes, cleanKnew, fixMap, mergeFixes, mergeKnew } from './fixes';
+import type { LifeFix, LifeKnew } from '../lib/validate';
 
-export const LIFE_SCHEMA = 3; // bump when a pack's shape changes in a way an older app would lose (2: the chat app sources; 3: the AI app sources)
+export const LIFE_SCHEMA = 4; // bump when a pack's shape changes in a way an older app would lose (2: the chat app sources; 3: the AI app sources; 4: corrections and what Arise knew, in mem)
 export const MEM = 'mem';
 export const TOMB_KEEP = 400 * 864e5;
 const MAX_WIPES = 500;
@@ -60,10 +65,12 @@ export interface Content {
   tombs: Record<string, number>; // id -> when it was deleted
   prefs: SyncedPrefs; // mem
   wipes: LifeWipe[]; // mem
+  fixes: LifeFix[]; // mem: the Player's corrections
+  knew: LifeKnew[]; // mem: what Arise knew, day by day
 }
 
-export const emptyContent = (): Content => ({ events: [], sums: [], facts: [], tombs: {}, prefs: { paused: false, at: 0 }, wipes: [] });
-export const isEmpty = (c: Content) => !c.events.length && !c.sums.length && !c.facts.length && !Object.keys(c.tombs).length && !c.prefs.at && !c.wipes.length;
+export const emptyContent = (): Content => ({ events: [], sums: [], facts: [], tombs: {}, prefs: { paused: false, at: 0 }, wipes: [], fixes: [], knew: [] });
+export const isEmpty = (c: Content) => !c.events.length && !c.sums.length && !c.facts.length && !Object.keys(c.tombs).length && !c.prefs.at && !c.wipes.length && !c.fixes.length && !c.knew.length;
 
 const clock = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 8.64e15 ? v : 0);
 
@@ -87,6 +94,8 @@ export function cleanContent(key: string, raw: unknown): Content {
     const p = (r.prefs && typeof r.prefs === 'object' ? r.prefs : {}) as Record<string, unknown>;
     c.prefs = { paused: p.paused === true, at: clock(p.at) };
     c.wipes = list(r.wipes).map(cleanLifeWipe).filter((w): w is LifeWipe => !!w);
+    c.fixes = cleanFixes(r.fixes);
+    c.knew = cleanKnew(r.knew);
   }
   return c;
 }
@@ -104,6 +113,9 @@ export function canonical(key: string, c: Content): string {
     body.facts = byId(c.facts);
     body.prefs = c.prefs;
     body.wipes = sortWipes(c.wipes);
+    // (Only when there are some, so a pack from before them looks the same as it did.)
+    if (c.fixes.length) body.fixes = [...c.fixes].sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
+    if (c.knew.length) body.knew = [...c.knew].sort((a, b) => (a.day < b.day ? -1 : 1));
   }
   return JSON.stringify(body);
 }
@@ -186,10 +198,11 @@ export interface MergeOptions {
   now: number;
   staleBefore?: number;
   wipes?: readonly LifeWipe[]; // for e: and s: packs, the wipes known now (the mem pack's)
+  fixes?: readonly LifeFix[]; // for e: packs, the corrections known now (the mem pack's)
 }
 
 // This device's copy of a pack and another's, together. Neither is changed.
-export function mergeContent(key: string, here: Content, there: Content, { now, staleBefore = 0, wipes = [] }: MergeOptions): Content {
+export function mergeContent(key: string, here: Content, there: Content, { now, staleBefore = 0, wipes = [], fixes = [] }: MergeOptions): Content {
   const out = emptyContent();
   const kind = packKind(key);
   if (kind === 'e') {
@@ -200,7 +213,7 @@ export function mergeContent(key: string, here: Content, there: Content, { now, 
       now,
       staleBefore,
     );
-    out.events = s.items;
+    out.events = fixEvents(key, s.items, fixes);
     out.tombs = s.tombs;
   } else if (kind === 's') {
     const s = mergeSide({ items: here.sums, tombs: here.tombs }, { items: there.sums, tombs: there.tombs }, { clock: (x) => x.at, dead: (x) => wipes.some((w) => wipesMemory(w, x.at)) }, now, staleBefore);
@@ -219,6 +232,28 @@ export function mergeContent(key: string, here: Content, there: Content, { now, 
     out.tombs = s.tombs;
     const [p, q] = [here.prefs, there.prefs];
     out.prefs = p.at !== q.at ? (p.at > q.at ? p : q) : { paused: p.paused || q.paused, at: p.at };
+    out.fixes = mergeFixes(here.fixes, there.fixes, out.wipes);
+    out.knew = mergeKnew(here.knew, there.knew, now, out.wipes);
+  }
+  return out;
+}
+
+// A month's events as the Player corrected them: deleted ones go, and so does one whose new time
+// is in another month (that month's pack has it). Changed when the correction was made, at the
+// latest, so every device agrees.
+function fixEvents(key: string, events: SyncedEvent[], fixes: readonly LifeFix[]): SyncedEvent[] {
+  if (!fixes.length) return events;
+  const by = fixMap(fixes);
+  const out: SyncedEvent[] = [];
+  for (const e of events) {
+    const f = by.get(e.id);
+    if (!f) {
+      out.push(e);
+      continue;
+    }
+    const next = applyFix(e, f);
+    if (!next || eventPack(next) !== key) continue;
+    out.push(JSON.stringify(next) === JSON.stringify(e) ? e : { ...next, m: Math.max(e.m, f.at) });
   }
   return out;
 }

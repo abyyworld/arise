@@ -1,0 +1,36 @@
+/* Your places (src/life/map-ui.js) and Your world (src/life/world-ui.js). Colour tokens only, so
+   both looks get them. */
+.pm-map { position: relative; height: 380px; margin: 6px 0 8px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-solid); touch-action: none; user-select: none; }
+.pm-map:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+.pm-map canvas { position: absolute; inset: 0; cursor: grab; }
+.pm-map canvas:active { cursor: grabbing; }
+.pm-tiles { position: absolute; inset: 0; }
+.pm-tiles img { position: absolute; width: 256px; height: 256px; max-width: none; pointer-events: none; }
+.pm-zoom { position: absolute; top: 8px; right: 8px; display: grid; gap: 4px; }
+.pm-zoom .icon-btn { background: var(--panel-solid); font-size: 18px; line-height: 1; }
+.pm-scale { position: absolute; left: 10px; bottom: 10px; display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text); pointer-events: none; }
+.pm-scale i { display: block; height: 6px; border: 2px solid var(--text); border-top: 0; }
+.pm-scale span { background: var(--panel-solid); padding: 0 4px; border-radius: 4px; }
+.pm-credit { position: absolute; right: 6px; bottom: 4px; margin: 0; font-size: 10px; background: var(--panel-solid); padding: 1px 4px; border-radius: 4px; }
+.pm-credit a { color: inherit; }
+.pm-list { display: grid; gap: 4px; margin: 4px 0 10px; padding: 0; list-style: none; }
+.pm-row { display: grid; width: 100%; gap: 2px; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.pm-row small { color: var(--muted); }
+.pm-row:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+.pm-name { display: grid; gap: 6px; margin: 10px 0 4px; }
+.pm-h { font-size: 14px; margin: 14px 0 4px; }
+.pm-visits { display: grid; gap: 4px; padding: 0; list-style: none; }
+.pm-visits li { display: flex; justify-content: space-between; gap: 10px; }
+
+.world-stage { position: relative; display: flex; justify-content: center; margin: 6px 0; }
+.world-stage canvas { display: block; max-width: 100%; touch-action: none; cursor: pointer; }
+.world-stage.globe canvas { cursor: grab; }
+.world-turn { justify-content: center; }
+.world-key .wk { display: inline-block; width: 9px; height: 9px; margin: 0 4px 0 8px; vertical-align: baseline; }
+.world-key .wk:first-child { margin-left: 0; }
+.world-key .wk.goal { background: var(--gold); transform: rotate(45deg); }
+.world-key .wk.person { background: var(--violet); border-radius: 50%; }
+.world-key .wk.place { background: var(--sys); }
+.world-outline, .world-outline ul { margin: 4px 0; padding-left: 18px; }
+.world-outline > li { list-style: none; margin-left: -18px; }
+.world-outline li { margin: 3px 0; }

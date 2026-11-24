@@ -123,6 +123,7 @@ export interface MePayload {
   today?: MeToday;
   days?: MeDay[];
   web?: MeWeb;
+  rules?: MeRules;
   updated: number;
 }
 // Only on an app's web page: its own page and key, separate from its link, made when the Player
@@ -136,7 +137,76 @@ export interface MeWeb {
 }
 const HEX64 = /^[0-9a-f]{64}$/;
 // Everything a payload may hold. Nothing else is ever sent (me.test.ts checks it).
-export const PAYLOAD_FIELDS = ['format', 'name', 'about', 'facts', 'goals', 'today', 'days', 'web', 'updated'] as const;
+export const PAYLOAD_FIELDS = ['format', 'name', 'about', 'facts', 'goals', 'today', 'days', 'web', 'rules', 'updated'] as const;
+
+// ---------- the Player's rules for one app
+
+// What an app may do, each with its own rule: read things about a topic (yes or never), or add
+// something (yes, ask first, or never). Anything not listed under ask or never it may just do.
+// The page carries them, so the MCP server (mcp/core.mjs) and the web connector keep to them:
+// a "never" tool isn't offered at all, an "ask first" one sends a request Arise shows the Player.
+// House rules are their own words, handed to the AI app with every answer.
+export const RULE_TOPICS = ['health', 'money'] as const;
+export const RULE_ADDS = ['note', 'todo'] as const;
+export type RuleTopic = (typeof RULE_TOPICS)[number];
+export type RuleAdd = (typeof RULE_ADDS)[number];
+export type RuleAction = RuleTopic | RuleAdd;
+export interface MeRules {
+  ask: RuleAdd[]; // only adding can wait for a yes
+  never: RuleAction[];
+  house: string; // their own words, at most HOUSE_MAX characters
+}
+export const HOUSE_MAX = 1000;
+export const RULE_WORDS: Record<RuleAction, string> = {
+  health: 'read anything about my health',
+  money: 'read anything about my money',
+  note: 'add a note',
+  todo: 'add a to-do',
+};
+// A few house rules to start from.
+export const HOUSE_PICKS = ["Don't mention my exams unless I ask.", 'Keep answers short.', "Don't give me medical advice.", 'Speak to me in a friendly, calm way.'];
+
+// Words that mark a fact, goal, quest or day as about a topic. The MCP server keeps the same list
+// (mcp/core.mjs TOPIC_WORDS; a test checks they match), so it holds them back too.
+export const TOPIC_WORDS: Record<RuleTopic, string> = {
+  health:
+    'health|healthy|doctors?|gp|nurse|medic\\w*|medicine|pills?|prescri\\w*|ill|illness|sick|pain|injur\\w*|hospital|therap\\w*|anxi\\w*|depress\\w*|panic|weight|weigh\\w*|kg|lbs|calories|diet\\w*|blood|heart rate|symptoms?|diagnos\\w*|period|pregnan\\w*|sleep\\w*|slept|insomnia|migraines?|allerg\\w*|mental',
+  money:
+    'money|spend\\w*|spent|salary|wages?|paid|pay|payday|bank\\w*|debts?|loans?|rent|mortgage|budget\\w*|savings?|saved|invest\\w*|income|bills?|price\\w*|costs?|credit card|euros?|dollars?|pounds',
+};
+// And signs that mark one wherever they are.
+export const TOPIC_SIGNS: Record<RuleTopic, string> = { health: '', money: '[£$€¥]' };
+const topicRe = (t: RuleTopic) => new RegExp(`(^|[^\\p{L}\\p{N}])(${TOPIC_WORDS[t]})(?=$|[^\\p{L}\\p{N}])${TOPIC_SIGNS[t] ? `|${TOPIC_SIGNS[t]}` : ''}`, 'iu');
+export const aboutTopic = (text: string, topics: readonly RuleTopic[]) => topics.some((t) => topicRe(t).test(text));
+
+const isAdd = (v: unknown): v is RuleAdd => RULE_ADDS.includes(v as RuleAdd);
+
+// Rules as they come from storage or a page. Undefined when there are none, so a page without
+// rules says exactly what it said before they came.
+export function cleanRules(raw: unknown): MeRules | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const list = (v: unknown) => (Array.isArray(v) ? v.slice(0, 20) : []);
+  const never = [...RULE_TOPICS, ...RULE_ADDS].filter((a) => list(r.never).includes(a));
+  const ask = RULE_ADDS.filter((a) => list(r.ask).includes(a) && !never.includes(a));
+  const house = lines(r.house, HOUSE_MAX);
+  return ask.length || never.length || house ? { ask, never, house } : undefined;
+}
+
+// The rule for one thing: 'yes' (may just do), 'ask' or 'never'.
+export const ruleOf = (r: MeRules | undefined, a: RuleAction): 'yes' | 'ask' | 'never' => (r?.never.includes(a) ? 'never' : isAdd(a) && r?.ask.includes(a) ? 'ask' : 'yes');
+
+// The rules in a few plain words: "Ask me first: add a to-do. Never: read anything about my health."
+export function rulesText(r: MeRules | undefined): string {
+  const out: string[] = [];
+  if (r?.ask.length) out.push(`Ask me first: ${r.ask.map((a) => RULE_WORDS[a]).join(', ')}.`);
+  if (r?.never.length) out.push(`Never: ${r.never.map((a) => RULE_WORDS[a]).join(', ')}.`);
+  if (r?.house) {
+    const first = r.house.replace(/\s+/g, ' ');
+    out.push(`House rules: “${first.length > 80 ? `${first.slice(0, 79)}…` : first}”`);
+  }
+  return out.length ? out.join(' ') : 'No rules yet. It may do all you let it.';
+}
 
 const MAX = { facts: 100, goals: 20, quests: 30, days: 7, why: 400 };
 // ChatGPT's "about you" box takes 1,500 characters.
@@ -239,7 +309,22 @@ export function aboutText(src: MeSource, c: MeChoice, max = ABOUT_MAX): string {
 
 // ---------- the payload
 
-export function buildMe(src: MeSource, c: MeChoice, now = Date.now(), web: MeWeb | null = null): MePayload {
+// What a source says, without anything about the topics a rule says never.
+function withoutTopics(src: MeSource, topics: RuleTopic[]): MeSource {
+  if (!topics.length) return src;
+  const off = (t: string) => aboutTopic(t, topics);
+  return {
+    ...src,
+    goals: src.goals.filter((g) => !off(`${g.title} ${g.why}`)),
+    facts: src.facts.filter((f) => !off(f.text)),
+    today: src.today ? { ...src.today, quests: src.today.quests.filter((q) => !off(q.title)) } : null,
+    days: src.days.filter((d) => !off(d.text)),
+  };
+}
+
+export function buildMe(all: MeSource, c: MeChoice, now = Date.now(), web: MeWeb | null = null, rulesIn?: MeRules): MePayload {
+  const rules = cleanRules(rulesIn);
+  const src = withoutTopics(all, (rules?.never || []).filter((a): a is RuleTopic => RULE_TOPICS.includes(a as RuleTopic)));
   const has = (s: Section) => c.sections.includes(s);
   const about = aboutText(src, { ...c, sections: c.sections.filter((s) => ABOUT_SECTIONS.includes(s)) });
   return {
@@ -260,6 +345,7 @@ export function buildMe(src: MeSource, c: MeChoice, now = Date.now(), web: MeWeb
         }
       : {}),
     ...(web ? { web: { notes: web.notes === true, ...(web.until ? { until: web.until } : {}), ...(web.feed && HEX64.test(web.feed) ? { feed: web.feed } : {}) } } : {}),
+    ...(rules ? { rules } : {}),
     updated: now,
   };
 }
@@ -310,6 +396,8 @@ export function cleanMe(raw: unknown): MePayload | null {
   if (t && isDay(t.day)) out.today = { day: t.day, quests: items(t.quests, 50).flatMap((q) => (line(q.title, 120) ? [{ title: line(q.title, 120), done: q.done === true }] : [])) };
   const w = r.web && typeof r.web === 'object' ? (r.web as Record<string, unknown>) : null;
   if (w) out.web = { notes: w.notes === true, ...(isTime(w.until) ? { until: w.until } : {}), ...(typeof w.feed === 'string' && HEX64.test(w.feed) ? { feed: w.feed } : {}) };
+  const rules = cleanRules(r.rules);
+  if (rules) out.rules = rules;
   if (Array.isArray(r.days)) out.days = items(r.days, 31).flatMap((d) => (isDay(d.day) && lines(d.text, 1500) ? [{ day: d.day, text: lines(d.text, 1500) }] : []));
   return out;
 }

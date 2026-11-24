@@ -17,6 +17,7 @@ export {
   EmailAuthProvider,
   sendPasswordResetEmail,
   signInWithCredential,
+  signInWithCustomToken,
   linkWithCredential,
   unlink,
   GoogleAuthProvider,

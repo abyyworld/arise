@@ -265,7 +265,7 @@ describe('the life log between devices', () => {
     expect(await titles(b)).toEqual(all);
     // The life log has its own packs: the main copy (which older versions of Arise read) didn't change.
     expect(cloud.docs.get('users/uid1/arise/meta')!.rev).toBe(meta);
-    expect(a.SYNC.SCHEMA).toBe(13); // (4: the new look and the tiers of the coach's replies; 5: the journal's settings, in the main copy; 6: the life check-in, sleep and mood in a check-in, and the daily message's tier; 7: study; 8: to-dos; 9: Pause everything; 10: your own calendar events; 11: decisions, early warnings put away and next-step message settings; 12: your own storage for photos and files; 13: money owed and groceries)
+    expect(a.SYNC.SCHEMA).toBe(14); // (4: the new look and the tiers of the coach's replies; 5: the journal's settings, in the main copy; 6: the life check-in, sleep and mood in a check-in, and the daily message's tier; 7: study; 8: to-dos; 9: Pause everything; 10: your own calendar events; 11: decisions, early warnings put away and next-step message settings; 12: your own storage for photos and files; 13: money owed and groceries; 14: event guests, the morning brief and the rest of 1.35)
   });
 
   it('loses nothing when two devices send at the same moment', async () => {
@@ -1100,5 +1100,37 @@ describe('versions', () => {
     expect(b.LIFE.lines().note).toMatch(/newer version of Arise/);
     expect(cloudText()).toBe(before);
     expect(await titles(b)).toContain('Not sent yet');
+  });
+});
+
+describe('corrections', () => {
+  it('a fixed or deleted event stays that way on every device, even when another one imports it again', async () => {
+    const { a, b } = await pair();
+    await on(a, async () => {
+      await a.L.fixEvent('spotify:1', { title: 'Lunch with Sam' });
+      await a.L.fixEvent('spotify:2', 'delete');
+    });
+    await settle(a);
+    await reopen(b);
+    expect(await titles(b)).toEqual(['Listened to song 3', 'Lunch with Sam']);
+    // The laptop imports the same file again, and syncs.
+    await add(b, [song('1'), song('2'), song('3')]);
+    await reopen(b);
+    expect(await titles(b)).toEqual(['Listened to song 3', 'Lunch with Sam']);
+    await reopen(a);
+    expect(await titles(a)).toEqual(['Listened to song 3', 'Lunch with Sam']);
+    // The correction itself is sealed like the rest.
+    expect(cloudText()).not.toContain('Lunch with Sam');
+  });
+
+  it('a fact the Player taught on one device is never learned again on another', async () => {
+    const { a, b } = await pair();
+    const id = await on(a, async () => (await a.M.addFact('You have a cat.'))!.id);
+    await on(a, () => a.M.teachFact(id, ''));
+    await settle(a);
+    await reopen(b);
+    const fixes = await on(b, async () => (await import('./fix-store')).readFixes());
+    expect(fixes.map((f) => f.wrong)).toEqual(['You have a cat.']);
+    expect(await facts(b)).toEqual([]);
   });
 });

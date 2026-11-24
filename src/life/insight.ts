@@ -13,6 +13,8 @@ import { cleanLife } from '../lib/life-check';
 import { findPatterns, WINDOW_DAYS, type DayRow, type Pattern } from '../lib/patterns';
 import * as L from './log';
 import { addDays } from './dates';
+import { withAreaFixes } from './fixes';
+import { readFixes } from './fix-store';
 import { daySignals, lifeAreas, rowsOf, signalsText, type DaySignals, type LifeArea } from './signals';
 import type { LifeTier } from './types';
 
@@ -45,7 +47,9 @@ function work(): Promise<Insight | null> {
     const signals = await daySignals(addDays(day, -WINDOW_DAYS), day);
     if (g !== gen) return null;
     const rows = rowsOf(signals);
-    const areas = lifeAreas(signals, day, { life: cleanLife(S.state.profile?.life) });
+    // A part of life the Player said wasn't right shows their words for a while (fixes.ts).
+    const areas = withAreaFixes(lifeAreas(signals, day, { life: cleanLife(S.state.profile?.life) }), await readFixes(), Date.now());
+    if (g !== gen) return null;
     cache = { day, at: Date.now(), signals, rows, areas, patterns: findPatterns(rows, day) };
     return cache;
   })().finally(() => {

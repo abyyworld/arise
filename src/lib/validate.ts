@@ -14,8 +14,8 @@ import type { LifeEvent, LifeKind, LifeSource, LifeTier } from '../life/types';
 import { LIFE_KINDS, LIFE_SOURCES, floorTier } from '../life/tiers';
 import { cleanPauses, type Pause } from './pause';
 import { cleanBy } from '../life/strength';
-import { ABOUT_DEFAULT, cleanChoice, LINK_DEFAULT, type MeChoice } from './me';
-import { cleanEntry, type FeedEntry } from './feed';
+import { ABOUT_DEFAULT, cleanChoice, cleanRules, LINK_DEFAULT, type MeChoice, type MeRules } from './me';
+import { ASK_WANTS, cleanEntry, type AskWant, type FeedEntry } from './feed';
 import { cleanLife, cleanLifeBefore } from './life-check';
 import { cleanStudy, type Study } from './study';
 import { cleanTodos, type Todos } from './todos';
@@ -23,6 +23,7 @@ import { cleanDebts, cleanGroceries, type Debts, type Groceries } from './everyd
 import { cleanEvents, type CalEvents } from './events';
 import { cleanDecisions, cleanDismissed, type Decisions, type Dismissed } from './decisions';
 import { cleanOwnStorage, type OwnStorage } from './own-storage';
+import { cleanPlaceNames, type PlaceNames } from './place-names';
 
 export { DATE, isDate } from './clean';
 const ID = /^[a-z0-9]{1,32}$/i;
@@ -90,6 +91,7 @@ export interface Settings {
   bestTime: '' | 'morning' | 'afternoon' | 'evening'; // when they think best ('' = worked out)
   currency: string; // for money owed: ISO code ('' = from the device's region)
   voice: string; // a sample of how they write, for Write it my way ('' = none)
+  briefAt: string; // the morning brief's time, HH:MM ('' = off)
   // Pause everything (src/life/pause.ts): when nothing was noted, on any device. Left out when none.
   pauses?: Pause[];
 }
@@ -132,6 +134,7 @@ export function cleanSettings(raw: unknown, d: Settings): Settings {
     quietTo: pick(s.quietTo, (x) => typeof x === 'string' && TIME.test(x), d.quietTo),
     bestTime: pick(s.bestTime, (x) => ['', 'morning', 'afternoon', 'evening'].includes(x as string), d.bestTime),
     currency: pick(s.currency, (x) => x === '' || (typeof x === 'string' && /^[A-Z]{3}$/.test(x)), d.currency),
+    briefAt: pick(s.briefAt, (x) => x === '' || (typeof x === 'string' && TIME.test(x)), d.briefAt),
     voice: typeof s.voice === 'string' ? s.voice.replace(/\u0000/g, '').trim().slice(0, 3000) : d.voice,
     ...withPauses(s.pauses),
   };
@@ -482,6 +485,7 @@ export interface State {
   decisions: Decisions; // choices asked about, and how they went (lib/decisions.ts)
   dismissed: Dismissed; // early warnings put away (lib/ahead.ts)
   storage: OwnStorage | null; // the Player's own storage for photos and files (lib/own-storage.ts)
+  placeNames: PlaceNames; // their names for places, by a rounded spot (lib/place-names.ts)
   stamps: Stamps;
   updatedAt?: number;
 }
@@ -525,6 +529,7 @@ export function cleanState(raw: unknown, defaults: Settings): State {
     decisions: cleanDecisions(d.decisions),
     dismissed: cleanDismissed(d.dismissed),
     storage: cleanOwnStorage(d.storage),
+    placeNames: cleanPlaceNames(d.placeNames),
     stamps: cleanStamps(d.stamps),
   };
   if (time(d.updatedAt)) state.updatedAt = time(d.updatedAt);
@@ -784,6 +789,67 @@ export function cleanLifeTombs(raw: unknown, max = 200000): Record<string, numbe
   return out;
 }
 
+// A correction the Player made ("Not quite? Fix it", "This isn't right"), kept so it wins: over an
+// importer bringing the same thing in again, over another device's older copy, and over the memory
+// learning it again (life/fixes.ts). Synced in the memory's pack.
+export interface LifeFix {
+  id: string; // an event's id; 'fact:' and a fact's id; or 'area:' and a part of life
+  at: number; // when they made it
+  gone?: true; // an event: deleted for good. Something Arise knew: not true at all.
+  title?: string; // an event's new title
+  kind?: LifeKind; // its new kind
+  start?: number; // its new time
+  wrong?: string; // something Arise knew: the words that weren't right
+  right?: string; // and what's true, in their words
+  tier?: LifeTier; // how private those words are (for which AI may read them)
+}
+
+const FIX_ID = /^(fact:f[a-z0-9]{1,24}|area:[a-z]{2,20}|[a-z]{2,12}:[\x21-\x7e]{1,240})$/;
+
+export function cleanLifeFix(raw: unknown): LifeFix | null {
+  const f = obj(raw);
+  const at = time(f.at);
+  if (typeof f.id !== 'string' || !FIX_ID.test(f.id) || !at) return null;
+  const event = !/^(fact|area):/.test(f.id);
+  if (!event && !/^(fact:f[a-z0-9]{1,24}|area:[a-z]{2,20})$/.test(f.id)) return null;
+  if (event && !LIFE_SOURCES.includes(f.id.slice(0, f.id.indexOf(':')) as LifeSource)) return null;
+  const out: LifeFix = { id: f.id, at };
+  if (f.gone === true) out.gone = true;
+  if (event) {
+    const title = oneLine(f.title, 300);
+    if (title) out.title = title;
+    if (LIFE_KINDS.includes(f.kind as LifeKind)) out.kind = f.kind as LifeKind;
+    if (lifeTime(f.start)) out.start = lifeTime(f.start);
+    return out.gone || out.title || out.kind || out.start ? out : null;
+  }
+  const wrong = oneLine(f.wrong, 600);
+  const right = oneLine(f.right, FACT_MAX);
+  if (wrong) out.wrong = wrong;
+  if (right) out.right = right;
+  if (isTier(f.tier)) out.tier = f.tier;
+  return out.wrong || out.right ? out : null;
+}
+
+// What Arise knew about the Player on one day: its facts then, the best first (life/knew.ts).
+// Synced in the memory's pack, thinned to one a month once they're old.
+export interface LifeKnew {
+  day: string;
+  at: number;
+  facts: { id: string; text: string }[];
+}
+
+export function cleanLifeKnew(raw: unknown): LifeKnew | null {
+  const k = obj(raw);
+  if (!isDate(k.day)) return null;
+  const facts: LifeKnew['facts'] = [];
+  for (const x of arr(k.facts).slice(0, 200)) {
+    const f = obj(x);
+    const text = oneLine(f.text, FACT_MAX);
+    if (typeof f.id === 'string' && FACT_ID.test(f.id) && text) facts.push({ id: f.id, text });
+  }
+  return { day: k.day, at: time(k.at), facts };
+}
+
 // ---------- Arise as "me" for other apps (me.ts, lib/me.ts). On this device only, like the
 // memory they're made from.
 
@@ -801,6 +867,7 @@ export interface MeLink {
   sig?: string; // a fingerprint of what its page says, as last sent from here
   sent?: number; // when its page was last updated
   web?: LinkWeb; // on for AI apps on the web (worker/connector)
+  rules?: MeRules; // what it may just do, must ask about first, or may never do; house rules
 }
 
 // An app's web page: a page of its own, apart from its link, so turning the web off empties it
@@ -852,6 +919,8 @@ export function cleanMeLinks(raw: unknown): MeLink[] {
       if (time(l.sent)) out.sent = time(l.sent);
       const web = cleanLinkWeb(l.web);
       if (web) out.web = web;
+      const rules = cleanRules(l.rules);
+      if (rules) out.rules = rules;
       return [out];
     });
 }
@@ -871,6 +940,39 @@ export function cleanFeedLog(raw: unknown): FeedLog {
     if (entries.length) out[id] = entries.slice(-MAX_FEED_SHOWN);
   }
   return out;
+}
+
+// What apps on the web asked to add, waiting for the Player to allow it or not (me.ts): which
+// link and web page, the connector's number for it and when, what it wants to add and its words.
+export interface MeAsk {
+  link: string;
+  web: string;
+  n: number;
+  at: number;
+  want: AskWant;
+  text: string;
+  day?: string;
+  client?: string;
+}
+export const MAX_ASKS = 100;
+export function cleanMeAsks(raw: unknown): MeAsk[] {
+  const seen = new Set<string>();
+  return arr(raw)
+    .slice(-MAX_ASKS)
+    .flatMap((x) => {
+      const a = obj(x);
+      if (typeof a.link !== 'string' || !LINK_ID.test(a.link) || typeof a.web !== 'string' || !LINK_ID.test(a.web)) return [];
+      if (typeof a.n !== 'number' || !Number.isSafeInteger(a.n) || a.n < 1 || !time(a.at) || !ASK_WANTS.includes(a.want as AskWant)) return [];
+      const c = cleanEntry({ at: a.at, tool: 'ask', ok: true, want: a.want, note: a.text, day: a.day, client: a.client });
+      if (!c?.note) return [];
+      const k = `${a.web}/${a.n}/${a.at}`;
+      if (seen.has(k)) return [];
+      seen.add(k);
+      const out: MeAsk = { link: a.link, web: a.web, n: a.n, at: c.at, want: c.want!, text: c.note };
+      if (c.day) out.day = c.day;
+      if (c.client) out.client = c.client;
+      return [out];
+    });
 }
 
 // Pages still to turn off, and whose they are ('' when that isn't known yet): this device's data
@@ -909,6 +1011,11 @@ export interface FileMeta {
   thumb?: Uint8Array;
   sync: boolean; // goes to the Player's other devices with their account
   where?: 'own'; // its parts are in the Player's own storage (lib/own-storage.ts), not the database
+  // Where it sits (life/files-tree.ts), synced in the files index's tree, never in its details:
+  dir?: string; // the folder it's in (none: the top)
+  bin?: number; // when it went to the trash
+  moved?: number; // when it was last moved, put in the trash or taken out
+  hash?: string; // SHA-256 of its bytes, in hex: how copies are found
 }
 export const MAX_FILE_BYTES = 200 * 1024 * 1024;
 const FILE_ID = /^[A-Za-z0-9_-]{22}$/;
@@ -941,8 +1048,13 @@ export function cleanFileMeta(raw: unknown): FileMeta | null {
   const thumb = bytesOf(d.thumb);
   if (thumb && thumb.length > 0 && thumb.length <= THUMB_MAX) out.thumb = thumb;
   if (d.where === 'own') out.where = 'own';
+  if (typeof d.dir === 'string' && FILE_ID.test(d.dir)) out.dir = d.dir;
+  if (time(d.bin)) out.bin = time(d.bin);
+  if (time(d.moved)) out.moved = time(d.moved);
+  if (typeof d.hash === 'string' && HASH.test(d.hash)) out.hash = d.hash;
   return out;
 }
+const HASH = /^[0-9a-f]{64}$/;
 
 // The list of synced files (life/files-sync.ts): each file's number of parts and size, and the
 // files deleted, with when, kept a while so a device that still has one deletes it too.
@@ -968,6 +1080,61 @@ export function cleanFilesIndex(raw: unknown): FilesIndex {
     if (FILE_ID.test(id) && at && !files[id]) gone[id] = x.o === 1 ? { at, n: int(x.n, 0, 1000, 0), o: 1 } : { at, n: int(x.n, 0, 1000, 0) };
   }
   return { schema: int(d.schema, 1, 1000, 1), seq: int(d.seq, 0, Number.MAX_SAFE_INTEGER, 0), files, gone };
+}
+
+// The files index's tree (life/files-tree.ts): folders, folders deleted and when, and where each
+// listed file sits. Apps from before it ignore it; an index they write back comes without it.
+export interface FolderRec {
+  name: string;
+  p?: string; // the folder it's in (none: the top)
+  g?: string; // the goal it's the project folder of
+  e: number; // when it was made or last changed
+}
+export interface FilePlaceRec {
+  d?: string; // folder
+  t?: number; // in the trash since
+  m?: number; // when it was last moved
+  h?: string; // SHA-256 of its bytes
+}
+export interface FilesTree {
+  dirs: Record<string, FolderRec>;
+  gone: Record<string, number>;
+  files: Record<string, FilePlaceRec>;
+}
+export const folderName = (v: unknown) =>
+  str(v, 200)
+    .replace(/[\u0000-\u001f\u007f/\\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+const GOAL_ID = /^[a-z0-9]{1,32}$/i;
+export function cleanFilesTree(raw: unknown): FilesTree {
+  const d = obj(raw);
+  const dirs: FilesTree['dirs'] = {};
+  const gone: FilesTree['gone'] = {};
+  const files: FilesTree['files'] = {};
+  for (const [id, v] of Object.entries(obj(d.dirs)).slice(0, 5000)) {
+    const x = obj(v);
+    const name = folderName(x.name);
+    const e = time(x.e);
+    if (!FILE_ID.test(id) || !name || !e) continue;
+    const rec: FolderRec = { name, e };
+    if (typeof x.p === 'string' && FILE_ID.test(x.p) && x.p !== id) rec.p = x.p;
+    if (typeof x.g === 'string' && GOAL_ID.test(x.g)) rec.g = x.g;
+    dirs[id] = rec;
+  }
+  for (const [id, v] of Object.entries(obj(d.gone)).slice(0, 5000)) if (FILE_ID.test(id) && time(v)) gone[id] = time(v);
+  for (const [id, v] of Object.entries(obj(d.files)).slice(0, 100000)) {
+    const x = obj(v);
+    if (!FILE_ID.test(id)) continue;
+    const rec: FilePlaceRec = {};
+    if (typeof x.d === 'string' && FILE_ID.test(x.d)) rec.d = x.d;
+    if (time(x.t)) rec.t = time(x.t);
+    if (time(x.m)) rec.m = time(x.m);
+    if (typeof x.h === 'string' && HASH.test(x.h)) rec.h = x.h;
+    if (Object.keys(rec).length) files[id] = rec;
+  }
+  return { dirs, gone, files };
 }
 
 // Search by meaning with the model on this device (life/embed/model.ts): on, and when it was

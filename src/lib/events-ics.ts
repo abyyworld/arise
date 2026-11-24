@@ -10,7 +10,7 @@
 import { AHEAD, BACK, eventId, instantToWall, intlZone, parseDuration, parseIcs, parseRule, parseWhen, prop, props, readCalendar, unescape, wallToInstant, zoneName, zones, NotACalendar, type Comp, type Rule, type When } from '../connect/ics';
 import { hash } from '../connect/sink';
 import { cleanTodo, type Todo } from './todos';
-import { cleanEvent, COLORS, deviceZone, localDay, localWall, wallOf, wallText, ALL_DAY_REMIND_AT, type CalEvent, type CalEvents, type Change, type Color, type Repeat } from './events';
+import { cleanEvent, isEmail, COLORS, deviceZone, localDay, localWall, wallOf, wallText, ALL_DAY_REMIND_AT, type CalEvent, type CalEvents, type Change, type Color, type Repeat } from './events';
 
 const DAY = 86_400_000;
 const MIN = 60_000;
@@ -83,6 +83,7 @@ function vevent(e: CalEvent, stamp: number): string[] {
   out.push(allDay ? when('DTEND', e, dayAfter(e.end || e.start), true) : when('DTEND', e, e.end || e.start, false));
   details(out, e);
   if (e.color) out.push(`COLOR:${e.color}`);
+  for (const g of e.guests || []) if (isEmail(g)) out.push(`ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${g}`);
   if (e.repeat) {
     out.push(rrule(e, e.repeat));
     const head = allDay ? 'EXDATE;VALUE=DATE' : e.tz ? `EXDATE;TZID=${e.tz}` : 'EXDATE';
@@ -109,6 +110,17 @@ export function toIcs(events: CalEvents, now = Date.now()): string {
     .sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : a.id < b.id ? -1 : 1));
   for (const e of live) lines.push(...vevent(e, now));
   lines.push('END:VCALENDAR');
+  return `${lines.map(fold).join('\r\n')}\r\n`;
+}
+
+// One event as an invite to send: with who sends it (their email), guests can accept it in their
+// own calendar app. Without one it's a plain calendar file to add.
+export function inviteIcs(e: CalEvent, { organizer = '', now = Date.now() }: { organizer?: string; now?: number } = {}): string {
+  const head = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Arise//Calendar//EN', 'CALSCALE:GREGORIAN', `METHOD:${organizer && isEmail(organizer) ? 'REQUEST' : 'PUBLISH'}`];
+  const all = vevent(e, now);
+  const ev = all.slice(0, all.indexOf('END:VEVENT'));
+  if (organizer && isEmail(organizer)) ev.push(`ORGANIZER:mailto:${organizer}`, 'SEQUENCE:0', 'STATUS:CONFIRMED');
+  const lines = [...head, ...ev, 'END:VEVENT', 'END:VCALENDAR'];
   return `${lines.map(fold).join('\r\n')}\r\n`;
 }
 
@@ -220,6 +232,7 @@ export function fromIcs(text: string, now = Date.now(), tzHere = deviceZone()): 
     notes: txt(c, 'DESCRIPTION'),
     color: colorOf(c),
     remind: remindOf(c, f.allDay),
+    guests: props(c, 'ATTENDEE').map((p) => (/^mailto:/i.test(p.value) ? p.value.replace(/^mailto:/i, '') : unescape(p.params.CN || '').replace(/^"|"$/g, ''))).filter(Boolean),
     created: now,
     at: now,
   });
