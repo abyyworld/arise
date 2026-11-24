@@ -7,7 +7,7 @@
 type Doc = Record<string, unknown>;
 interface Cloud {
   docs: Map<string, Doc>;
-  users: Map<string, { uid: string; email: string; password: string }>;
+  users: Map<string, { uid: string; email: string; password: string; ids?: Record<string, string> }>;
   next: number;
   // Runs before each operation; may throw to fail it. Returning 'lost' on a commit (or a
   // deleteUser) applies it and then fails, like a write whose reply never arrived.
@@ -30,6 +30,7 @@ interface FakeUser {
   authAt: number; // when this session signed in (ms), as its token says (whole seconds)
   getIdToken: (forceRefresh?: boolean) => Promise<string>;
   getIdTokenResult: () => Promise<{ authTime: string }>;
+  readonly providerData: { providerId: string }[];
 }
 interface FakeAuth {
   currentUser: FakeUser | null;
@@ -49,6 +50,11 @@ const userFor = (uid: string, email: string): FakeUser => {
     since: cloud.users.get(uid)?.password ?? '',
     authAt: nowSec(),
     getIdTokenResult: async () => ({ authTime: new Date(user.authAt).toUTCString() }),
+    get providerData() {
+      const u = cloud.users.get(uid);
+      if (!u) return [];
+      return [...(u.password ? [{ providerId: 'password' }] : []), ...Object.keys(u.ids || {}).map((providerId) => ({ providerId }))];
+    },
     getIdToken: async (forceRefresh = false) => {
       if (forceRefresh && cloud.users.get(uid)?.password !== user.since) {
         if (auth?.currentUser === user) setUser(null);
@@ -135,6 +141,62 @@ export async function deleteUser(user: FakeUser) {
   if (lost) throw fail('unavailable');
   setUser(null);
 }
+// Signing in with Google's ID token (in tests: 'google:' and the email). Like Firebase with one
+// account per email: the login that has this identity; else an email login with the same
+// address takes it in, losing its password (Firebase does that for an email it hasn't
+// verified); else a new login with no password.
+interface IdCred {
+  providerId: string;
+  idToken: string;
+}
+export const GoogleAuthProvider = { credential: (idToken: string): IdCred => ({ providerId: 'google.com', idToken }) };
+const identity = (c: IdCred) => {
+  const email = /^google:(.+)$/.exec(c.idToken)?.[1];
+  if (!email) throw fail('auth/invalid-idp-response');
+  return email;
+};
+export async function signInWithCredential(_a: FakeAuth, c: IdCred) {
+  const email = identity(c);
+  let u = [...cloud.users.values()].find((x) => x.ids?.[c.providerId] === email);
+  if (!u) {
+    const same = [...cloud.users.values()].find((x) => x.email === email);
+    if (same) {
+      same.password = '';
+      same.ids = { ...same.ids, [c.providerId]: email };
+      u = same;
+    } else {
+      const uid = `uid${cloud.next++}`;
+      u = { uid, email, password: '', ids: { [c.providerId]: email } };
+      cloud.users.set(uid, u);
+    }
+  }
+  const user = userFor(u.uid, u.email);
+  setUser(user);
+  return { user };
+}
+// An email login (EmailAuthProvider.credential) or Google's ID token, added to this login.
+export async function linkWithCredential(user: FakeUser, cred: { email: string; password: string } | IdCred) {
+  const u = cloud.users.get(user.uid)!;
+  if ('idToken' in cred) {
+    const email = identity(cred);
+    if ([...cloud.users.values()].some((x) => x.uid !== user.uid && x.ids?.[cred.providerId] === email)) throw fail('auth/credential-already-in-use');
+    if (u.ids?.[cred.providerId]) throw fail('auth/provider-already-linked');
+    u.ids = { ...u.ids, [cred.providerId]: email };
+    return { user };
+  }
+  if (u.password) throw fail('auth/provider-already-linked');
+  if (cred.email !== u.email) throw fail('auth/credential-already-in-use');
+  u.password = cred.password;
+  user.since = cred.password;
+  return { user };
+}
+export async function unlink(user: FakeUser, providerId: string) {
+  const u = cloud.users.get(user.uid)!;
+  const { [providerId]: _gone, ...rest } = u.ids || {};
+  u.ids = rest;
+  return user;
+}
+
 export async function sendPasswordResetEmail(_a: FakeAuth, email: string) {
   if (cloud.hook) await cloud.hook('reset', email);
 }

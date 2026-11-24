@@ -16,5 +16,9 @@ export {
   reauthenticateWithCredential,
   EmailAuthProvider,
   sendPasswordResetEmail,
+  signInWithCredential,
+  linkWithCredential,
+  unlink,
+  GoogleAuthProvider,
 } from 'firebase/auth';
 export { getFirestore, doc, getDoc, writeBatch, setDoc, deleteDoc, runTransaction, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore/lite';
