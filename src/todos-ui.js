@@ -59,7 +59,7 @@ export function todoCard(k = S.todayKey()) {
     ${open.length || done.length ? `<ul class="qlist">${[...open, ...done].map((t) => row(t, k)).join('')}</ul>` : '<p class="muted small">Nothing to do. Add anything you want to get done, today or another day.</p>'}
     ${addForm()}
     ${next.length ? `<p class="label">Coming up</p><ul class="qlist later">${next.map((t) => row(t, k)).join('')}</ul>${later.length > next.length ? `<p class="muted small">And ${later.length - next.length} more.</p>` : ''}` : ''}
-    <div class="row"><button class="link" data-act="nav" data-v="${CALENDAR}">${icon('days')} Calendar</button></div>
+    <div class="row"><button class="link" data-act="nav" data-v="${CALENDAR}">${icon('days')} Calendar</button><button class="link" data-act="ahead-matters">${icon('target')} What matters</button></div>
   </section>`;
 }
 

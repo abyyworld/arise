@@ -12,6 +12,7 @@
 .capture-file { cursor: pointer; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .everyday .seg { margin-top: 4px; }
+.everyday .todo-add #groceryIn { flex: 1 1 180px; min-width: 0; }
 .money-list li { list-style: none; }
 .money-row {
   width: 100%; display: grid; gap: 2px; text-align: left; padding: 8px 10px; cursor: pointer;

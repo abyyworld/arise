@@ -73,10 +73,11 @@ export function findWhen(text: string, now = new Date()): Found {
     });
   if (!day) take(/\s(?:by |for )?next week(?=[\s,.!]|$)/i, () => ((day = keyOf(plus(today, ((8 - today.getDay()) % 7) || 7))), true));
 
-  take(/\s(?:at |@ ?|by )?(\d{1,2})(?::|\.)(\d{2})\s?(am|pm)?(?=[\s,.!]|$)/i, (m) => {
-    let h = Number(m[1]);
-    const min = Number(m[2]);
-    if (m[3]) h = (h % 12) + (/pm/i.test(m[3]) ? 12 : 0);
+  // 17:30, or 5.30 only after "at" (12.50 on its own is money).
+  take(/\s(?:(?:at |@ ?|by )?(\d{1,2}):|(?:at |@ ?)(\d{1,2})\.)(\d{2})\s?(am|pm)?(?=[\s,.!]|$)/i, (m) => {
+    let h = Number(m[1] ?? m[2]);
+    const min = Number(m[3]);
+    if (m[4]) h = (h % 12) + (/pm/i.test(m[4]) ? 12 : 0);
     if (h > 23 || min > 59) return false;
     time = `${pad(h)}:${pad(min)}`;
     return true;

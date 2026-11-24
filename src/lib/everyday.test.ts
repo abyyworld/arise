@@ -84,6 +84,8 @@ describe('the box on Today', () => {
     expect(classify('add oat milk to the shopping list', now)).toMatchObject({ kind: 'grocery', items: [{ name: 'oat milk' }] });
     expect(classify('Sam owes me £12.50 for lunch', now)).toMatchObject({ kind: 'debt', who: 'Sam', amount: 12.5, cur: 'GBP', dir: 'owed', what: 'lunch' });
     expect(classify('I owe Ali 50k sum by friday', now)).toMatchObject({ kind: 'debt', who: 'Ali', amount: 50000, cur: 'UZS', dir: 'owe', day: '2026-11-27' });
+    expect(classify('Sam owes me 12.50 for lunch by friday', now)).toMatchObject({ kind: 'debt', who: 'Sam', amount: 12.5, what: 'lunch', day: '2026-11-27' });
+    expect(findWhen('gym at 6.30pm', now)).toEqual({ day: '2026-11-24', time: '18:30', rest: 'gym' });
     expect(classify('I borrowed 20 dollars from jo', now)).toMatchObject({ kind: 'debt', who: 'Jo', amount: 20, cur: 'USD', dir: 'owe' });
     expect(classify('Jo lent me 15', now)).toMatchObject({ kind: 'debt', who: 'Jo', amount: 15, dir: 'owe' });
     expect(classify('how did I sleep this week?', now).kind).toBe('question');

@@ -121,7 +121,7 @@ describe('money owed and groceries', () => {
     S.addGroceries([{ name: 'Milk' }, { name: 'Eggs' }]);
     (await import('./everyday-ui.js')).repaint();
     expect(text('#everydayCard')).toContain('Sam owes you £6');
-    expect(text('#everydayCard')).toContain('In all: owed £6.');
+    expect(text('#everydayCard')).toContain("In all: you're owed £6.");
 
     await tap('[data-act="money-person"]');
     expect(text('.person-sheet')).toContain('Sam owes you £10');

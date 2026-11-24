@@ -177,7 +177,7 @@ function moneyPane() {
   const list = S.balances().filter((b) => b.net !== 0);
   const today = S.todayKey();
   const sum = totals(S.state.debts)
-    .map((t) => [t.owed ? `owed ${money(t.owed, t.cur)}` : '', t.owe ? `you owe ${money(t.owe, t.cur)}` : ''].filter(Boolean).join(', '))
+    .map((t) => [t.owed ? `you're owed ${money(t.owed, t.cur)}` : '', t.owe ? `you owe ${money(t.owe, t.cur)}` : ''].filter(Boolean).join(', '))
     .filter(Boolean);
   return `${sum.length ? `<p class="muted small">In all: ${esc(sum.join('; '))}.</p>` : ''}
     ${
