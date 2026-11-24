@@ -348,6 +348,12 @@ export function settingsHTML() {
       ]
         .map(([v, l]) => `<option value="${v}" ${st.bestTime === v ? 'selected' : ''}>${l}</option>`)
         .join('')}</select></label>
+    <h3 class="sub">Morning brief</h3>
+    <p class="small muted">Your day in a few lines: calendar, to-dos, deadlines, money you owe and groceries. On Today in the morning, and as a notification at this time, worked out on this device.</p>
+    <label class="field"><span>Send it at</span>
+      <select data-set="briefAt">${['', '06:00', '06:30', '07:00', '07:30', '08:00', '08:30', '09:00', '09:30', '10:00']
+        .map((v) => `<option value="${v}" ${st.briefAt === v ? 'selected' : ''}>${v || 'Off'}</option>`)
+        .join('')}</select></label>
   </div>`;
 }
 
@@ -360,6 +366,7 @@ globalThis.document?.addEventListener('change', (e) => {
   if (key === 'nudges') st.nudges = Math.max(0, Math.min(5, Number(el.value) || 0));
   else if ((key === 'quietFrom' || key === 'quietTo') && TIME.test(el.value)) st[key] = el.value;
   else if (key === 'bestTime' && ['', 'morning', 'afternoon', 'evening'].includes(el.value)) st.bestTime = el.value;
+  else if (key === 'briefAt' && (el.value === '' || TIME.test(el.value))) st.briefAt = el.value;
   else return;
   S.save();
   toast('Saved.');

@@ -90,6 +90,7 @@ export interface Settings {
   bestTime: '' | 'morning' | 'afternoon' | 'evening'; // when they think best ('' = worked out)
   currency: string; // for money owed: ISO code ('' = from the device's region)
   voice: string; // a sample of how they write, for Write it my way ('' = none)
+  briefAt: string; // the morning brief's time, HH:MM ('' = off)
   // Pause everything (src/life/pause.ts): when nothing was noted, on any device. Left out when none.
   pauses?: Pause[];
 }
@@ -132,6 +133,7 @@ export function cleanSettings(raw: unknown, d: Settings): Settings {
     quietTo: pick(s.quietTo, (x) => typeof x === 'string' && TIME.test(x), d.quietTo),
     bestTime: pick(s.bestTime, (x) => ['', 'morning', 'afternoon', 'evening'].includes(x as string), d.bestTime),
     currency: pick(s.currency, (x) => x === '' || (typeof x === 'string' && /^[A-Z]{3}$/.test(x)), d.currency),
+    briefAt: pick(s.briefAt, (x) => x === '' || (typeof x === 'string' && TIME.test(x)), d.briefAt),
     voice: typeof s.voice === 'string' ? s.voice.replace(/\u0000/g, '').trim().slice(0, 3000) : d.voice,
     ...withPauses(s.pauses),
   };

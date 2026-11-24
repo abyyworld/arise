@@ -6,6 +6,7 @@ import * as S from './store';
 import * as AI from './ai.js';
 import { classify, asKind } from './lib/capture';
 import { questions, threeThings } from './lib/questions';
+import * as BRIEF from './brief';
 import { balanceText, money, totals } from './lib/everyday';
 import { noteWithFile } from './life/quick-note';
 import { hasLifeStore, lifeStore } from './life/store-port';
@@ -321,6 +322,22 @@ function saveDebt() {
   closeSheet();
   setTab('money');
   toast('Saved.');
+}
+
+// ---------- the morning brief (brief.ts): on Today until noon, when it's on
+
+export function briefCard(now = new Date()) {
+  if (!BRIEF.on() || now.getHours() >= 12) return '';
+  let b;
+  try {
+    b = BRIEF.today();
+  } catch {
+    return '';
+  }
+  return `<section class="panel brief" id="briefCard">
+    <div class="panel-title">${icon('today')}<span>Your morning brief</span></div>
+    <ul class="brief-list">${b.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>
+  </section>`;
 }
 
 // ---------- A quick one: short questions from your coach (lib/questions.ts)

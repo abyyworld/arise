@@ -167,10 +167,10 @@ describe('a quick one on Today', () => {
     expect(text('#askCard')).toContain('What are the 3 things that matter most this week?');
     (document.querySelector('#askIn') as HTMLTextAreaElement).value = 'Finish the essay\nEmail Eyal';
     await submit('[data-form="q-write"]');
-    const added = Object.values(S.state.todos);
+    const added = Object.values(S.state.todos).sort((a, b) => a.title.localeCompare(b.title));
     expect(added.map((t) => [t.title, t.day, t.big])).toEqual([
-      ['Finish the essay', '2026-11-29', true],
       ['Email Eyal', '2026-11-29', true],
+      ['Finish the essay', '2026-11-29', true],
     ]);
     expect(S.state.dismissed['q:week:2026-11-23']).toBeTruthy();
     expect(text('#askCard')).toContain('When do you think best?');
@@ -190,6 +190,28 @@ describe('a quick one on Today', () => {
     expect(text('#askCard')).toContain('Did Sam pay you back?');
     await tap('#askCard [data-act="q-paid"]');
     expect(S.balances()).toEqual([]);
+  });
+});
+
+describe('the morning brief', () => {
+  it('shows on Today in the morning when it is on, and plans plain notifications', async () => {
+    const { S } = await boot({ settings: { bestTime: 'morning', briefAt: '08:00' } });
+    S.addTodo({ title: 'Email Eyal', day: '2026-11-24' });
+    S.addTodo({ title: 'Pay rent', day: '2026-11-25' });
+    const UI = await import('./everyday-ui.js');
+    expect(UI.briefCard()).toContain('1 to-do: Email Eyal.');
+    expect(UI.briefCard(new Date(2026, 10, 24, 13))).toBe('');
+    const B = await import('./brief');
+    const list = B.nudges(Date.now(), 3);
+    expect(list.map((n) => [new Date(n.at).getDate(), new Date(n.at).getHours(), n.body])).toEqual([
+      [25, 8, 'Your day: 2 to-dos.'],
+      [26, 8, 'Your day: 2 to-dos.'],
+    ]);
+    S.state.settings.notifyDetails = true;
+    expect(B.nudges(Date.now(), 2)[0].body).toContain('Pay rent');
+    S.state.settings.briefAt = '';
+    expect(B.nudges(Date.now(), 3)).toEqual([]);
+    expect(UI.briefCard()).toBe('');
   });
 });
 

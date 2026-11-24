@@ -25,6 +25,8 @@ const SEEN = 'arise-plan-seen'; // the plan as it was when the Player last looke
 
 let people: A.Person[] = [];
 let logBusy: A.Busy[] = [];
+// The life log's calendar events between two moments (the morning brief, src/brief.ts).
+export const logEvents = (from: number, to: number) => logBusy.filter((b) => b.start >= from && b.start < to);
 let readAt = 0;
 let reading: Promise<void> | null = null;
 const listeners: (() => void)[] = [];
