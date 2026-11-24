@@ -11,6 +11,7 @@ import { mergeChat, mergeDaily, neverPlanned, planOn, splicePlanDays } from './l
 import * as ST from './lib/study';
 import * as TD from './lib/todos';
 import * as EV from './lib/events';
+import * as DC from './lib/decisions';
 
 export type { Goal, Quest };
 
@@ -39,7 +40,7 @@ const BAR_SWAPS = BAR_SWAPS_JS as unknown as Record<string, { ex: string; min: n
 
 const KEY = 'pit-data-v1';
 
-export const DEFAULT_SETTINGS: Settings = { restBig: 120, restSmall: 60, sound: true, vibrate: true, name: '', remindAt: '07:00', aiDaily: true, template: 'ab', perWeek: 5, notify: false, evening: true, eveningAt: '20:30', aiProvider: '', aiModel: '', aiBase: '', aiEngine: '', bar: 'home', dayOff: true, privateModel: '', freeModel: '', look: 'auto', checkin: true, checkinAt: '21:30', recap: true, recapAt: '', notifyDetails: false, journalVoice: 'first' };
+export const DEFAULT_SETTINGS: Settings = { restBig: 120, restSmall: 60, sound: true, vibrate: true, name: '', remindAt: '07:00', aiDaily: true, template: 'ab', perWeek: 5, notify: false, evening: true, eveningAt: '20:30', aiProvider: '', aiModel: '', aiBase: '', aiEngine: '', bar: 'home', dayOff: true, privateModel: '', freeModel: '', look: 'auto', checkin: true, checkinAt: '21:30', recap: true, recapAt: '', notifyDetails: false, journalVoice: 'first', nudges: 2, quietFrom: '22:00', quietTo: '08:00', bestTime: '' };
 
 export const blank = (): State => cleanState({}, DEFAULT_SETTINGS);
 export const clean = (data: unknown): State => migrate(cleanState(data, DEFAULT_SETTINGS));
@@ -1177,7 +1178,7 @@ export function exportData() {
 
 // Nothing of the Player's own yet: no history and no real goal (an intro that was skipped
 // doesn't count). A backup loaded into a device like this is a full restore.
-export const isEmpty = (s: State = state) => !s.sessions.length && !Object.keys(s.logs).length && !s.body.entries.length && !s.profile?.goal && !s.goals.length && !Object.keys(s.checks).length && !ST.hasStudy(s.study) && !Object.keys(s.todos).length && !Object.keys(s.events).length;
+export const isEmpty = (s: State = state) => !s.sessions.length && !Object.keys(s.logs).length && !s.body.entries.length && !s.profile?.goal && !s.goals.length && !Object.keys(s.checks).length && !ST.hasStudy(s.study) && !Object.keys(s.todos).length && !Object.keys(s.events).length && !Object.keys(s.decisions).length;
 
 // Anything at all of the Player's own: history of any kind, a workout in progress, a goal, a
 // plan, the coach's chat, reminder texts asked for, an answer in the profile. Not what a device
@@ -1199,7 +1200,7 @@ export function introOnly(s: State = state) {
 // Nothing done yet: no history of any kind (goals, a profile and settings may be set up, and the
 // weigh-in the intro saves with them).
 export function nothingDone(s: Omit<State, 'active' | 'updatedAt'>) {
-  return !s.sessions.length && !Object.keys(s.logs).length && (!s.body.entries.length || introWeighIn(s)) && !Object.keys(s.checks).length && !Object.keys(s.values).length && !s.football.length && !s.rests.length && !s.easyWeeks.length && !s.customPlan && !s.ai.chat.length && !ST.hasStudy(s.study) && !Object.keys(s.todos).length && !Object.keys(s.events).length;
+  return !s.sessions.length && !Object.keys(s.logs).length && (!s.body.entries.length || introWeighIn(s)) && !Object.keys(s.checks).length && !Object.keys(s.values).length && !s.football.length && !s.rests.length && !s.easyWeeks.length && !s.customPlan && !s.ai.chat.length && !ST.hasStudy(s.study) && !Object.keys(s.todos).length && !Object.keys(s.events).length && !Object.keys(s.decisions).length;
 }
 // The intro saves the weight it asks for as a weigh-in, just before its goal (system.js): the only
 // one, on the day a goal was made, from before that goal was last saved.
@@ -1308,6 +1309,8 @@ export function importData(raw: unknown): number {
   state.study = ST.mergeStudy(state.study, data.study);
   state.todos = TD.mergeTodos(state.todos, data.todos);
   state.events = EV.mergeEvents(state.events, data.events);
+  state.decisions = DC.mergeDecisions(state.decisions, data.decisions);
+  state.dismissed = DC.mergeDismissed(state.dismissed, data.dismissed);
   // The coach, as sync combines it (lib/merge.ts): every chat message from both, minus anything
   // from before the last "clear"; each day's System message and the nudges, the later ones; and
   // the easy week snoozed as long as either says.
@@ -1464,6 +1467,52 @@ export function importEvents(list: EV.CalEvent[]): number {
   state.events = EV.cleanEvents(next);
   save();
   return list.length;
+}
+
+// ---------- decisions (lib/decisions.ts) and early warnings put away (lib/ahead.ts)
+
+export type { Decision, Option as DecisionOption, Outcome } from './lib/decisions';
+export const decisionsList = () => DC.liveDecisions(state.decisions);
+export const decisionsDue = (k = todayKey()) => DC.dueBack(state.decisions, k);
+
+function putDecision(raw: Record<string, unknown>): DC.Decision | null {
+  const d = DC.cleanDecision(raw);
+  if (!d) return null;
+  state.decisions = DC.cleanDecisions({ ...state.decisions, [d.id]: d });
+  save();
+  return state.decisions[d.id] || null;
+}
+
+// Saves a new one; `id` keeps one from being saved twice.
+export function addDecision(input: Omit<Partial<DC.Decision>, 'created' | 'at' | 'gone'>): DC.Decision | null {
+  const id = input.id || DC.newDecisionId();
+  if (state.decisions[id] && !state.decisions[id].gone) return null;
+  const now = Date.now();
+  return putDecision({ ...input, id, created: now, at: now });
+}
+
+// Changes some of it (a field set to null is cleared).
+export function updateDecision(id: string, patch: Partial<Record<keyof DC.Decision, unknown>>): DC.Decision | null {
+  const d = state.decisions[id];
+  if (!d || d.gone) return null;
+  const next: Record<string, unknown> = { ...d };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) delete next[k];
+    else next[k] = v;
+  }
+  return putDecision({ ...next, id, created: d.created, at: Date.now() });
+}
+
+export function removeDecision(id: string) {
+  const d = state.decisions[id];
+  if (!d || d.gone) return;
+  state.decisions = DC.cleanDecisions({ ...state.decisions, [id]: { id, question: '', options: [], created: d.created, at: Date.now(), gone: true } });
+  save();
+}
+
+export function dismissWarning(id: string) {
+  state.dismissed = DC.cleanDismissed({ ...state.dismissed, [id]: Date.now() });
+  save();
 }
 
 // ---------- study (lib/study.ts): the link to the Player's study pack, and how it's going

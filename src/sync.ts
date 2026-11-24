@@ -51,7 +51,9 @@ const TIMEOUT = 45_000;
 // 9: Pause everything (settings.pauses), which 1.28 would drop, so a device on it could turn a
 // pause off for every device.
 // 10: your own calendar events (lib/events.ts), which 1.30 would drop.
-export const SCHEMA = 10;
+// 11: decisions and early warnings put away (lib/decisions.ts), and the next-step message settings,
+// which 1.30 would drop.
+export const SCHEMA = 11;
 
 interface Meta {
   uid?: string;

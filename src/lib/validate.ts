@@ -20,6 +20,7 @@ import { cleanLife, cleanLifeBefore } from './life-check';
 import { cleanStudy, type Study } from './study';
 import { cleanTodos, type Todos } from './todos';
 import { cleanEvents, type CalEvents } from './events';
+import { cleanDecisions, cleanDismissed, type Decisions, type Dismissed } from './decisions';
 
 export { DATE, isDate } from './clean';
 const ID = /^[a-z0-9]{1,32}$/i;
@@ -80,6 +81,11 @@ export interface Settings {
   recapAt: string; // '' = at the morning reminder's time
   notifyDetails: boolean; // what the journal says may show on the lock screen (off: plain words only)
   journalVoice: 'first' | 'you'; // the AI journal says "I" (like a real journal) or "you"
+  // Next-step messages (lib/ahead.ts): how many a day, and the hours Arise stays quiet.
+  nudges: number; // 0 to 5
+  quietFrom: string;
+  quietTo: string;
+  bestTime: '' | 'morning' | 'afternoon' | 'evening'; // when they think best ('' = worked out)
   // Pause everything (src/life/pause.ts): when nothing was noted, on any device. Left out when none.
   pauses?: Pause[];
 }
@@ -117,6 +123,10 @@ export function cleanSettings(raw: unknown, d: Settings): Settings {
     recapAt: pick(s.recapAt, (x) => typeof x === 'string' && (x === '' || TIME.test(x)), d.recapAt),
     notifyDetails: pick(s.notifyDetails, isBool, d.notifyDetails),
     journalVoice: pick(s.journalVoice, (x) => x === 'first' || x === 'you', d.journalVoice),
+    nudges: int(s.nudges ?? d.nudges, 0, 5, d.nudges),
+    quietFrom: pick(s.quietFrom, (x) => typeof x === 'string' && TIME.test(x), d.quietFrom),
+    quietTo: pick(s.quietTo, (x) => typeof x === 'string' && TIME.test(x), d.quietTo),
+    bestTime: pick(s.bestTime, (x) => ['', 'morning', 'afternoon', 'evening'].includes(x as string), d.bestTime),
     ...withPauses(s.pauses),
   };
 }
@@ -461,6 +471,8 @@ export interface State {
   study: Study;
   todos: Todos;
   events: CalEvents; // your own calendar events (lib/events.ts)
+  decisions: Decisions; // choices asked about, and how they went (lib/decisions.ts)
+  dismissed: Dismissed; // early warnings put away (lib/ahead.ts)
   stamps: Stamps;
   updatedAt?: number;
 }
@@ -499,6 +511,8 @@ export function cleanState(raw: unknown, defaults: Settings): State {
     study: cleanStudy(d.study),
     todos: cleanTodos(d.todos),
     events: cleanEvents(d.events),
+    decisions: cleanDecisions(d.decisions),
+    dismissed: cleanDismissed(d.dismissed),
     stamps: cleanStamps(d.stamps),
   };
   if (time(d.updatedAt)) state.updatedAt = time(d.updatedAt);

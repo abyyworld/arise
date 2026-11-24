@@ -265,7 +265,7 @@ describe('the life log between devices', () => {
     expect(await titles(b)).toEqual(all);
     // The life log has its own packs: the main copy (which older versions of Arise read) didn't change.
     expect(cloud.docs.get('users/uid1/arise/meta')!.rev).toBe(meta);
-    expect(a.SYNC.SCHEMA).toBe(10); // (4: the new look and the tiers of the coach's replies; 5: the journal's settings, in the main copy; 6: the life check-in, sleep and mood in a check-in, and the daily message's tier; 7: study; 8: to-dos; 9: Pause everything; 10: your own calendar events)
+    expect(a.SYNC.SCHEMA).toBe(11); // (4: the new look and the tiers of the coach's replies; 5: the journal's settings, in the main copy; 6: the life check-in, sleep and mood in a check-in, and the daily message's tier; 7: study; 8: to-dos; 9: Pause everything; 10: your own calendar events; 11: decisions, early warnings put away and next-step message settings)
   });
 
   it('loses nothing when two devices send at the same moment', async () => {
