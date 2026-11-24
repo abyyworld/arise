@@ -85,6 +85,8 @@ let hooks = { render: () => {}, changed: () => {}, checkForUpdate: () => {} };
 // Told after each sync that went through (share.ts brings shared goals' pages up to date then).
 const synced: (() => void)[] = [];
 export const onSynced = (fn: () => void) => synced.push(fn);
+// When this device last synced (0: never), for the health check (health-ui.js).
+export const lastSyncedAt = () => readMeta().at || 0;
 // Told when signing out removes this device's data, once that's sure (the Player didn't keep
 // changes that haven't reached the cloud), while the account is still signed in: me.ts turns
 // connected apps' links off then, since no other device knows them.

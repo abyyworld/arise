@@ -34,6 +34,7 @@ import * as FILES from '../files-folder.js';
 import * as GHB_UI from '../github-backup-ui.js';
 import * as MYFILES from './files-ui.js';
 import { toast } from '../ui.js';
+import * as HEALTH from '../health-ui.js';
 
 export const VIEW = 'connect';
 export const LEAD = "Connect what you use, and Arise writes your days from it. Everything stays private: it's read on your devices and only leaves them encrypted.";
@@ -205,6 +206,7 @@ function repaintSetup() {
 
 // The taps this screen has itself. `go` is app.js's, to open another screen.
 export async function handleAction(act, el, { go } = {}) {
+  if (HEALTH.handleAction(act)) return true;
   if (act === 'hub-go') {
     const { v, to, step: s } = el.dataset;
     const onWiz = !!globalThis.document?.querySelector('#app .wiz');
@@ -351,7 +353,7 @@ function guideHTML(s) {
 function connectHTML(s) {
   if (s === 'account') return `${SYNC.panel()}${APPLOCK.settingsPanel()}`;
   if (s === 'ai') return SYS.settingsPanels();
-  if (s === 'review') return setupPanel();
+  if (s === 'review') return `${setupPanel()}${HEALTH.panel()}`;
   return `<div class="cols hub">
       <div class="col">${phonePart()}${CONNECT.settingsPanel('Accounts')}</div>
       <div class="col">${computerPart()}${historyPart()}${filesPart()}${MYFILES.hubPanel()}${GHB_UI.panel()}${appsPart()}</div>
@@ -477,6 +479,7 @@ export function renderConnect(root, { keep = false } = {}) {
     <header class="page-head life-back-head"><button class="icon-btn" data-act="nav" data-v="days" aria-label="Back to your days">${icon('back')}</button><div><p class="kicker">Setup and connections</p><h1 class="display">Connect</h1></div></header>
     <p class="hub-lead">${esc(LEAD)}</p>
     ${setupPanel()}
+    ${HEALTH.panel()}
     ${connectHTML('connections')}`;
     return;
   }

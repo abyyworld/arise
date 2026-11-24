@@ -36,3 +36,11 @@
 .grid4 .do-now { box-shadow: inset 3px 0 0 var(--sys); }
 
 .write-out { white-space: pre-wrap; border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0; }
+
+/* System health (src/health-ui.js), in Setup and connections. */
+.health-list { list-style: none; margin: 6px 0 8px; padding: 0; display: grid; gap: 8px; }
+.health-row { display: grid; grid-template-columns: 12px 1fr; gap: 10px; align-items: start; }
+.health-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; background: var(--muted); }
+.health-row.ok .health-dot { background: var(--sys); }
+.health-row.bad .health-dot { background: #e5484d; }
+.health-row small { color: var(--muted); }
