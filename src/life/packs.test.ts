@@ -100,6 +100,14 @@ describe('wipes (deleting a source, a span of days, or everything)', () => {
     expect(out.tombs).toEqual({}); // the wipe itself covers them
   });
 
+  it('delete one AI app’s chats, as "Delete everything from Claude" does, and come through from the cloud', () => {
+    const chat = (id: string, source: 'claude' | 'chatgpt', m: number) => ev(id, m, { id: `${source}:${id}`, source, kind: 'message', tier: 3, meta: { conv: id } });
+    const w = { at: 100, what: 'events' as const, source: 'claude' as const };
+    expect(cleanContent(MEM, { wipes: [w] }).wipes).toEqual([w]);
+    const out = merge(pack({ events: [chat('a', 'claude', 50), chat('b', 'chatgpt', 50), chat('c', 'claude', 150)] }), pack({}), { wipes: [w] });
+    expect(ids(out)).toEqual(['chatgpt:b', 'claude:c']);
+  });
+
   it('cover a span of time', () => {
     const w = { at: 100, what: 'events' as const, from: at('2026-10-05T00:00'), to: at('2026-10-06T00:00') };
     const out = merge(pack({ events: [ev('in', 50), ev('out', 50, { at: at('2026-10-07T09:00') })] }), pack({}), { wipes: [w] });
