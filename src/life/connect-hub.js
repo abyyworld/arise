@@ -120,7 +120,7 @@ function historyPart() {
 // ---------- your setup: everything worth setting up, where each stands, and what's next
 
 // Sources a file brings in (not the phone or this computer, which have parts of their own).
-const FROM_FILES = ['google', 'youtube', 'chrome', 'maps', 'spotify', 'netflix', 'health', 'whatsapp', 'telegram', 'instagram', 'messenger', 'x', 'tiktok', 'snapchat', 'discord', 'linkedin', 'bank'];
+const FROM_FILES = ['google', 'youtube', 'chrome', 'maps', 'spotify', 'netflix', 'health', 'whatsapp', 'telegram', 'instagram', 'messenger', 'x', 'tiktok', 'snapchat', 'discord', 'linkedin', 'claude', 'chatgpt', 'gemini', 'bank'];
 let history = null; // the names of what was brought in, once counted
 
 function facts() {

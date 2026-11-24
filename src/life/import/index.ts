@@ -24,6 +24,9 @@ import { parseTikTok, TIKTOK } from './tiktok';
 import { parseSnapchat, SNAPCHAT } from './snapchat';
 import { DISCORD_FILE, DISCORD_INDEX, parseDiscord } from './discord';
 import { isLinkedInMessages, parseLinkedIn } from './linkedin';
+import { listClaude, parseClaude } from './claude';
+import { listChatGPT, parseChatGPT } from './chatgpt';
+import { listGemini, parseGemini } from './gemini';
 
 export type * from './types';
 
@@ -104,11 +107,22 @@ export const KIND_LABEL: Record<ImportKind, string> = {
   snapchat: 'Snapchat chats',
   discord: 'Discord messages',
   linkedin: 'LinkedIn messages',
+  claude: 'Claude chats',
+  chatgpt: 'ChatGPT chats',
+  gemini: 'Gemini chats',
   'bank-csv': 'Bank statement',
 };
 
 // Kinds of chat from a social app: one event per chat per day, read from one or more files.
 const SOCIAL: ReadonlySet<ImportKind> = new Set(['telegram', 'instagram', 'messenger', 'x-messages', 'tiktok', 'snapchat', 'discord', 'linkedin']);
+
+// Chats with AI apps: each conversation is listed first (Found.chats), so the Player can pick.
+export const AI_KINDS: ReadonlySet<ImportKind> = new Set(['claude', 'chatgpt', 'gemini']);
+
+// Gemini's My Activity, known from its folder in a Takeout ("My Activity/Gemini Apps/", "Bard"
+// before 2024, in any language) or from the records' product.
+const GEMINI_PATH = /(^|\/)[^/]*(gemini|bard)[^/]*\/[^/]+\.(json|html?)$/i;
+const GEMINI_HEAD = /"(header|products)"\s*:\s*\[?\s*"(Gemini|Bard)\b/;
 
 const TELEGRAM_TYPE = /"type"\s*:\s*"(personal_chat|bot_chat|private_group|private_supergroup|public_supergroup)"/;
 
@@ -125,7 +139,7 @@ export function classify(name: string, head: string, inZip: boolean): ImportKind
   const lower = name.toLowerCase();
   if (t.startsWith('<')) {
     if (/<HealthData[\s>]|<!DOCTYPE HealthData/.test(t)) return 'apple-health';
-    if (/<html/i.test(t) && /outer-cell|content-cell|mdl-grid/.test(t)) return 'html';
+    if (/<html/i.test(t) && /outer-cell|content-cell|mdl-grid/.test(t)) return GEMINI_PATH.test(name) || /Gemini Apps/.test(t) ? 'gemini' : 'html';
     return null;
   }
   // The X archive's messages: JavaScript that sets a variable to JSON.
@@ -143,13 +157,19 @@ export function classify(name: string, head: string, inZip: boolean): ImportKind
         if (SNAPCHAT.test(lower)) return 'snapchat';
       }
     }
+    // An AI app's conversations.json, told apart by shape: Claude's have "chat_messages",
+    // ChatGPT's a "mapping" of messages.
+    if (/^\[\s*\{/.test(t)) {
+      if (/"chat_messages"\s*:/.test(t) && /"uuid"\s*:/.test(t)) return 'claude';
+      if (/"mapping"\s*:\s*\{/.test(t) && /"(create_time|current_node|conversation_id)"\s*:/.test(t)) return 'chatgpt';
+    }
     if (/"semanticSegments"\s*:/.test(t)) return 'maps-timeline';
     if (/^\[\s*\{/.test(t) && /"(startTime|endTime)"\s*:/.test(t) && /"(visit|activity|timelinePath|timelineMemory)"\s*:/.test(t)) return 'maps-timeline';
     if (/"timelineObjects"\s*:/.test(t)) return 'maps-semantic';
     if (/"Browser History"\s*:/.test(t)) return 'chrome-history';
     if (/"ms_played"\s*:|"master_metadata_track_name"\s*:/.test(t)) return 'spotify-extended';
     if (/"msPlayed"\s*:/.test(t)) return 'spotify-account';
-    if (/^\[\s*\{/.test(t) && /"header"\s*:/.test(t) && /"title"\s*:/.test(t) && /"time"\s*:/.test(t)) return 'google-activity';
+    if (/^\[\s*\{/.test(t) && /"header"\s*:/.test(t) && /"title"\s*:/.test(t) && /"time"\s*:/.test(t)) return GEMINI_PATH.test(name) || GEMINI_HEAD.test(t) ? 'gemini' : 'google-activity';
     return null;
   }
   const first = (t.split(/\r\n|\n|\r/, 1)[0] ?? '').toLowerCase().replace(/"/g, '').trim();
@@ -229,6 +249,8 @@ async function look(file: Named, d: Detection, signal?: AbortSignal): Promise<De
       else if (kind) d.found.push(await describe(kind, e.name, e.packed, name, encoding, () => guard(decode(entryBytes(file, e), encoding), signal)));
     }
     d.found.push(...social.found());
+    // Gemini saved both ways: the JSON is enough.
+    if (d.found.some((f) => f.kind === 'gemini' && !/\.html?$/i.test(f.path))) d.found = d.found.filter((f) => f.kind !== 'gemini' || !/\.html?$/i.test(f.path));
     if (!d.found.length) d.problem = html ? 'html' : unopenable ? 'zip-method' : 'unknown';
   } else {
     const head = new Uint8Array(await file.slice(0, SNIFF).arrayBuffer());
@@ -311,6 +333,10 @@ async function describe(kind: ImportKind, path: string, size: number, outer: str
     const who = chatName(path) || chatName(outer);
     if (who) f.chat = who;
   }
+  // Every conversation, for the picker: the whole file is read once to list them.
+  if (kind === 'claude') f.chats = await listClaude({ name: path, text: read() });
+  if (kind === 'chatgpt') f.chats = await listChatGPT({ name: path, text: read() });
+  if (kind === 'gemini') f.chats = await listGemini({ name: path, text: read() });
   return f;
 }
 
@@ -318,7 +344,7 @@ async function describe(kind: ImportKind, path: string, size: number, outer: str
 
 // Files whose events are totals for a day: a newer export completes the day the older one was
 // made on, so the store replaces what it has (see ImportOptions.onEvents).
-const TOTALS: ReadonlySet<ImportKind> = new Set(['apple-health', 'whatsapp', ...SOCIAL]);
+const TOTALS: ReadonlySet<ImportKind> = new Set(['apple-health', 'whatsapp', ...SOCIAL, ...AI_KINDS]);
 
 function parserFor(f: Found, input: TextInput, choices: ImportChoices, parts: AsyncIterable<TextInput>): AsyncGenerator<LifeEvent[]> {
   switch (f.kind) {
@@ -358,6 +384,12 @@ function parserFor(f: Found, input: TextInput, choices: ImportChoices, parts: As
       return parseDiscord(parts);
     case 'linkedin':
       return parseLinkedIn(parts);
+    case 'claude':
+      return parseClaude(input, choices.chats);
+    case 'chatgpt':
+      return parseChatGPT(input, choices.chats);
+    case 'gemini':
+      return parseGemini(input, choices.chats);
   }
 }
 
