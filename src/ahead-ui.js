@@ -316,7 +316,7 @@ export function settingsHTML() {
   const st = S.state.settings;
   return `<div class="ahead-settings" id="aheadSettings">
     <h3 class="sub">Next-step messages</h3>
-    <p class="small muted">A few messages at the right moment with your next step, from your plan and early warnings. On the phone apps they're planned on the phone. On the web they come while Arise is open.</p>
+    <p class="small muted">A few messages at the right moment with your next step, from your plan and early warnings. They come with your notifications on: in the phone apps they're planned on the phone, and on the web they come while Arise is open. Plain words on the lock screen unless you show details.</p>
     <label class="field"><span>How many a day</span>
       <select data-set="nudges">${[0, 1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${st.nudges === n ? 'selected' : ''}>${n === 0 ? 'None' : n}</option>`).join('')}</select></label>
     <label class="field"><span>Quiet from</span><input type="time" data-set="quietFrom" value="${esc(st.quietFrom)}"></label>

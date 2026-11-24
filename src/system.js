@@ -841,11 +841,6 @@ async function reflectToday(btn) {
 // question's own words.
 const QUICK = [
   {
-    label: 'Walk me through today',
-    recall: 'the last 2 days',
-    text: "Look at Arise's plan for today and my early warnings. Is it the best use of my day, given my goals, my calendar, my sleep and energy? Say what you'd change, if anything, and the one thing that matters most today.",
-  },
-  {
     label: 'Review my week',
     recall: 'the last 7 days',
     text: "Review my last 7 days as a whole: sleep, energy and mood, the people I saw, how I spent my time, and my goals. What went well, what didn't, and one change for next week.",
@@ -873,7 +868,11 @@ const QUICK = [
   },
   { label: 'Hard day', recall: 'the last 2 days', text: 'Today is hard. Help me make it a lighter day: the one smallest thing worth doing, and how to look after myself tonight. No pep talk.' },
   { label: 'Busy week', text: "I'm travelling or my schedule is different this week. Adapt today's and this week's quests to what I can realistically do, and make sure I still rest. Keep it short." },
-  { label: 'I missed days', text: "I missed days recently. Help me restart without guilt: first ask what got in the way if you can't see it in my data, then the smallest version of my quests that keeps me moving this week." },
+  { label: 'I missed days', text: "I missed days recently. Help me restart without guilt: first ask what got in the way if you can't see it in my data, then the smallest version of my quests that keeps me moving this week." },  {
+    label: 'Walk me through today',
+    recall: 'the last 2 days',
+    text: "Look at Arise's plan for today and my early warnings. Is it the best use of my day, given my goals, my calendar, my sleep and energy? Say what you'd change, if anything, and the one thing that matters most today.",
+  },
 ];
 
 let chatState = { busy: false, controller: null, text: '' };

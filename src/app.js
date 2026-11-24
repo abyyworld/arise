@@ -44,7 +44,7 @@ import * as YOU from './you.js';
 import * as HUB from './life/connect-hub.js';
 import * as TODOS from './todos-ui.js';
 import * as AHEAD from './ahead-ui.js';
-import { initAhead, onAheadChange } from './ahead';
+import { initAhead, onAheadChange, nudges as aheadNudges } from './ahead';
 import * as CAL from './calendar-ui.js';
 import * as PAUSEUI from './life/pause-ui';
 import * as SKIPUI from './life/app-skip-ui';
@@ -2683,7 +2683,14 @@ initMemory();
 initInsight();
 initAhead();
 // The plan's cards follow the life log (calendars, sleep, people) as it's read.
-onAheadChange(() => AHEAD.repaintCards());
+// Next-step messages: planned on the phone in the phone apps, shown while open on the web.
+N.useNudges((now) => aheadNudges(now));
+ALERTS.useNudges((now) => aheadNudges(now, 2));
+onAheadChange(() => {
+  AHEAD.repaintCards();
+  if (N.isNative) void N.syncNotifications();
+  else ALERTS.planAlerts();
+});
 S.onSave(() => AHEAD.repaintCards());
 initJournalNotes();
 // Linked accounts (Settings, Your life) sync on opening and every few minutes while open.

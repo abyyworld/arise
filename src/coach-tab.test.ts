@@ -64,7 +64,6 @@ describe('the Coach tab', () => {
   it('offers quick actions about the whole of life, and the workout plan only to people who use it', async () => {
     await boot('coach');
     expect($$('.quick [data-act="ai-quick"]').map((b) => b.textContent!.trim())).toEqual([
-      'Walk me through today',
       'Review my week',
       'What helps me?',
       'Deep review of everything all data',
@@ -73,6 +72,7 @@ describe('the Coach tab', () => {
       'Hard day',
       'Busy week',
       'I missed days',
+      'Walk me through today',
     ]);
     expect($('.quick [data-v="plan"]')).toBeNull();
     expect(document.body.textContent).not.toContain('Personalise my workout plan');
@@ -117,6 +117,8 @@ describe('the Coach tab', () => {
     // Without one, the question's own words are looked up.
     await tap('[data-act="ai-quick"][data-i="6"]');
     expect(chat.mock.lastCall![1]).not.toHaveProperty('recallAs');
+    await tap('[data-act="ai-quick"][data-i="8"]');
+    expect(chat).toHaveBeenLastCalledWith(expect.stringContaining("Arise's plan for today"), expect.objectContaining({ recallAs: 'the last 2 days' }));
   });
 
   it('passes a question from another screen on with what to look up, and says when the coach is busy', async () => {
