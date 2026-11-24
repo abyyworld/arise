@@ -1102,3 +1102,35 @@ describe('versions', () => {
     expect(await titles(b)).toContain('Not sent yet');
   });
 });
+
+describe('corrections', () => {
+  it('a fixed or deleted event stays that way on every device, even when another one imports it again', async () => {
+    const { a, b } = await pair();
+    await on(a, async () => {
+      await a.L.fixEvent('spotify:1', { title: 'Lunch with Sam' });
+      await a.L.fixEvent('spotify:2', 'delete');
+    });
+    await settle(a);
+    await reopen(b);
+    expect(await titles(b)).toEqual(['Listened to song 3', 'Lunch with Sam']);
+    // The laptop imports the same file again, and syncs.
+    await add(b, [song('1'), song('2'), song('3')]);
+    await reopen(b);
+    expect(await titles(b)).toEqual(['Listened to song 3', 'Lunch with Sam']);
+    await reopen(a);
+    expect(await titles(a)).toEqual(['Listened to song 3', 'Lunch with Sam']);
+    // The correction itself is sealed like the rest.
+    expect(cloudText()).not.toContain('Lunch with Sam');
+  });
+
+  it('a fact the Player taught on one device is never learned again on another', async () => {
+    const { a, b } = await pair();
+    const id = await on(a, async () => (await a.M.addFact('You have a cat.'))!.id);
+    await on(a, () => a.M.teachFact(id, ''));
+    await settle(a);
+    await reopen(b);
+    const fixes = await on(b, async () => (await import('./fix-store')).readFixes());
+    expect(fixes.map((f) => f.wrong)).toEqual(['You have a cat.']);
+    expect(await facts(b)).toEqual([]);
+  });
+});

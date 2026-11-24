@@ -35,6 +35,8 @@ import { strongBy } from './strength';
 import { namedTitle, withPlaceNames } from '../lib/place-names';
 import { placeNames } from '../store';
 import { byMeaning } from './embed/index';
+import { isWrong, wrongs } from './fixes';
+import { FIXES, readFixes, saveFix, saveKnew } from './fix-store';
 import { PARTS, buildJournal, parseText, toText, type Built, type JournalDoc, type Own, type Part, type Voice } from './diary';
 
 export type { LifeFact, LifeSummary };
@@ -76,6 +78,7 @@ export function onMemoryChange(cb: () => void): () => void {
   return () => watchers.delete(cb);
 }
 function changed() {
+  knewSoon();
   for (const cb of [...watchers]) {
     try {
       cb();
@@ -347,6 +350,54 @@ export async function restoreFact(id: string): Promise<void> {
   changed();
 }
 
+// "This isn't right, teach it": the Player says what's true instead of a fact (`truth`), or that
+// it isn't true at all (no words). Their words take its place as their own fact, which the AI never
+// changes; and the old words are kept as a correction, so the AI never learns them again, in these
+// or close words, even after the memory is made again from the log (applyOps, fixes.ts).
+export async function teachFact(id: string, truth: string): Promise<'replaced' | 'removed' | null> {
+  await load();
+  const f = facts.find((x) => x.id === id);
+  if (!f) return null;
+  const t = factText(truth);
+  const tier = Math.max(f.tier, 2) as LifeTier;
+  await saveFix({ id: `fact:${f.id}`, at: Date.now(), wrong: f.text, ...(t ? { right: t } : { gone: true as const }), tier });
+  if (!t) {
+    await save({ drop: [id] });
+    changed();
+    return 'removed';
+  }
+  const { until: _u, ...rest } = f;
+  const next = cleanLifeFact({ ...rest, text: t, from: 'you', tier, share: Math.max(shareOf(f), 2), since: today(), at: Date.now() });
+  if (next) await save({ facts: [next] });
+  changed();
+  return 'replaced';
+}
+
+// ---------- what Arise knew, day by day (fixes.ts, fix-store.ts)
+
+// What Arise knows now, the best first, as a snapshot keeps it.
+export const KNEW_FACTS = 120;
+export const knewNow = () => rankFacts(activeFacts()).slice(0, KNEW_FACTS).map((f) => ({ id: f.id, text: f.text }));
+
+// Keeps today's snapshot a moment after the facts change (once, however often they do).
+let knewTimer: ReturnType<typeof setTimeout> | null = null;
+function knewSoon() {
+  if (!loaded || knewTimer) return;
+  knewTimer = setTimeout(() => {
+    knewTimer = null;
+    noteKnew().catch(() => {});
+  }, 3000);
+}
+
+// Today's snapshot of what Arise knows, unless it's what the last one says. Nothing before Arise
+// knows anything. Resolves with whether one was kept.
+export async function noteKnew(now = Date.now()): Promise<boolean> {
+  await load();
+  const list = knewNow();
+  if (!list.length) return false;
+  return saveKnew({ day: dayKey(now), at: now, facts: list });
+}
+
 // ---------- what the AI changes (pure, so it can be tested on its own)
 
 export interface FactOp {
@@ -365,6 +416,7 @@ export interface OpContext {
   makeId?: () => string;
   by?: string; // the AI that made the changes, recorded on each fact it writes or vouches for
   confirm?: readonly unknown[]; // the short ids of facts it was shown and says this day shows as they are
+  wrong?: readonly string[]; // what the Player said isn't right (fixes.ts): never learned again
 }
 
 // Applies the AI's changes. The Player's own facts are never touched; pinned ones keep their
@@ -397,7 +449,7 @@ export function applyOps(list: readonly LifeFact[], ops: readonly unknown[], ctx
     const op = (raw && typeof raw === 'object' ? raw : {}) as Partial<FactOp>;
     const text = factText(op.text);
     if (op.op === 'add') {
-      if (!text) continue;
+      if (!text || isWrong(text, ctx.wrong || [])) continue;
       const same = out.find((f) => !f.until && norm(f.text) === norm(text));
       if (same) {
         if (same.from === 'ai' && same.tier <= ctx.cap) confirm(same);
@@ -412,6 +464,7 @@ export function applyOps(list: readonly LifeFact[], ops: readonly unknown[], ctx
     } else if (op.op === 'update') {
       const f = find(op.id);
       if (!usable(f) || !text) continue;
+      if (norm(text) !== norm(f.text) && isWrong(text, ctx.wrong || [])) continue;
       if (norm(text) === norm(f.text)) confirm(f);
       else if (!f.pinned && ctx.day >= latest(f)) {
         // New words, from what the AI read that day: they carry its tier.
@@ -640,7 +693,11 @@ export async function summarizeDay(k: string, { engine, cap, signal, gen = gener
     alias.set(`F${i + 1}`, f.id);
     return `F${i + 1}: ${f.text}${f.from === 'you' ? ' (the Player wrote this)' : unchecked(f) ? ' (check)' : ''}`;
   });
-  const prompt = `What Arise knows about the Player so far:\n${knownText.join('\n') || '(nothing yet)'}\n\nThe day: ${dateText(k, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}.\nIts life log (time, where it came from, what happened):\n${formatDay(seen, INPUT[engine])}`;
+  // What the Player said isn't right, as far as this AI may read it: never added back.
+  const fixes = await readFixes();
+  const notRight = fixes.filter((x) => x.id.startsWith('fact:') && x.wrong && (x.tier || 3) <= cap);
+  const notTrue = notRight.length ? `\n\nThe Player said these are not right. Never add them back, in any words:\n${notRight.map((x) => `- ${x.wrong}${x.right ? ` (what's true: ${x.right})` : ''}`).join('\n')}` : '';
+  const prompt = `What Arise knows about the Player so far:\n${knownText.join('\n') || '(nothing yet)'}${notTrue}\n\nThe day: ${dateText(k, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}.\nIts life log (time, where it came from, what happened):\n${formatDay(seen, INPUT[engine])}`;
   let json: { summary?: unknown; facts?: unknown; confirm?: unknown } | undefined;
   let by = '';
   try {
@@ -655,7 +712,7 @@ export async function summarizeDay(k: string, { engine, cap, signal, gen = gener
   const tier = P.derivedTier(seen.map((e) => e.tier));
   const share = P.derivedTier(seen.map(shareTier));
   const summary = cleanLifeSummary({ id: `d:${k}`, kind: 'day', key: k, text, tier, share, cap, sig, n: seen.length, at: Date.now(), by });
-  const next = applyOps(facts, Array.isArray(json?.facts) ? json.facts : [], { day: k, tier, share, cap, now: Date.now(), alias, by, confirm: Array.isArray(json?.confirm) ? json.confirm : [] });
+  const next = applyOps(facts, Array.isArray(json?.facts) ? json.facts : [], { day: k, tier, share, cap, now: Date.now(), alias, by, confirm: Array.isArray(json?.confirm) ? json.confirm : [], wrong: wrongs(fixes) });
   // A weak model's fact that this strong reading of the day was shown and didn't vouch for no
   // longer counts this day as where it came from; with no day left, it goes. One it wasn't shown
   // (no room) stays as it is, and so does one from before Arise recorded who wrote it: that may
@@ -1106,7 +1163,9 @@ export async function eraseMemory(): Promise<void> {
   const tx = db.transaction(['facts', 'summaries', 'kv', 'sync', 'tomb'], 'readwrite');
   const all = tx.objectStore('facts').getAll();
   const sums = tx.objectStore('summaries').getAll();
-  let left = 2;
+  // The Player's corrections are theirs, not what Arise learned: they stay, so it isn't learned again.
+  const fixes = tx.objectStore('kv').get(FIXES);
+  let left = 3;
   const then = () => {
     if (--left) return;
     const now = Date.now();
@@ -1116,9 +1175,11 @@ export async function eraseMemory(): Promise<void> {
     J.addWipe(tx, { at: L.deletedAt(Math.max(0, ...[...all.result, ...sums.result].map(atOf)), now), what: 'memory' });
     J.markDirty(tx, [MEM, ...sums.result.map((x) => summaryPack(String((x as { id?: unknown }).id)))]);
     for (const s of ['facts', 'summaries', 'kv']) tx.objectStore(s).clear();
+    if (fixes.result) tx.objectStore('kv').put(fixes.result);
   };
   all.onsuccess = then;
   sums.onsuccess = then;
+  fixes.onsuccess = then;
   await done(tx);
   J.dirtied();
   forgetCache();

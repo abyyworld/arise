@@ -29,6 +29,8 @@ import { hasSpot } from './location';
 import { withPlaceNames } from '../lib/place-names';
 import { MOODS, isTextFile, noteWithFile, setFileStore, sizeText } from './quick-note';
 import * as FILES from './files';
+import * as FIX from './fix-ui.js';
+import * as LOOK from './lookback-ui.js';
 
 // (Parts of these screens fill in after reading the log; by then a test may have gone.)
 const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
@@ -260,7 +262,7 @@ export function renderDays(root) {
             </div>
             <button class="icon-btn" data-act="life-day" data-d="1" aria-label="The day after" ${k >= today() ? 'disabled' : ''}>${icon('next')}</button>
           </div>
-          ${k !== today() ? '<button class="link" data-act="life-today">Back to today</button>' : ''}
+          <div class="row">${k !== today() ? '<button class="link" data-act="life-today">Back to today</button>' : ''}<button class="link" data-act="lookback-open" data-day="${esc(k)}">${icon('days')} Look back</button></div>
           <div class="seg life-panes" role="group" aria-label="Show">${paneButton('journal', 'Journal')}${paneButton('events', 'Everything')}</div>
           ${FUI.daySlot()}
           <div id="lifeDay"><div class="thinking"><span class="dots"><i></i><i></i><i></i></span> Reading your day…</div></div>
@@ -674,7 +676,7 @@ async function showEvent(id) {
     ${
       e.source === 'arise' && !isCoachQuestion(e.id)
         ? '<p class="muted small">This comes from Arise itself. To change it, change it where you made it.</p>'
-        : `${isCoachQuestion(e.id) ? '<p class="muted small">You asked the coach this. Deleting it here takes it out of your log for good. The chat keeps it until you start a new chat.</p>' : ''}<button class="btn ghost block danger" data-act="life-ev-del" data-id="${esc(e.id)}">Delete from your log</button>`
+        : `${isCoachQuestion(e.id) ? '<p class="muted small">You asked the coach this. Deleting it here takes it out of your log for good. The chat keeps it until you start a new chat.</p>' : FIX.fixButton(e.id)}<button class="btn ghost block danger" data-act="life-ev-del" data-id="${esc(e.id)}">Delete from your log</button>`
     }`);
 }
 
@@ -762,6 +764,7 @@ export function renderKnows(root) {
           </form>
           <div id="lifeFacts">${factsHTML()}</div>
         </section>
+        ${FIX.areasPanel()}
       </div>
       <div class="col">
         ${MEUI.aboutPanel()}
@@ -805,6 +808,7 @@ function factRow(f) {
     <div class="fact-acts">
       ${f.until ? `<button class="link" data-act="life-fact-back" data-id="${esc(f.id)}">Still true</button>` : `<button class="link" data-act="life-pin" data-id="${esc(f.id)}">${f.pinned ? 'Unpin' : 'Pin'}</button><button class="link" data-act="life-fact-edit" data-id="${esc(f.id)}">Edit</button>`}
       ${f.from === 'ai' ? `<button class="link" data-act="life-why" data-id="${esc(f.id)}">Why?</button>` : ''}
+      ${FIX.teachLink(f.id)}
       <button class="link danger-link" data-act="life-fact-del" data-id="${esc(f.id)}">Delete</button>
     </div>
   </li>`;
@@ -873,6 +877,7 @@ async function fillKnows() {
   const learn = $('#lifeLearn');
   if (learn) learn.innerHTML = learnText();
   MEUI.fillMe();
+  void FIX.fillAreas();
 }
 
 function showWhy(id) {
@@ -928,6 +933,8 @@ export async function handleAction(act, el) {
   if (act.startsWith('me-')) return MEUI.handleAction(act, el);
   if (act.startsWith('myfiles-')) return FUI.handleAction(act, el);
   if (act.startsWith('meaning-')) return MUI.handleAction(act, el);
+  if (act.startsWith('fix-')) return FIX.handleAction(act, el);
+  if (act.startsWith('lookback-')) return LOOK.handleAction(act, el);
   const d = el.dataset;
   switch (act) {
     case 'life-day': {
@@ -1040,7 +1047,8 @@ export async function handleAction(act, el) {
       if (!confirm('Delete this from your log?')) return true;
       try {
         if (isCoachQuestion(d.id)) await deleteCoachQuestion(d.id);
-        else await L.removeIds([d.id]);
+        // Kept as a correction, so importing the same thing again doesn't bring it back (fixes.ts).
+        else if ((await L.fixEvent(d.id, 'delete')) === false) await L.removeIds([d.id]);
       } catch (err) {
         toast(lifeError(err));
       }
