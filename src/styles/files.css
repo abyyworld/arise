@@ -11,3 +11,6 @@
 .file-add { cursor: pointer; }
 .file-full { display: block; width: 100%; max-height: 60vh; object-fit: contain; border-radius: var(--radius); margin: 8px 0; background: var(--panel-solid); }
 .file-title { overflow-wrap: anywhere; }
+.own-storage { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 10px; }
+.own-steps { padding-left: 18px; display: grid; gap: 6px; }
+.own-cors { margin: 6px 0 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-solid); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }

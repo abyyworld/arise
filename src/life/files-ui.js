@@ -7,6 +7,8 @@ import { esc, icon, openSheet, closeSheet, toast } from '../ui.js';
 import * as N from '../native.js';
 import * as F from './files';
 import * as FS from './files-sync';
+import * as S from '../store';
+import { CORS, readOwnStorage } from '../lib/own-storage';
 import * as CLOUD from './cloud';
 import { dayKey } from './dates';
 
@@ -208,11 +210,78 @@ async function openPlace() {
   openSheet(`<p class="kicker">Your days</p>
     <h2 class="display sheet-title">Photos and files</h2>
     <p class="small">${esc(whereLine())}</p>
-    <p class="muted small">On this device: ${esc(F.sizeText(u.here))} in ${u.count} ${u.count === 1 ? 'file' : 'files'}${u.quota ? `, of the ${esc(F.sizeText(u.quota))} this browser lets Arise keep` : ''}.${CLOUD.signedIn() ? ` Synced: ${esc(F.sizeText(u.synced))} of ${esc(F.sizeText(F.SYNC_TOTAL_MAX))}.` : ''}</p>
-    <p class="muted small">Big photos are saved smaller (${F.SHRINK_TO} pixels across) to save space. Files over ${esc(F.sizeText(F.SYNC_FILE_MAX))} stay on the device you add them on.</p>
+    <p class="muted small">On this device: ${esc(F.sizeText(u.here))} in ${u.count} ${u.count === 1 ? 'file' : 'files'}${u.quota ? `, of the ${esc(F.sizeText(u.quota))} this browser lets Arise keep` : ''}.${CLOUD.signedIn() ? ` Synced: ${esc(F.sizeText(u.synced))} of ${esc(F.sizeText(FS.totalMax()))}.` : ''}</p>
+    <p class="muted small">Big photos are saved smaller (${F.SHRINK_TO} pixels across) to save space. Files over ${esc(F.sizeText(FS.fileMax()))} stay on the device you add them on.</p>
     ${note ? `<p class="muted small">${esc(note)}</p>` : ''}
     <div class="row">${addLabel('myfilesPlace', dayKey(Date.now()))}</div>
-    ${groups || '<p class="muted small">Nothing kept yet.</p>'}`);
+    ${groups || '<p class="muted small">Nothing kept yet.</p>'}
+    ${CLOUD.signedIn() ? ownPart() : ''}`);
+}
+
+// ---------- your own storage (lib/own-storage.ts): far more room, in your own Cloudflare account
+
+const CORS_TEXT = JSON.stringify(CORS, null, 2);
+let ownOpen = false; // the setup form is open
+
+export function ownPart() {
+  const on = S.ownStorage();
+  const head = `<h3 class="sub">Your own storage <span class="tag">10 GB free</span></h3>`;
+  if (on && !ownOpen) {
+    return `<div class="own-storage" id="ownStorage">${head}
+      <p class="small">On: new photos and files go to the bucket <b>${esc(on.bucket)}</b> in your own Cloudflare account, up to ${esc(F.sizeText(FS.OWN_FILE_MAX))} each and ${esc(F.sizeText(FS.OWN_TOTAL_MAX))} in all. They're encrypted on your device first, so Cloudflare only ever holds scrambled parts it can't open.</p>
+      <p class="muted small">The key syncs with your account, locked like the rest of your data, so your other devices can fetch the files too. It only ever reaches those scrambled parts.</p>
+      <div class="row"><button class="btn ghost small" data-act="myfiles-own-edit">Change</button><button class="btn ghost small danger" data-act="myfiles-own-remove">Remove</button></div>
+    </div>`;
+  }
+  if (!ownOpen) {
+    return `<div class="own-storage" id="ownStorage">${head}
+      <p class="small">The free cloud has room for ${esc(F.sizeText(FS.SYNC_TOTAL_MAX))} of your files, ${esc(F.sizeText(FS.SYNC_FILE_MAX))} each. Want more? Keep them in your own Cloudflare account instead: 10 GB free, files up to ${esc(F.sizeText(FS.OWN_FILE_MAX))}. They're encrypted on your device first, so Cloudflare can't open them.</p>
+      <div class="row"><button class="btn ghost small" data-act="myfiles-own-edit">Set it up</button></div>
+    </div>`;
+  }
+  return `<div class="own-storage" id="ownStorage">${head}
+    <ol class="own-steps small">
+      <li>Make a free account at cloudflare.com, then open <b>R2</b> and turn it on (the free plan is enough; Cloudflare may ask for a card, and charges nothing under 10 GB).</li>
+      <li><b>Create bucket</b>, with any name, like <code>arise-files</code>.</li>
+      <li>In the bucket, <b>Settings</b>, <b>CORS policy</b>, <b>Add</b>, and paste this, so Arise may reach it: <button class="link small" data-act="myfiles-own-cors">Copy</button><pre class="own-cors">${esc(CORS_TEXT)}</pre></li>
+      <li>Back in R2, <b>Manage API tokens</b>, <b>Create API token</b>: <b>Object Read &amp; Write</b>, for this bucket only. Copy the <b>Access Key ID</b> and the <b>Secret Access Key</b>.</li>
+      <li>Your <b>Account ID</b> is on the R2 page too. Paste all four here.</li>
+    </ol>
+    <div class="stack">
+      <label class="field"><span class="k">Account ID</span><input id="ownAccount" autocomplete="off" spellcheck="false" value="${esc(S.ownStorage()?.account || '')}"></label>
+      <label class="field"><span class="k">Bucket name</span><input id="ownBucket" autocomplete="off" spellcheck="false" value="${esc(S.ownStorage()?.bucket || '')}"></label>
+      <label class="field"><span class="k">Access Key ID</span><input id="ownKeyId" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span class="k">Secret Access Key</span><input id="ownSecret" type="password" autocomplete="off" spellcheck="false"></label>
+      <p class="muted small">Arise tries writing, reading and deleting a small test file before it saves this. The key syncs with your account, locked like the rest of your data, and is never in a backup file.</p>
+      <div class="row"><button class="btn primary small" data-act="myfiles-own-save">Check and save</button><button class="btn ghost small" data-act="myfiles-own-cancel">Cancel</button></div>
+    </div>
+  </div>`;
+}
+
+function repaintOwn() {
+  const el = $('#ownStorage');
+  if (el) el.outerHTML = ownPart();
+}
+
+async function saveOwn(btn) {
+  const cfg = readOwnStorage({ account: $('#ownAccount')?.value, bucket: $('#ownBucket')?.value, keyId: $('#ownKeyId')?.value, secret: $('#ownSecret')?.value });
+  if (typeof cfg === 'string') {
+    toast(cfg);
+    return;
+  }
+  if (btn) btn.disabled = true;
+  try {
+    await FS.checkOwnStorage(cfg);
+  } catch (err) {
+    toast(err?.message || "Arise couldn't reach your own storage.");
+    if (btn) btn.disabled = false;
+    return;
+  }
+  S.setOwnStorage(cfg);
+  ownOpen = false;
+  repaintOwn();
+  toast('Your own storage works. New files go there from now on.');
+  void FS.syncNow();
 }
 
 // ---------- taps
@@ -223,6 +292,32 @@ export async function handleAction(act, el) {
   switch (act) {
     case 'myfiles-open':
       await openPlace();
+      return true;
+    case 'myfiles-own-edit':
+      ownOpen = true;
+      repaintOwn();
+      return true;
+    case 'myfiles-own-cancel':
+      ownOpen = false;
+      repaintOwn();
+      return true;
+    case 'myfiles-own-cors':
+      try {
+        await globalThis.navigator?.clipboard?.writeText(CORS_TEXT);
+        toast('Copied.');
+      } catch {
+        toast('Select it and copy it by hand.');
+      }
+      return true;
+    case 'myfiles-own-save':
+      await saveOwn(el);
+      return true;
+    case 'myfiles-own-remove':
+      if (!globalThis.confirm?.("Stop using your own storage? Files already there stay there, and open on a device only while it's set up or they're already on it. New files go to the free cloud again.")) return true;
+      S.removeOwnStorage();
+      ownOpen = false;
+      repaintOwn();
+      toast('Your own storage is off.');
       return true;
     case 'myfiles-file':
       await openFile(id);

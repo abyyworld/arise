@@ -13,8 +13,10 @@
 // here. A file is sent before the index lists it, so another device never sees a file it can't
 // fetch; a deleted file leaves the index first, then its documents go.
 //
-// Where the files go is one small interface (FileRemote), so another place could take them later
-// (say, the Player's own synced folder) without the rest changing.
+// Where the files go is one small interface (FileRemote). With the Player's own storage set up (a
+// Cloudflare R2 bucket in their own account, lib/own-storage.ts), new files' parts go there
+// instead (PartsStore, r2Store): far more room, 10 GB free. The index and each file's details
+// stay in the database, so a device always knows what there is and where.
 
 import type { Sealed } from '../lib/crypto';
 import { cleanFileMeta, cleanFilesIndex, type FilesIndex } from '../lib/validate';
@@ -22,13 +24,23 @@ import { filesCloud, onSynced, queue as queueLife, type FilesCloud } from './clo
 import type { LifeKeys } from './seal';
 import { fileDocIds, indexDocId, metaDocId, openFilesIndex, openMeta, openPart, partCount, partDocId, sealFilesIndex, sealMeta, sealPart } from './files-seal';
 import * as LOCAL from './files-store';
+import { sha256Hex, sign } from '../lib/s3';
+import { endpoint, isOn, type OwnStorage } from '../lib/own-storage';
+import { MAX_FILE_BYTES } from '../lib/validate';
+import * as S from '../store';
 
 export const FILES_SCHEMA = 1;
+// 2: some files' parts are in the Player's own storage. Written only while one is listed, so
+// apps from before it keep syncing everyone else's files.
+export const FILES_SCHEMA_OWN = 2;
 // What goes to the cloud: files up to SYNC_FILE_MAX each, and SYNC_TOTAL_MAX in all per account.
 // Bigger ones stay on the device they were added on. (The free database has room for about a
 // gigabyte for everyone who uses this copy of Arise, so each account keeps to a share of it.)
 export const SYNC_FILE_MAX = 20 * 1024 * 1024;
 export const SYNC_TOTAL_MAX = 250 * 1024 * 1024;
+// With the Player's own storage: every file Arise keeps (MAX_FILE_BYTES), and its free 10 GB.
+export const OWN_FILE_MAX = MAX_FILE_BYTES;
+export const OWN_TOTAL_MAX = 10 * 1024 * 1024 * 1024;
 const GONE_KEEP = 400 * 864e5; // like the life log's tombstones
 const GROUP_CHARS = 8_000_000; // per write to the cloud, which takes up to 10 MB
 const GROUP_DOCS = 400;
@@ -94,6 +106,72 @@ export function firestoreRemote(c: FilesCloud): FileRemote {
   };
 }
 
+// Where a file's parts can go instead of the database.
+export interface PartsStore {
+  get(id: string): Promise<Sealed | null>;
+  put(docs: readonly { id: string; s: Sealed }[]): Promise<void>;
+  del(ids: readonly string[]): Promise<void>;
+}
+
+const OWN_AT_ONCE = 4;
+async function inTurns<T>(list: readonly T[], fn: (x: T) => Promise<void>) {
+  for (let i = 0; i < list.length; i += OWN_AT_ONCE) await Promise.all(list.slice(i, i + OWN_AT_ONCE).map(fn));
+}
+
+// The Player's own Cloudflare R2 bucket, signed on this device (lib/s3.ts). Each part is the same
+// sealed JSON the database would hold, under arise/<its id>.
+export function r2Store(cfg: OwnStorage, fetcher: typeof fetch = (...a) => fetch(...a)): PartsStore {
+  const url = (id: string) => `${endpoint(cfg)}/arise/${id}`;
+  const call = async (method: string, id: string, body?: string) => {
+    const bytes = body === undefined ? new Uint8Array() : new TextEncoder().encode(body);
+    const headers = await sign({ method, url: url(id), payloadHash: await sha256Hex(bytes), keyId: cfg.keyId, secret: cfg.secret, ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' } }) });
+    let res: Response;
+    try {
+      res = await fetcher(url(id), { method, headers, ...(body === undefined ? {} : { body: bytes }) });
+    } catch {
+      throw fail('unavailable', "Couldn't reach your own storage. Check the internet connection, and the CORS policy on the bucket.");
+    }
+    return res;
+  };
+  const bad = (res: Response) =>
+    fail('own-storage', res.status === 403 || res.status === 401 ? 'Your own storage said no. Check the access key, and that its token may read and write this bucket.' : res.status === 404 ? "Your own storage couldn't find that bucket." : `Your own storage answered with an error (${res.status}).`);
+  return {
+    async get(id) {
+      const res = await call('GET', id);
+      if (res.status === 404) return null;
+      if (!res.ok) throw bad(res);
+      try {
+        return docOf(JSON.parse(await res.text()));
+      } catch {
+        return null;
+      }
+    },
+    async put(docs) {
+      await inTurns(docs, async (d) => {
+        const res = await call('PUT', d.id, JSON.stringify({ v: 1, iv: d.s.iv, ct: d.s.ct }));
+        if (!res.ok) throw bad(res);
+      });
+    },
+    async del(ids) {
+      await inTurns(ids, async (id) => {
+        const res = await call('DELETE', id);
+        if (!res.ok && res.status !== 404) throw bad(res);
+      });
+    },
+  };
+}
+
+// Before saving the Player's own storage: a test part written, read back and deleted.
+export async function checkOwnStorage(cfg: OwnStorage, fetcher?: typeof fetch): Promise<void> {
+  const store = r2Store(cfg, fetcher);
+  const id = `check-${Date.now().toString(36)}`;
+  const s = { iv: 'check', ct: 'Arise checks it can write here. This can be deleted.' };
+  await store.put([{ id, s }]);
+  const back = await store.get(id);
+  if (!back || back.ct !== s.ct) throw fail('own-storage', "Arise wrote to your own storage but couldn't read it back. Check the token may read and write this bucket.");
+  await store.del([id]);
+}
+
 // ---------- status, for the screen
 
 export const status = {
@@ -115,6 +193,7 @@ const told = () => listeners.forEach((fn) => fn());
 
 export interface SyncDeps {
   remote: FileRemote;
+  own?: PartsStore | null; // the Player's own storage, where new files' parts go when it's set up
   keys: LifeKeys;
   uid: string;
   live?: () => boolean;
@@ -123,6 +202,7 @@ export interface SyncDeps {
 
 const emptyIndex = (): FilesIndex => ({ schema: FILES_SCHEMA, seq: 0, files: {}, gone: {} });
 const syncedBytes = (idx: FilesIndex) => Object.values(idx.files).reduce((n, f) => n + f.size, 0);
+const bytesIn = (idx: FilesIndex, own: boolean) => Object.values(idx.files).reduce((n, f) => n + (!!f.o === own ? f.size : 0), 0);
 const b64 = (b: Uint8Array) => {
   let s = '';
   for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
@@ -153,7 +233,7 @@ export async function syncFiles(d: SyncDeps): Promise<boolean> {
   for (let attempt = 0; attempt < 5; attempt++) {
     if (!live()) return changedHere;
     const { tag, idx } = await readIndex(d, idxId);
-    if (idx.schema > FILES_SCHEMA) throw fail('newer', 'A newer version of Arise synced your files.');
+    if (idx.schema > FILES_SCHEMA_OWN) throw fail('newer', 'A newer version of Arise synced your files.');
     if (idx.seq < st.seq) throw fail('older', 'The files in the cloud are older than ones this device has seen.');
 
     // ---- take in: deleted elsewhere, and new elsewhere
@@ -204,42 +284,51 @@ export async function syncFiles(d: SyncDeps): Promise<boolean> {
 
     // ---- send what changed here
     const next: FilesIndex = { schema: FILES_SCHEMA, seq: idx.seq, files: { ...idx.files }, gone: { ...idx.gone } };
-    let room = SYNC_TOTAL_MAX - syncedBytes(idx);
+    const own = d.own || null;
+    let room = own ? OWN_TOTAL_MAX - bytesIn(idx, true) : SYNC_TOTAL_MAX - bytesIn(idx, false);
+    const most = own ? OWN_FILE_MAX : SYNC_FILE_MAX;
     const added: string[] = [];
-    const leaving: { id: string; n: number; keep: boolean }[] = [];
+    const leaving: { id: string; n: number; keep: boolean; o?: 1 }[] = [];
     for (const f of (await LOCAL.allStored()).reverse()) {
       if (!live()) return changedHere;
       if (f.sync && f.here && !idx.files[f.id] && !gone.has(f.id)) {
-        if (f.size > SYNC_FILE_MAX || f.size > room) continue; // stays on this device (files.ts says so)
+        if (f.size > most || f.size > room) continue; // stays on this device (files.ts says so)
         const n = partCount(f.size);
         if (!sent.has(f.id)) {
           const parts = await LOCAL.readParts(f.id, n);
           if (!parts) continue;
-          const { thumb, here: _h, up: _u, ...rest } = f;
-          const metaText = JSON.stringify({ ...rest, sync: true, ...(thumb ? { thumb: b64(thumb) } : {}) });
+          const { thumb, here: _h, up: _u, where: _w, ...rest } = f;
+          const metaText = JSON.stringify({ ...rest, sync: true, ...(own ? { where: 'own' } : {}), ...(thumb ? { thumb: b64(thumb) } : {}) });
           const docs: { id: string; s: Sealed }[] = [];
           for (let i = 0; i < n; i++) docs.push({ id: await partDocId(d.keys, f.id, i), s: await sealPart(d.keys, d.uid, f.id, i, n, parts[i]) });
           // The details last: once they're there, so is everything they describe.
-          docs.push({ id: await metaDocId(d.keys, f.id), s: await sealMeta(d.keys, d.uid, f.id, metaText) });
-          await d.remote.put(docs);
+          const meta = { id: await metaDocId(d.keys, f.id), s: await sealMeta(d.keys, d.uid, f.id, metaText) };
+          if (own) {
+            await own.put(docs);
+            await d.remote.put([meta]);
+          } else await d.remote.put([...docs, meta]);
           sent.add(f.id);
         }
-        next.files[f.id] = { n, size: f.size };
+        next.files[f.id] = own ? { n, size: f.size, o: 1 } : { n, size: f.size };
         delete next.gone[f.id];
         room -= f.size;
         added.push(f.id);
       } else if (!f.sync && idx.files[f.id]) {
         // "Only on this device": it goes from the cloud and the other devices, and stays here.
-        leaving.push({ id: f.id, n: idx.files[f.id].n, keep: true });
+        leaving.push({ id: f.id, n: idx.files[f.id].n, keep: true, ...(idx.files[f.id].o ? { o: 1 as const } : {}) });
       }
     }
-    for (const t of gone.values()) leaving.push({ id: t.id, n: idx.files[t.id]?.n || t.n, keep: false });
+    for (const t of gone.values()) {
+      const was = idx.files[t.id] || idx.gone[t.id];
+      leaving.push({ id: t.id, n: idx.files[t.id]?.n || t.n, keep: false, ...(was?.o ? { o: 1 as const } : {}) });
+    }
     for (const l of leaving) {
       if (next.files[l.id]) {
         delete next.files[l.id];
-        next.gone[l.id] = { at: now, n: l.n };
+        next.gone[l.id] = l.o ? { at: now, n: l.n, o: 1 } : { at: now, n: l.n };
       }
     }
+    if (Object.values(next.files).some((f) => f.o)) next.schema = FILES_SCHEMA_OWN;
     for (const [id, g] of Object.entries(next.gone)) if (now - g.at > GONE_KEEP) delete next.gone[id];
 
     const changed = added.length > 0 || leaving.some((l) => idx.files[l.id]) || Object.keys(next.gone).length !== Object.keys(idx.gone).length;
@@ -254,7 +343,15 @@ export async function syncFiles(d: SyncDeps): Promise<boolean> {
     for (const id of added) await LOCAL.patchFile(id, { up: true });
     // The documents of what left the index go now. A deletion stays noted here until they have.
     for (const l of leaving) {
-      if (l.n) await d.remote.del(await fileDocIds(d.keys, l.id, l.n));
+      if (l.n) {
+        const [meta, ...parts] = await fileDocIds(d.keys, l.id, l.n);
+        // Parts in the Player's own storage go from there; without it here, they stay there
+        // (sealed, and nothing lists them any more).
+        if (l.o) {
+          if (own) await own.del(parts);
+          await d.remote.del([meta]);
+        } else await d.remote.del([meta, ...parts]);
+      }
       if (l.keep) await LOCAL.patchFile(l.id, { up: false });
       else await LOCAL.dropTomb(l.id);
     }
@@ -269,9 +366,11 @@ export async function fetchBytes(d: SyncDeps, id: string): Promise<Uint8Array[] 
   const f = await LOCAL.getStored(id);
   if (!f) return null;
   const n = partCount(f.size);
+  const from: PartsStore | null | undefined = f.where === 'own' ? d.own : d.remote;
+  if (!from) return null; // in the Player's own storage, which isn't set up here
   const parts: Uint8Array[] = [];
   for (let i = 0; i < n; i++) {
-    const s = await d.remote.get(await partDocId(d.keys, id, i));
+    const s = await from.get(await partDocId(d.keys, id, i));
     if (!s) return null;
     parts.push(await openPart(d.keys, d.uid, id, i, n, s));
   }
@@ -282,6 +381,11 @@ export async function fetchBytes(d: SyncDeps, id: string): Promise<Uint8Array[] 
 
 // ---------- in the app
 
+// What syncs now: with the Player's own storage, far bigger files and far more of them.
+export const ownStorageOn = () => isOn(S.ownStorage());
+export const fileMax = () => (ownStorageOn() ? OWN_FILE_MAX : SYNC_FILE_MAX);
+export const totalMax = () => (ownStorageOn() ? OWN_TOTAL_MAX : SYNC_TOTAL_MAX);
+
 let running: Promise<void> | null = null;
 let again = false;
 const changeFns = new Set<() => void>();
@@ -290,7 +394,8 @@ export const onSyncChange = (fn: () => void) => (changeFns.add(fn), () => change
 
 async function deps(): Promise<SyncDeps | null> {
   const c = await filesCloud();
-  return c && { remote: firestoreRemote(c), keys: c.keys, uid: c.uid, live: c.live };
+  const cfg = S.ownStorage();
+  return c && { remote: firestoreRemote(c), own: isOn(cfg) ? r2Store(cfg) : null, keys: c.keys, uid: c.uid, live: c.live };
 }
 
 // Syncs now, if the life log syncs for an account here. Asking while one is on runs one more after.

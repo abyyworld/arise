@@ -21,6 +21,7 @@ import { cleanStudy, type Study } from './study';
 import { cleanTodos, type Todos } from './todos';
 import { cleanEvents, type CalEvents } from './events';
 import { cleanDecisions, cleanDismissed, type Decisions, type Dismissed } from './decisions';
+import { cleanOwnStorage, type OwnStorage } from './own-storage';
 
 export { DATE, isDate } from './clean';
 const ID = /^[a-z0-9]{1,32}$/i;
@@ -473,6 +474,7 @@ export interface State {
   events: CalEvents; // your own calendar events (lib/events.ts)
   decisions: Decisions; // choices asked about, and how they went (lib/decisions.ts)
   dismissed: Dismissed; // early warnings put away (lib/ahead.ts)
+  storage: OwnStorage | null; // the Player's own storage for photos and files (lib/own-storage.ts)
   stamps: Stamps;
   updatedAt?: number;
 }
@@ -513,6 +515,7 @@ export function cleanState(raw: unknown, defaults: Settings): State {
     events: cleanEvents(d.events),
     decisions: cleanDecisions(d.decisions),
     dismissed: cleanDismissed(d.dismissed),
+    storage: cleanOwnStorage(d.storage),
     stamps: cleanStamps(d.stamps),
   };
   if (time(d.updatedAt)) state.updatedAt = time(d.updatedAt);
@@ -896,6 +899,7 @@ export interface FileMeta {
   h?: number;
   thumb?: Uint8Array;
   sync: boolean; // goes to the Player's other devices with their account
+  where?: 'own'; // its parts are in the Player's own storage (lib/own-storage.ts), not the database
 }
 export const MAX_FILE_BYTES = 200 * 1024 * 1024;
 const FILE_ID = /^[A-Za-z0-9_-]{22}$/;
@@ -927,6 +931,7 @@ export function cleanFileMeta(raw: unknown): FileMeta | null {
   if (w && h) Object.assign(out, { w, h });
   const thumb = bytesOf(d.thumb);
   if (thumb && thumb.length > 0 && thumb.length <= THUMB_MAX) out.thumb = thumb;
+  if (d.where === 'own') out.where = 'own';
   return out;
 }
 
@@ -935,8 +940,8 @@ export function cleanFileMeta(raw: unknown): FileMeta | null {
 export interface FilesIndex {
   schema: number;
   seq: number;
-  files: Record<string, { n: number; size: number }>;
-  gone: Record<string, { at: number; n: number }>;
+  files: Record<string, { n: number; size: number; o?: 1 }>; // o: in the Player's own storage
+  gone: Record<string, { at: number; n: number; o?: 1 }>;
 }
 export function cleanFilesIndex(raw: unknown): FilesIndex {
   const d = obj(raw);
@@ -946,12 +951,12 @@ export function cleanFilesIndex(raw: unknown): FilesIndex {
     const x = obj(v);
     const n = int(x.n, 1, 1000, 0);
     const size = int(x.size, 0, MAX_FILE_BYTES, -1);
-    if (FILE_ID.test(id) && n && size >= 0) files[id] = { n, size };
+    if (FILE_ID.test(id) && n && size >= 0) files[id] = x.o === 1 ? { n, size, o: 1 } : { n, size };
   }
   for (const [id, v] of Object.entries(obj(d.gone)).slice(0, 100000)) {
     const x = obj(v);
     const at = time(x.at);
-    if (FILE_ID.test(id) && at && !files[id]) gone[id] = { at, n: int(x.n, 0, 1000, 0) };
+    if (FILE_ID.test(id) && at && !files[id]) gone[id] = x.o === 1 ? { at, n: int(x.n, 0, 1000, 0), o: 1 } : { at, n: int(x.n, 0, 1000, 0) };
   }
   return { schema: int(d.schema, 1, 1000, 1), seq: int(d.seq, 0, Number.MAX_SAFE_INTEGER, 0), files, gone };
 }

@@ -10,8 +10,8 @@ import { newDataKey } from '../lib/crypto';
 import { newLifeKey, type LifeKeys } from './seal';
 import * as F from './files';
 import * as LOCAL from './files-store';
-import { PART_BYTES } from './files-seal';
-import { fetchBytes, firestoreRemote, syncFiles, SYNC_FILE_MAX, type FileRemote, type SyncDeps } from './files-sync';
+import { PART_BYTES, indexDocId, openFilesIndex } from './files-seal';
+import { checkOwnStorage, fetchBytes, firestoreRemote, r2Store, syncFiles, SYNC_FILE_MAX, type FileRemote, type PartsStore, type SyncDeps } from './files-sync';
 import * as FB from '../test/fake-firebase';
 
 vi.setConfig({ testTimeout: 20_000 });
@@ -254,5 +254,112 @@ describe('through Firestore', () => {
     await F.deleteFile(f.id);
     await syncFiles({ remote: r, keys: k, uid });
     expect([...FB.cloud.docs.keys()].filter((p) => p.startsWith(`users/${uid}/life/`)).length).toBe(1);
+  });
+});
+
+// The Player's own storage (a Cloudflare R2 bucket, lib/own-storage.ts) as a map.
+function memOwn() {
+  const docs = new Map<string, Sealed>();
+  const o: PartsStore & { docs: Map<string, Sealed> } = {
+    docs,
+    async get(id) {
+      return docs.get(id) ?? null;
+    },
+    async put(list) {
+      for (const d of list) docs.set(d.id, d.s);
+    },
+    async del(ids) {
+      for (const id of ids) docs.delete(id);
+    },
+  };
+  return o;
+}
+const indexOf = async () => JSON.parse(await openFilesIndex(keys, 'uid1', remote.docs.get(await indexDocId(keys))!));
+
+describe('with your own storage', () => {
+  it("sends the parts there and only the details to the database; another device fetches them from there", async () => {
+    const own = memOwn();
+    on('phone');
+    const data = bytes(PART_BYTES * 2 + 5);
+    const f = await F.putFile(data, { name: 'film.mov', type: 'video/quicktime', day: '2026-11-22' });
+    await syncFiles(deps({ own }));
+    expect(own.docs.size).toBe(3);
+    expect(remote.docs.size).toBe(2); // the index and the details
+    for (const s of own.docs.values()) expect(atob(s.ct.slice(0, 4000)).includes('film')).toBe(false);
+    const idx = await indexOf();
+    expect(idx.schema).toBe(2);
+    expect(idx.files[f.id]).toEqual({ n: 3, size: data.length, o: 1 });
+
+    on('laptop');
+    await syncFiles(deps({ own }));
+    expect(await LOCAL.getStored(f.id)).toMatchObject({ where: 'own', here: false });
+    // Without the storage set up there, the bytes can't be fetched.
+    expect(await fetchBytes(deps(), f.id)).toBeNull();
+    const parts = await fetchBytes(deps({ own }), f.id);
+    expect(parts?.length).toBe(3);
+    expect(same(await read((await F.getFile(f.id))!.blob), data)).toBe(true);
+  });
+
+  it('takes files far past the database limits, and deletes them from there', async () => {
+    const own = memOwn();
+    on('phone');
+    const big = await F.putFile(bytes(SYNC_FILE_MAX + 10), { name: 'big' });
+    const small = await F.putFile(bytes(10), { name: 'small' });
+    await syncFiles(deps());
+    expect((await LOCAL.getStored(big.id))?.up).toBe(false); // too big for the database
+    expect((await indexOf()).schema).toBe(1);
+    await syncFiles(deps({ own }));
+    expect((await LOCAL.getStored(big.id))?.up).toBe(true);
+    expect((await indexOf()).files[small.id]).toEqual({ n: 1, size: 10 }); // where it was
+    await F.deleteFile(big.id);
+    await syncFiles(deps({ own }));
+    expect(own.docs.size).toBe(0);
+    const idx = await indexOf();
+    expect(idx.schema).toBe(1); // nothing listed there any more
+    expect(idx.gone[big.id]).toMatchObject({ o: 1 });
+  });
+});
+
+describe('your own storage in Cloudflare R2', () => {
+  const cfg = { account: 'a'.repeat(32), bucket: 'my-arise', keyId: 'AKIA1234567890ABCDEF', secret: 'secret/Key+1234567890abcdefghijklmnop', at: 1 };
+  function fakeR2() {
+    const objects = new Map<string, string>();
+    const calls: { method: string; url: string; auth: string }[] = [];
+    const fetcher = (async (url: string, init: RequestInit) => {
+      const h = init.headers as Record<string, string>;
+      calls.push({ method: init.method!, url, auth: h.authorization });
+      if (!h.authorization?.startsWith(`AWS4-HMAC-SHA256 Credential=${cfg.keyId}/`) || !h['x-amz-date'] || !h['x-amz-content-sha256']) return new Response('', { status: 403 });
+      if (init.method === 'PUT') {
+        objects.set(url, new TextDecoder().decode(init.body as Uint8Array));
+        return new Response('', { status: 200 });
+      }
+      if (init.method === 'GET') return objects.has(url) ? new Response(objects.get(url), { status: 200 }) : new Response('', { status: 404 });
+      objects.delete(url);
+      return new Response(null, { status: 204 });
+    }) as unknown as typeof fetch;
+    return { objects, calls, fetcher };
+  }
+
+  it('signs every request, keeps each part under arise/ in the bucket, and reads it back', async () => {
+    const r2 = fakeR2();
+    const store = r2Store(cfg, r2.fetcher);
+    await store.put([{ id: 'abc', s: { iv: 'i', ct: 'c' } }]);
+    expect(r2.calls[0].url).toBe(`https://${'a'.repeat(32)}.r2.cloudflarestorage.com/my-arise/arise/abc`);
+    expect(await store.get('abc')).toEqual({ iv: 'i', ct: 'c' });
+    expect(await store.get('nothing')).toBeNull();
+    await store.del(['abc', 'nothing']);
+    expect(r2.objects.size).toBe(0);
+  });
+
+  it('checks before saving, and says plainly when the key is wrong', async () => {
+    const r2 = fakeR2();
+    await checkOwnStorage(cfg, r2.fetcher);
+    expect(r2.objects.size).toBe(0); // the test part is gone again
+    const no = (async () => new Response('', { status: 403 })) as unknown as typeof fetch;
+    await expect(checkOwnStorage(cfg, no)).rejects.toThrow('Your own storage said no.');
+    const off = (async () => {
+      throw new TypeError('Failed to fetch');
+    }) as unknown as typeof fetch;
+    await expect(checkOwnStorage(cfg, off)).rejects.toThrow('CORS policy');
   });
 });

@@ -12,6 +12,7 @@ import * as ST from './lib/study';
 import * as TD from './lib/todos';
 import * as EV from './lib/events';
 import * as DC from './lib/decisions';
+import * as OS from './lib/own-storage';
 
 export type { Goal, Quest };
 
@@ -1172,7 +1173,8 @@ export function toggleMilestone(goalId: string, mid: string) {
 
 // The saved data only: the app lock (lib/lock.ts) is kept apart and never goes in a backup.
 export function exportData() {
-  const { active: _active, ...rest } = state;
+  // Not the own storage's key: a backup file isn't encrypted (lib/own-storage.ts).
+  const { active: _active, storage: _storage, ...rest } = state;
   return { app: 'physical-improvement-tracker', exported: new Date().toISOString(), ...rest };
 }
 
@@ -1485,6 +1487,18 @@ export function importEvents(list: EV.CalEvent[]): number {
   state.events = EV.cleanEvents(next);
   save();
   return list.length;
+}
+
+// ---------- the Player's own storage for photos and files (lib/own-storage.ts)
+
+export const ownStorage = () => (OS.isOn(state.storage) ? state.storage : null);
+export function setOwnStorage(s: OS.OwnStorage) {
+  state.storage = OS.cleanOwnStorage({ ...s, at: Math.max(Date.now(), (state.storage?.at || 0) + 1) });
+  save();
+}
+export function removeOwnStorage() {
+  state.storage = { account: '', bucket: '', keyId: '', secret: '', at: Math.max(Date.now(), (state.storage?.at || 0) + 1), off: true };
+  save();
 }
 
 // ---------- decisions (lib/decisions.ts) and early warnings put away (lib/ahead.ts)
