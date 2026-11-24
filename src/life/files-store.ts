@@ -6,9 +6,11 @@
 //           `up` (it's in the cloud). Index: day.
 //   parts   a file's bytes in parts of PART_BYTES (files-seal.ts): { k: id#i, id, i, b }. Index: id.
 //   gone    files deleted here that the cloud may still have: { id, at, n }
-//   kv      the sync's own notes: which account, and the files index it last saw
+//   kv      the sync's own notes: which account, and the files index it last saw; and the
+//           folders ('tree': files-tree.ts)
 
-import { cleanFileMeta, type FileMeta } from '../lib/validate';
+import { cleanFileMeta, cleanFilesTree, type FileMeta } from '../lib/validate';
+import type { Folders } from './files-tree';
 
 export const FILES_DB = 'arise-my-files';
 const VERSION = 1;
@@ -107,8 +109,10 @@ export async function saveFile(f: StoredFile, parts?: readonly Uint8Array[]): Pr
   await done(tx);
 }
 
-// Only the details (here, up, sync): never the bytes.
-export async function patchFile(id: string, patch: Partial<Pick<StoredFile, 'here' | 'up' | 'sync'>>): Promise<StoredFile | null> {
+// Only the details (here, up, sync, where it sits, its SHA-256): never the bytes. A field set to
+// undefined goes.
+export type FilePatch = Partial<Pick<StoredFile, 'here' | 'up' | 'sync' | 'dir' | 'bin' | 'moved' | 'hash'>>;
+export async function patchFile(id: string, patch: FilePatch): Promise<StoredFile | null> {
   const db = await openFilesDB();
   const tx = db.transaction('files', 'readwrite');
   const store = tx.objectStore('files');
@@ -117,8 +121,10 @@ export async function patchFile(id: string, patch: Partial<Pick<StoredFile, 'her
   g.onsuccess = () => {
     const f = cleanStored(g.result);
     if (!f) return;
-    out = { ...f, ...patch };
-    store.put(out);
+    const next: StoredFile = { ...f, ...patch };
+    for (const [k, v] of Object.entries(patch)) if (v === undefined) delete (next as unknown as Record<string, unknown>)[k];
+    out = next;
+    store.put(next);
   };
   await done(tx);
   return out;
@@ -187,6 +193,20 @@ export async function writeFilesState(st: FilesState | null): Promise<void> {
   const tx = db.transaction('kv', 'readwrite');
   if (st) tx.objectStore('kv').put({ k: 'state', v: st });
   else tx.objectStore('kv').delete('state');
+  await done(tx);
+}
+
+// The folders, as this device last knew them (with folders deleted, and when).
+export async function readTree(): Promise<Folders> {
+  const db = await openFilesDB();
+  const row = (await req(db.transaction('kv').objectStore('kv').get('tree'))) as { v?: unknown } | undefined;
+  const t = cleanFilesTree(row?.v);
+  return { dirs: t.dirs, gone: t.gone };
+}
+export async function writeTree(t: Folders): Promise<void> {
+  const db = await openFilesDB();
+  const tx = db.transaction('kv', 'readwrite');
+  tx.objectStore('kv').put({ k: 'tree', v: { dirs: t.dirs, gone: t.gone } });
   await done(tx);
 }
 

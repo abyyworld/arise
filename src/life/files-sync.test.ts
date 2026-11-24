@@ -363,3 +363,188 @@ describe('your own storage in Cloudflare R2', () => {
     await expect(checkOwnStorage(cfg, off)).rejects.toThrow('CORS policy');
   });
 });
+
+// ---------- the file manager between devices: folders, the trash, copies (files-tree.ts)
+
+describe('folders, the trash and copies between devices', () => {
+  const sealedIndex = async () => remote.docs.get(await indexDocId(keys))!;
+
+  it('syncs folders in folders and where each file is, sealed in the index', async () => {
+    on('phone');
+    const trips = await F.makeFolder('Trips', { goal: 'g1' });
+    const y = await F.makeFolder('2026', { in: trips });
+    const f = await F.putFile(bytes(10), { name: 'ticket.pdf', dir: y });
+    await syncFiles(deps());
+    // Nothing about the folders in the clear.
+    expect(atob((await sealedIndex()).ct).includes('Trips')).toBe(false);
+    const idx = await indexOf();
+    expect(idx.files[f.id]).toEqual({ n: 1, size: 10 }); // the list older apps read, as it was
+    expect(idx.tree.dirs[y]).toMatchObject({ name: '2026', p: trips });
+    expect(idx.tree.files[f.id]).toMatchObject({ d: y, h: f.hash });
+
+    on('laptop');
+    expect(await syncFiles(deps())).toBe(true);
+    const t = await F.listFolders();
+    expect(t.dirs[trips]).toMatchObject({ name: 'Trips', g: 'g1' });
+    expect(t.dirs[y]).toMatchObject({ name: '2026', p: trips });
+    expect(await LOCAL.getStored(f.id)).toMatchObject({ dir: y, hash: f.hash, here: false });
+  });
+
+  it('takes changes made on both devices at once: the one made last wins', async () => {
+    on('phone');
+    const a = await F.makeFolder('A');
+    const b = await F.makeFolder('B');
+    const f = await F.putFile(bytes(10), { name: 'f' });
+    const g = await F.putFile(bytes(10, 2), { name: 'g' });
+    await syncFiles(deps());
+    on('laptop');
+    await syncFiles(deps());
+
+    // Offline, each changes something.
+    await F.moveFiles([f.id], a);
+    await F.renameFolder(b, 'From the laptop');
+    on('phone');
+    await new Promise((r) => setTimeout(r, 5));
+    await F.moveFiles([g.id], b);
+    await F.renameFolder(b, 'From the phone');
+    const c = await F.makeFolder('C', { in: a });
+    await syncFiles(deps());
+    on('laptop');
+    await syncFiles(deps());
+    on('phone');
+    await syncFiles(deps());
+
+    for (const dev of ['phone', 'laptop']) {
+      on(dev);
+      const t = await F.listFolders();
+      expect(t.dirs[b].name).toBe('From the phone');
+      expect(t.dirs[c]).toMatchObject({ name: 'C', p: a });
+      expect((await LOCAL.getStored(f.id))?.dir).toBe(a);
+      expect((await LOCAL.getStored(g.id))?.dir).toBe(b);
+    }
+  });
+
+  it('deletes an empty folder everywhere', async () => {
+    on('phone');
+    const a = await F.makeFolder('A');
+    await syncFiles(deps());
+    on('laptop');
+    await syncFiles(deps());
+    await F.deleteFolder(a);
+    await syncFiles(deps());
+    on('phone');
+    await syncFiles(deps());
+    expect((await F.listFolders()).dirs).toEqual({});
+  });
+
+  it('sends a file to the trash on every device, keeps it in the cloud, and puts it back everywhere', async () => {
+    on('phone');
+    const f = await F.putFile(bytes(PART_BYTES + 1), { name: 'f' });
+    await syncFiles(deps());
+    on('laptop');
+    await syncFiles(deps());
+    const docs = remote.docs.size;
+    await F.trashFile(f.id);
+    await syncFiles(deps());
+    expect(remote.docs.size).toBe(docs); // its parts stay until the trash is emptied
+    on('phone');
+    await syncFiles(deps());
+    expect(await F.listFiles()).toEqual([]);
+    expect((await F.listFiles({ trash: true })).map((x) => x.id)).toEqual([f.id]);
+
+    await F.restoreFiles([f.id]);
+    await syncFiles(deps());
+    on('laptop');
+    await syncFiles(deps());
+    expect((await F.listFiles()).map((x) => x.id)).toEqual([f.id]);
+  });
+
+  it('emptying the trash takes the parts from the cloud and from your own storage', async () => {
+    const own = memOwn();
+    on('phone');
+    const inDb = await F.putFile(bytes(10), { name: 'a' });
+    await syncFiles(deps());
+    const inOwn = await F.putFile(bytes(PART_BYTES + 5, 3), { name: 'b' });
+    await syncFiles(deps({ own }));
+    expect(own.docs.size).toBe(2);
+    await F.trashFiles([inDb.id, inOwn.id]);
+    await syncFiles(deps({ own }));
+    expect(own.docs.size).toBe(2);
+    expect(remote.docs.size).toBe(4); // the index, two details, a part
+    expect(await F.emptyTrash()).toBe(2);
+    await syncFiles(deps({ own }));
+    expect(own.docs.size).toBe(0);
+    expect(remote.docs.size).toBe(1);
+    on('laptop');
+    await syncFiles(deps({ own }));
+    expect(await F.listFiles({ trash: 'all' })).toEqual([]);
+  });
+
+  it('after 30 days in the trash, a file goes by itself on whichever device syncs first', async () => {
+    on('phone');
+    const f = await F.putFile(bytes(10), { name: 'old' });
+    const keep = await F.putFile(bytes(10, 2), { name: 'keep' });
+    await syncFiles(deps());
+    on('laptop');
+    await syncFiles(deps());
+    on('phone');
+    await F.trashFile(f.id);
+    await syncFiles(deps());
+    on('laptop');
+    await syncFiles(deps({ now: Date.now() + 10 * 864e5 }));
+    expect((await F.listFiles({ trash: true })).map((x) => x.id)).toEqual([f.id]); // not yet
+    await syncFiles(deps({ now: Date.now() + 31 * 864e5 }));
+    expect(await F.listFiles({ trash: 'all' })).toHaveLength(1);
+    expect((await indexOf()).files[f.id]).toBeUndefined();
+    expect(remote.docs.size).toBe(3); // the index, and the other file's details and part
+    on('phone');
+    await syncFiles(deps());
+    expect((await F.listFiles({ trash: 'all' })).map((x) => x.id)).toEqual([keep.id]);
+  });
+
+  it('an older app still lists every file, and what it drops when it writes comes back', async () => {
+    on('phone');
+    const a = await F.makeFolder('A');
+    const f = await F.putFile(bytes(10), { name: 'f', dir: a });
+    const g = await F.putFile(bytes(10, 2), { name: 'g' });
+    await F.trashFile(g.id);
+    await syncFiles(deps());
+    // An app from before the tree reads every file, the one in the trash too, and syncs on.
+    const raw = await indexOf();
+    expect(raw.schema).toBeLessThanOrEqual(2);
+    const { cleanFilesIndex } = await import('../lib/validate');
+    expect(Object.keys(cleanFilesIndex(raw).files).sort()).toEqual([f.id, g.id].sort());
+    // It writes the index back without the tree (the way it builds the index).
+    const old = cleanFilesIndex(raw);
+    const { sealFilesIndex } = await import('./files-seal');
+    const id = await indexDocId(keys);
+    remote.docs.set(id, await sealFilesIndex(keys, 'uid1', JSON.stringify({ schema: old.schema, seq: old.seq + 1, files: old.files, gone: old.gone })));
+
+    on('laptop');
+    await syncFiles(deps());
+    // Not known here yet: every file shows, the one in the trash too...
+    expect((await F.listFiles()).map((x) => x.id).sort()).toEqual([f.id, g.id].sort());
+    on('phone');
+    await syncFiles(deps()); // ...until the phone, which knows, puts the tree back
+    expect((await indexOf()).tree.dirs[a]).toMatchObject({ name: 'A' });
+    on('laptop');
+    await syncFiles(deps());
+    expect(await LOCAL.getStored(f.id)).toMatchObject({ dir: a });
+    expect((await F.listFiles({ trash: true })).map((x) => x.id)).toEqual([g.id]);
+    expect((await F.listFolders()).dirs[a]).toMatchObject({ name: 'A' });
+  });
+
+  it('finds copies across devices by the SHA-256 in the index, without fetching the bytes', async () => {
+    on('phone');
+    const a = await F.putFile(bytes(400), { name: 'a', at: 1000 });
+    await syncFiles(deps());
+    on('laptop');
+    const b = await F.putFile(bytes(400), { name: 'b', at: 2000 });
+    await syncFiles(deps());
+    const groups = await F.findCopies();
+    expect(groups.map((g) => g.map((x) => x.id))).toEqual([[a.id, b.id]]);
+    expect((await LOCAL.getStored(a.id))?.here).toBe(false);
+    // The SHA-256 is never in the clear in the cloud.
+    for (const s of remote.docs.values()) expect(atob(s.ct).includes(a.hash!)).toBe(false);
+  });
+});

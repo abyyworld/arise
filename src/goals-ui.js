@@ -15,6 +15,7 @@ import { esc, icon, openSheet, closeSheet, toast, xpPop, fmt } from './ui.js';
 import { drawChart } from './chart.js';
 import { upgradeFor } from './plan-ui.js';
 import { w } from './words';
+import { goalSlot } from './life/files-ui.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 // heatmap: the last 16 weeks, drawn by app.js (the Goals tab shows it to people without the plan).
@@ -215,6 +216,7 @@ function goalCard(g) {
             .join('')}</ul>`
         : ''
     }
+    ${goalSlot(g.id)}
     <button class="link small share-link" data-act="g-share" data-g="${esc(g.id)}">${icon('share')} ${g.share ? 'Shared with a link' : 'Share progress'}</button>
   </section>`;
 }
