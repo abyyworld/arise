@@ -909,6 +909,11 @@ export interface FileMeta {
   thumb?: Uint8Array;
   sync: boolean; // goes to the Player's other devices with their account
   where?: 'own'; // its parts are in the Player's own storage (lib/own-storage.ts), not the database
+  // Where it sits (life/files-tree.ts), synced in the files index's tree, never in its details:
+  dir?: string; // the folder it's in (none: the top)
+  bin?: number; // when it went to the trash
+  moved?: number; // when it was last moved, put in the trash or taken out
+  hash?: string; // SHA-256 of its bytes, in hex: how copies are found
 }
 export const MAX_FILE_BYTES = 200 * 1024 * 1024;
 const FILE_ID = /^[A-Za-z0-9_-]{22}$/;
@@ -941,8 +946,13 @@ export function cleanFileMeta(raw: unknown): FileMeta | null {
   const thumb = bytesOf(d.thumb);
   if (thumb && thumb.length > 0 && thumb.length <= THUMB_MAX) out.thumb = thumb;
   if (d.where === 'own') out.where = 'own';
+  if (typeof d.dir === 'string' && FILE_ID.test(d.dir)) out.dir = d.dir;
+  if (time(d.bin)) out.bin = time(d.bin);
+  if (time(d.moved)) out.moved = time(d.moved);
+  if (typeof d.hash === 'string' && HASH.test(d.hash)) out.hash = d.hash;
   return out;
 }
+const HASH = /^[0-9a-f]{64}$/;
 
 // The list of synced files (life/files-sync.ts): each file's number of parts and size, and the
 // files deleted, with when, kept a while so a device that still has one deletes it too.
@@ -968,6 +978,61 @@ export function cleanFilesIndex(raw: unknown): FilesIndex {
     if (FILE_ID.test(id) && at && !files[id]) gone[id] = x.o === 1 ? { at, n: int(x.n, 0, 1000, 0), o: 1 } : { at, n: int(x.n, 0, 1000, 0) };
   }
   return { schema: int(d.schema, 1, 1000, 1), seq: int(d.seq, 0, Number.MAX_SAFE_INTEGER, 0), files, gone };
+}
+
+// The files index's tree (life/files-tree.ts): folders, folders deleted and when, and where each
+// listed file sits. Apps from before it ignore it; an index they write back comes without it.
+export interface FolderRec {
+  name: string;
+  p?: string; // the folder it's in (none: the top)
+  g?: string; // the goal it's the project folder of
+  e: number; // when it was made or last changed
+}
+export interface FilePlaceRec {
+  d?: string; // folder
+  t?: number; // in the trash since
+  m?: number; // when it was last moved
+  h?: string; // SHA-256 of its bytes
+}
+export interface FilesTree {
+  dirs: Record<string, FolderRec>;
+  gone: Record<string, number>;
+  files: Record<string, FilePlaceRec>;
+}
+export const folderName = (v: unknown) =>
+  str(v, 200)
+    .replace(/[\u0000-\u001f\u007f/\\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+const GOAL_ID = /^[a-z0-9]{1,32}$/i;
+export function cleanFilesTree(raw: unknown): FilesTree {
+  const d = obj(raw);
+  const dirs: FilesTree['dirs'] = {};
+  const gone: FilesTree['gone'] = {};
+  const files: FilesTree['files'] = {};
+  for (const [id, v] of Object.entries(obj(d.dirs)).slice(0, 5000)) {
+    const x = obj(v);
+    const name = folderName(x.name);
+    const e = time(x.e);
+    if (!FILE_ID.test(id) || !name || !e) continue;
+    const rec: FolderRec = { name, e };
+    if (typeof x.p === 'string' && FILE_ID.test(x.p) && x.p !== id) rec.p = x.p;
+    if (typeof x.g === 'string' && GOAL_ID.test(x.g)) rec.g = x.g;
+    dirs[id] = rec;
+  }
+  for (const [id, v] of Object.entries(obj(d.gone)).slice(0, 5000)) if (FILE_ID.test(id) && time(v)) gone[id] = time(v);
+  for (const [id, v] of Object.entries(obj(d.files)).slice(0, 100000)) {
+    const x = obj(v);
+    if (!FILE_ID.test(id)) continue;
+    const rec: FilePlaceRec = {};
+    if (typeof x.d === 'string' && FILE_ID.test(x.d)) rec.d = x.d;
+    if (time(x.t)) rec.t = time(x.t);
+    if (time(x.m)) rec.m = time(x.m);
+    if (typeof x.h === 'string' && HASH.test(x.h)) rec.h = x.h;
+    if (Object.keys(rec).length) files[id] = rec;
+  }
+  return { dirs, gone, files };
 }
 
 // Search by meaning with the model on this device (life/embed/model.ts): on, and when it was

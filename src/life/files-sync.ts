@@ -5,6 +5,11 @@
 // Cloud layout, every id an HMAC (files-seal.ts):
 //   files index   which files there are (each one's number of parts and size), and which were
 //                 deleted and when, sealed. Every change to it checks nobody else wrote in between.
+//                 Its `tree` (files-tree.ts): the folders, and where each file sits (its folder,
+//                 in the trash since when) with a SHA-256 of its bytes for finding copies. Apps
+//                 from before the tree ignore it, so they still list every file (one in the trash
+//                 shows as a plain file there). An index they write back comes without it; the
+//                 next device with the tree puts back what it knows (the change made last wins).
 //   file#meta     a file's details and small preview, sealed: what another device shows at once
 //   file#0..n-1   its bytes, in sealed parts of 512 KB: fetched only when it's opened there
 //
@@ -19,7 +24,8 @@
 // stay in the database, so a device always knows what there is and where.
 
 import type { Sealed } from '../lib/crypto';
-import { cleanFileMeta, cleanFilesIndex, type FilesIndex } from '../lib/validate';
+import { cleanFileMeta, cleanFilesIndex, cleanFilesTree, type FilePlaceRec, type FilesIndex, type FilesTree } from '../lib/validate';
+import { canon, expired, fieldsOf, mergeFolders, placeOf, sameFolders } from './files-tree';
 import { filesCloud, onSynced, queue as queueLife, type FilesCloud } from './cloud';
 import type { LifeKeys } from './seal';
 import { fileDocIds, indexDocId, metaDocId, openFilesIndex, openMeta, openPart, partCount, partDocId, sealFilesIndex, sealMeta, sealPart } from './files-seal';
@@ -209,11 +215,15 @@ const b64 = (b: Uint8Array) => {
   return btoa(s);
 };
 
-async function readIndex(d: SyncDeps, id: string): Promise<{ tag: string; idx: FilesIndex }> {
+async function readIndex(d: SyncDeps, id: string): Promise<{ tag: string; idx: FilesIndex; tree: FilesTree }> {
   const s = await d.remote.get(id);
-  if (!s) return { tag: '', idx: emptyIndex() };
-  return { tag: s.iv, idx: cleanFilesIndex(JSON.parse(await openFilesIndex(d.keys, d.uid, s))) };
+  if (!s) return { tag: '', idx: emptyIndex(), tree: cleanFilesTree(null) };
+  const raw = JSON.parse(await openFilesIndex(d.keys, d.uid, s));
+  return { tag: s.iv, idx: cleanFilesIndex(raw), tree: cleanFilesTree(raw && typeof raw === 'object' ? (raw as { tree?: unknown }).tree : null) };
 }
+
+// A file's place from the tree, as its own fields (only the ones set).
+const placeFields = (p: FilePlaceRec | undefined) => ({ ...(p?.d ? { dir: p.d } : {}), ...(p?.t ? { bin: p.t } : {}), ...(p?.m ? { moved: p.m } : {}), ...(p?.h ? { hash: p.h } : {}) });
 
 // Pulls what changed elsewhere and pushes what changed here. Says whether anything changed here.
 export async function syncFiles(d: SyncDeps): Promise<boolean> {
@@ -232,9 +242,16 @@ export async function syncFiles(d: SyncDeps): Promise<boolean> {
 
   for (let attempt = 0; attempt < 5; attempt++) {
     if (!live()) return changedHere;
-    const { tag, idx } = await readIndex(d, idxId);
+    const { tag, idx, tree } = await readIndex(d, idxId);
     if (idx.schema > FILES_SCHEMA_OWN) throw fail('newer', 'A newer version of Arise synced your files.');
     if (idx.seq < st.seq) throw fail('older', 'The files in the cloud are older than ones this device has seen.');
+
+    // ---- the trash: what's been there TRASH_DAYS days goes for good, like a deletion
+    for (const f of await LOCAL.allStored()) {
+      if (!expired(f, now)) continue;
+      await LOCAL.removeStored(f.id, f.up || f.sync ? { id: f.id, at: now, n: f.up ? partCount(f.size) : 0 } : undefined);
+      changedHere = true;
+    }
 
     // ---- take in: deleted elsewhere, and new elsewhere
     const here = new Map((await LOCAL.allStored()).map((f) => [f.id, f]));
@@ -260,6 +277,23 @@ export async function syncFiles(d: SyncDeps): Promise<boolean> {
         changedHere = true;
       }
     }
+    // ---- folders, and where each file sits: the change made last wins
+    const mine = await LOCAL.readTree();
+    const folders = mergeFolders(mine, { dirs: tree.dirs, gone: tree.gone }, now);
+    if (!sameFolders(folders, mine)) {
+      await LOCAL.writeTree(folders);
+      changedHere = true;
+    }
+    for (const [id, p] of Object.entries(tree.files)) {
+      const f = here.get(id);
+      if (!f || !idx.files[id]) continue;
+      const patch: LOCAL.FilePatch = (p.m || 0) > (f.moved || 0) ? fieldsOf(p) : {};
+      if (p.h && !f.hash) patch.hash = p.h;
+      if (!Object.keys(patch).length) continue;
+      const nf = await LOCAL.patchFile(id, patch);
+      if (nf) here.set(id, nf);
+      changedHere = true;
+    }
     for (const [id, info] of Object.entries(idx.files)) {
       if (!live()) return changedHere;
       const f = here.get(id);
@@ -278,7 +312,8 @@ export async function syncFiles(d: SyncDeps): Promise<boolean> {
         meta = null;
       }
       if (!meta || meta.id !== id || partCount(meta.size) !== info.n) continue;
-      await LOCAL.saveFile({ ...meta, sync: true, here: false, up: true });
+      const { dir: _d, bin: _b, moved: _m, hash: _h, ...plain } = meta;
+      await LOCAL.saveFile({ ...plain, ...placeFields(tree.files[id]), sync: true, here: false, up: true });
       changedHere = true;
     }
 
@@ -297,7 +332,8 @@ export async function syncFiles(d: SyncDeps): Promise<boolean> {
         if (!sent.has(f.id)) {
           const parts = await LOCAL.readParts(f.id, n);
           if (!parts) continue;
-          const { thumb, here: _h, up: _u, where: _w, ...rest } = f;
+          // (Where it sits goes in the index's tree, not here: it changes.)
+          const { thumb, here: _h, up: _u, where: _w, dir: _d, bin: _b, moved: _m, hash: _x, ...rest } = f;
           const metaText = JSON.stringify({ ...rest, sync: true, ...(own ? { where: 'own' } : {}), ...(thumb ? { thumb: b64(thumb) } : {}) });
           const docs: { id: string; s: Sealed }[] = [];
           for (let i = 0; i < n; i++) docs.push({ id: await partDocId(d.keys, f.id, i), s: await sealPart(d.keys, d.uid, f.id, i, n, parts[i]) });
@@ -331,10 +367,23 @@ export async function syncFiles(d: SyncDeps): Promise<boolean> {
     if (Object.values(next.files).some((f) => f.o)) next.schema = FILES_SCHEMA_OWN;
     for (const [id, g] of Object.entries(next.gone)) if (now - g.at > GONE_KEEP) delete next.gone[id];
 
-    const changed = added.length > 0 || leaving.some((l) => idx.files[l.id]) || Object.keys(next.gone).length !== Object.keys(idx.gone).length;
+    // The tree: the folders together, and each listed file's place as it is here now.
+    const after = new Map((await LOCAL.allStored()).map((f) => [f.id, f]));
+    const places: FilesTree['files'] = {};
+    for (const id of Object.keys(next.files)) {
+      const f = after.get(id);
+      const p = f ? placeOf(f) : { ...tree.files[id] };
+      if (!p.h && tree.files[id]?.h) p.h = tree.files[id].h;
+      if (Object.keys(p).length) places[id] = p;
+    }
+    const nextTree: FilesTree = { dirs: folders.dirs, gone: folders.gone, files: places };
+    const treeEmpty = !Object.keys(nextTree.dirs).length && !Object.keys(nextTree.gone).length && !Object.keys(places).length;
+
+    const changed =
+      added.length > 0 || leaving.some((l) => idx.files[l.id]) || Object.keys(next.gone).length !== Object.keys(idx.gone).length || canon(nextTree) !== canon(tree);
     if (changed) {
       next.seq = idx.seq + 1;
-      const sealed = await sealFilesIndex(d.keys, d.uid, JSON.stringify(next));
+      const sealed = await sealFilesIndex(d.keys, d.uid, JSON.stringify(treeEmpty ? next : { ...next, tree: nextTree }));
       if (!live()) return changedHere;
       if (!(await d.remote.swapIndex(idxId, tag, sealed))) continue; // another device wrote first: again
     }

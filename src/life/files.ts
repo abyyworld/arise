@@ -5,8 +5,15 @@
 //   putFile(data, { name, type, day, note, sync, shrink })  keep a file; returns its details
 //   getFile(id)          its details and bytes (fetched from the cloud the first time on a device
 //                        that didn't add it). Null when it's gone or can't be fetched now.
-//   listFiles({ day, note })   details, newest first (with the small preview, never the bytes)
-//   deleteFile(id)       from this device, the cloud and the Player's other devices
+//   listFiles({ day, note, trash })   details, newest first (with the small preview, never the
+//                        bytes). Files in the trash only with `trash: true`.
+//   trashFiles(ids)      to the trash, on every device, for TRASH_DAYS days; restoreFiles(ids) back
+//   emptyTrash()         deleteFile for everything in the trash; clearOldTrash() for what's been
+//                        there TRASH_DAYS days (both also happen on their own: files-sync.ts)
+//   deleteFile(id)       for good: from this device, the cloud and the Player's other devices
+//   folders: listFolders, makeFolder, renameFolder, moveFolder, linkFolder (to a goal: a
+//            project), deleteFolder (only an empty one); moveFiles(ids, folder)
+//   findCopies()         groups of files with exactly the same bytes; keepOne(id) trashes the rest
 //   setSynced(id, on)    "only on this device" or back to syncing
 //   usage()              how much is kept here and in the cloud
 //   onFilesChange(fn)    after anything changes, here or from another device
@@ -15,15 +22,19 @@
 // encrypted: sealed on the device with keys derived from the life log's (files-seal.ts), so the
 // server only ever holds ciphertext (files-sync.ts). Previews are made on the device.
 
-import { cleanFileMeta, MAX_FILE_BYTES, type FileMeta } from '../lib/validate';
+import { cleanFileMeta, folderName, MAX_FILE_BYTES, type FileMeta } from '../lib/validate';
+import { sha256Hex } from '../lib/s3';
 import { dayKey } from './dates';
 import { newFileId, partCount, splitBytes, joinBytes } from './files-seal';
 import * as LOCAL from './files-store';
 import * as SYNC from './files-sync';
+import { copyGroups, dirOf, expired, foldersIn, isWithin, type Folders } from './files-tree';
 
 export type { StoredFile as FileInfo } from './files-store';
 export { SYNC_FILE_MAX, SYNC_TOTAL_MAX } from './files-sync';
 export { MAX_FILE_BYTES };
+export { TRASH_DAYS } from './files-tree';
+export type { Folders } from './files-tree';
 
 export interface PutOptions {
   name?: string;
@@ -31,13 +42,14 @@ export interface PutOptions {
   day?: string; // the day it belongs to (default: today, or the day of `at`)
   at?: number; // when it was added (default: now)
   note?: string; // the id of a note in the life log it goes with
+  dir?: string; // the folder it goes in (default: the top)
   sync?: boolean; // false: only on this device (default: syncs with the account)
   shrink?: boolean; // a photo is saved smaller (at most SHRINK_TO pixels across) when that saves space (default: on)
 }
 
 export class FilesError extends Error {
   constructor(
-    readonly code: 'too-big' | 'empty' | 'unavailable' | 'not-here',
+    readonly code: 'too-big' | 'empty' | 'unavailable' | 'not-here' | 'no-name' | 'no-folder' | 'not-empty' | 'loop',
     message: string,
   ) {
     super(message);
@@ -149,7 +161,9 @@ export async function putFile(data: Blob | ArrayBuffer | Uint8Array, opts: PutOp
   }
   if (bytes.length > MAX_FILE_BYTES) throw new FilesError('too-big', `That file is too big to keep (the most is ${Math.round(MAX_FILE_BYTES / 1048576)} MB).`);
   const at = opts.at ?? Date.now();
-  const meta = cleanFileMeta({ id: newFileId(), name, type, size: bytes.length, at, day: opts.day || dayKey(at), note: opts.note, w, h, thumb, sync: opts.sync !== false } satisfies Partial<FileMeta>);
+  const hash = await sha256Hex(bytes);
+  const dir = opts.dir && (await LOCAL.readTree()).dirs[opts.dir] ? opts.dir : undefined;
+  const meta = cleanFileMeta({ id: newFileId(), name, type, size: bytes.length, at, day: opts.day || dayKey(at), note: opts.note, w, h, thumb, sync: opts.sync !== false, hash, dir, moved: dir ? Date.now() : undefined } satisfies Partial<FileMeta>);
   if (!meta) throw new FilesError('empty', "That file couldn't be kept.");
   const stored: LOCAL.StoredFile = { ...meta, here: true, up: false };
   await LOCAL.saveFile(stored, splitBytes(bytes));
@@ -173,11 +187,19 @@ export async function getFile(id: string): Promise<{ info: LOCAL.StoredFile; blo
     info.here = true;
     changed();
   }
-  return { info, blob: new Blob([joinBytes(parts)], { type: info.type }) };
+  const bytes = joinBytes(parts);
+  // Its SHA-256, for finding copies, the first time it's opened (files kept before there was one).
+  if (!info.hash) {
+    info.hash = await sha256Hex(bytes);
+    await LOCAL.patchFile(id, { hash: info.hash });
+    if (info.sync) SYNC.queue();
+  }
+  return { info, blob: new Blob([bytes], { type: info.type }) };
 }
 
-export async function listFiles(filter: { day?: string; note?: string } = {}): Promise<LOCAL.StoredFile[]> {
-  const all = await LOCAL.allStored(filter.day);
+// Files in the trash only with `trash: true`; `trash: 'all'` lists both.
+export async function listFiles(filter: { day?: string; note?: string; trash?: boolean | 'all' } = {}): Promise<LOCAL.StoredFile[]> {
+  const all = (await LOCAL.allStored(filter.day)).filter((f) => filter.trash === 'all' || !!f.bin === !!filter.trash);
   return filter.note ? all.filter((f) => f.note === filter.note) : all;
 }
 
@@ -190,6 +212,171 @@ export async function deleteFile(id: string): Promise<boolean> {
   changed();
   if (f.up || f.sync) SYNC.queue();
   return true;
+}
+
+// ---------- folders (files-tree.ts): synced end-to-end encrypted in the files index's tree
+
+export const listFolders = (): Promise<Folders> => LOCAL.readTree();
+
+async function editFolders(fn: (t: Folders, now: number) => void): Promise<Folders> {
+  const t = await LOCAL.readTree();
+  fn(t, Date.now());
+  await LOCAL.writeTree(t);
+  changed();
+  SYNC.queue();
+  return t;
+}
+const nameOrSay = (name: string) => {
+  const n = folderName(name);
+  if (!n) throw new FilesError('no-name', 'Give the folder a name.');
+  return n;
+};
+const mustHave = (t: Folders, id: string) => {
+  if (!t.dirs[id]) throw new FilesError('no-folder', "That folder isn't here any more.");
+  return t.dirs[id];
+};
+
+// A new folder, at the top or in another one, and (when given) the project folder of a goal.
+export async function makeFolder(name: string, opts: { in?: string; goal?: string } = {}): Promise<string> {
+  const n = nameOrSay(name);
+  const id = newFileId();
+  await editFolders((t, now) => {
+    t.dirs[id] = { name: n, e: now, ...(opts.in && t.dirs[opts.in] ? { p: opts.in } : {}), ...(opts.goal ? { g: opts.goal } : {}) };
+  });
+  return id;
+}
+
+export async function renameFolder(id: string, name: string): Promise<void> {
+  const n = nameOrSay(name);
+  await editFolders((t, now) => {
+    t.dirs[id] = { ...mustHave(t, id), name: n, e: now };
+  });
+}
+
+// Into another folder (none: to the top). Never into itself or a folder inside it.
+export async function moveFolder(id: string, into?: string): Promise<void> {
+  await editFolders((t, now) => {
+    const d = { ...mustHave(t, id), e: now };
+    if (into) {
+      mustHave(t, into);
+      if (isWithin(t.dirs, into, id)) throw new FilesError('loop', "A folder can't go inside itself.");
+      d.p = into;
+    } else delete d.p;
+    t.dirs[id] = d;
+  });
+}
+
+// A folder as the project folder of a goal (lib/goals.ts), shown on that goal. None: not any more.
+export async function linkFolder(id: string, goal?: string): Promise<void> {
+  await editFolders((t, now) => {
+    const d = { ...mustHave(t, id), e: now };
+    if (goal) d.g = goal;
+    else delete d.g;
+    t.dirs[id] = d;
+  });
+}
+
+// The project folders of a goal, by name.
+export async function foldersForGoal(goal: string): Promise<{ id: string; name: string }[]> {
+  const t = await LOCAL.readTree();
+  return Object.entries(t.dirs)
+    .filter(([, d]) => d.g === goal)
+    .map(([id, d]) => ({ id, name: d.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Only an empty one: no folders in it, and no files but ones in the trash (they go back to the top).
+export async function deleteFolder(id: string): Promise<void> {
+  const t = await LOCAL.readTree();
+  mustHave(t, id);
+  const inIt = (await LOCAL.allStored()).some((f) => !f.bin && dirOf(t.dirs, f) === id);
+  if (inIt || foldersIn(t.dirs, id).length) throw new FilesError('not-empty', 'Only an empty folder can be deleted. Move or delete what is in it first.');
+  await editFolders((tt, now) => {
+    delete tt.dirs[id];
+    tt.gone[id] = now;
+  });
+}
+
+// ---------- moving, and the trash
+
+async function patchAll(ids: readonly string[], fn: (f: LOCAL.StoredFile, now: number) => LOCAL.FilePatch | null): Promise<number> {
+  const now = Date.now();
+  let n = 0;
+  for (const id of new Set(ids)) {
+    const f = await LOCAL.getStored(id);
+    const p = f && fn(f, now);
+    if (!p) continue;
+    await LOCAL.patchFile(id, p);
+    n++;
+  }
+  if (n) {
+    changed();
+    SYNC.queue();
+  }
+  return n;
+}
+
+// Into a folder (none: to the top).
+export async function moveFiles(ids: readonly string[], dir?: string): Promise<number> {
+  if (dir && !(await LOCAL.readTree()).dirs[dir]) throw new FilesError('no-folder', "That folder isn't here any more.");
+  return patchAll(ids, (f, now) => (f.bin || (f.dir || undefined) === (dir || undefined) ? null : { dir: dir || undefined, moved: now }));
+}
+
+// To the trash on every device. They stay TRASH_DAYS days, and can be put back until then.
+export const trashFiles = (ids: readonly string[]) => patchAll(ids, (f, now) => (f.bin ? null : { bin: now, moved: now }));
+export const trashFile = async (id: string) => (await trashFiles([id])) > 0;
+
+// Back from the trash, to their folder (or the top, when it's gone).
+export async function restoreFiles(ids: readonly string[]): Promise<number> {
+  const t = await LOCAL.readTree();
+  return patchAll(ids, (f, now) => (f.bin ? { bin: undefined, moved: now, dir: dirOf(t.dirs, f) } : null));
+}
+
+// Everything in the trash, for good. Says how many.
+export async function emptyTrash(): Promise<number> {
+  let n = 0;
+  for (const f of await listFiles({ trash: true })) if (await deleteFile(f.id)) n++;
+  return n;
+}
+
+// What's been in the trash TRASH_DAYS days goes for good (the sync does this too, on every device).
+export async function clearOldTrash(now = Date.now()): Promise<number> {
+  let n = 0;
+  for (const f of await listFiles({ trash: true })) if (expired(f, now) && (await deleteFile(f.id))) n++;
+  return n;
+}
+
+// ---------- copies: files with exactly the same bytes
+
+// The SHA-256 of files kept here from before there was one, one at a time. Says how many.
+export async function fillHashes(live: () => boolean = () => true): Promise<number> {
+  let n = 0;
+  let synced = false;
+  for (const f of await LOCAL.allStored()) {
+    if (!live()) break;
+    if (f.hash || !f.here) continue;
+    const parts = await LOCAL.readParts(f.id, partCount(f.size));
+    if (!parts) continue;
+    await LOCAL.patchFile(f.id, { hash: await sha256Hex(joinBytes(parts)) });
+    synced ||= f.sync;
+    n++;
+  }
+  if (synced) SYNC.queue();
+  return n;
+}
+
+// Groups of files (not in the trash) with exactly the same bytes, oldest first in each.
+export async function findCopies(): Promise<LOCAL.StoredFile[][]> {
+  await fillHashes();
+  return copyGroups(await listFiles());
+}
+
+// Keeps this one, and sends its copies to the trash. Says how many went.
+export async function keepOne(id: string): Promise<number> {
+  const f = await LOCAL.getStored(id);
+  if (!f?.hash || f.bin) return 0;
+  const others = (await listFiles()).filter((x) => x.id !== id && x.hash === f.hash).map((x) => x.id);
+  return trashFiles(others);
 }
 
 // Off: only on this device (it goes from the cloud and the other devices). On: syncs again.

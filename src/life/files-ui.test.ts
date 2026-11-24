@@ -10,7 +10,17 @@ vi.mock('../lib/firebase', () => import('../test/fake-firebase'));
 const SHEET = `<div id="sheet" hidden><div class="sheet-panel"><button class="sheet-close"></button><div class="sheet-body"></div></div></div><div id="toast"></div>`;
 const tick = () => new Promise((r) => setTimeout(r, 30));
 
+// Each test loads the screen again: the listeners the last one added go first, so only this
+// test's screen answers a change or a key.
+const added: [string, EventListenerOrEventListenerObject][] = [];
+const addListener = document.addEventListener.bind(document);
+document.addEventListener = ((type: string, fn: EventListenerOrEventListenerObject, opts?: boolean | AddEventListenerOptions) => {
+  added.push([type, fn]);
+  addListener(type, fn, opts);
+}) as typeof document.addEventListener;
+
 beforeEach(() => {
+  for (const [type, fn] of added.splice(0)) document.removeEventListener(type, fn);
   vi.resetModules();
   globalThis.indexedDB = new IDBFactory();
   let n = 0;
@@ -126,5 +136,181 @@ describe('your own storage', () => {
     await UI.handleAction('myfiles-own-remove', null);
     expect(S.ownStorage()).toBeNull();
     expect(S.state.storage?.off).toBe(true);
+  });
+});
+
+// ---------- the file manager
+
+describe('the file manager in Photos and files', () => {
+  // A tap on a button with these data attributes.
+  const tap = async (UI: Awaited<ReturnType<typeof load>>['UI'], act: string, data: Record<string, string> = {}) => {
+    const b = document.createElement('button');
+    Object.assign(b.dataset, data);
+    await UI.handleAction(act, b);
+    await tick();
+  };
+  const body = () => document.querySelector('#myfilesMain')?.textContent?.replace(/\s+/g, ' ') || '';
+  const set = async (sel: string, value: string, type = 'change') => {
+    const el = document.querySelector(sel) as HTMLInputElement | HTMLSelectElement;
+    el.value = value;
+    el.dispatchEvent(new Event(type, { bubbles: true }));
+    await tick();
+  };
+  const names = (sel = '#myfilesMain .file-tile, #myfilesMain .file-row') => [...document.querySelectorAll<HTMLElement>(sel)].map((t) => t.getAttribute('aria-label')?.split(',')[0] || t.querySelector('b')?.textContent);
+
+  it('makes a folder, opens it, adds into it, renames it, and deletes it only when empty', async () => {
+    const { F, UI } = await load();
+    await tap(UI, 'myfiles-open');
+    await tap(UI, 'myfiles-mkdir');
+    await set('#myfilesName', 'Trips', 'input');
+    await tap(UI, 'myfiles-name-save');
+    // The new folder opens.
+    expect(document.querySelector('.files-path')?.textContent).toContain('Trips');
+    expect(body()).toContain('This folder is empty.');
+    const [id] = Object.keys((await F.listFolders()).dirs);
+    expect((document.querySelector('#myfilesPlace') as HTMLInputElement).dataset.dir).toBe(id);
+    await F.putFile(new Uint8Array(20), { name: 'ticket.pdf', type: 'application/pdf', dir: id });
+    await tick();
+    expect(names()).toEqual(['ticket.pdf']);
+
+    await tap(UI, 'myfiles-rename');
+    expect((document.querySelector('#myfilesName') as HTMLInputElement).value).toBe('Trips');
+    await set('#myfilesName', 'Rome', 'input');
+    await tap(UI, 'myfiles-name-save');
+    expect((await F.listFolders()).dirs[id].name).toBe('Rome');
+
+    await tap(UI, 'myfiles-rmdir');
+    expect(document.querySelector('#toast')?.textContent).toContain('Only an empty folder can be deleted');
+    // At the top: the folder, and no file.
+    await tap(UI, 'myfiles-dir', { id: '' });
+    expect(document.querySelectorAll('#myfilesMain .folder-tile').length).toBe(1);
+    expect(document.querySelector('#myfilesMain .folder-tile')?.textContent).toContain('1 file');
+    expect(names()).toEqual([]);
+  });
+
+  it('searches by name in every folder, sorts, and shows a grid or a list', async () => {
+    const { F, UI } = await load();
+    const work = await F.makeFolder('Work');
+    await F.putFile(new Uint8Array(300), { name: 'Budget 2026.xlsx', type: 'application/vnd.ms-excel', dir: work, at: 1000 });
+    await F.putFile(new Uint8Array(20), { name: 'budget notes.txt', type: 'text/plain', at: 3000 });
+    await F.putFile(new Uint8Array(50), { name: 'Apples.txt', type: 'text/plain', at: 2000 });
+    await tap(UI, 'myfiles-open');
+    expect(names()).toEqual(['budget notes.txt', 'Apples.txt']); // newest first, at the top only
+    await set('#myfilesSort', 'name');
+    expect(names()).toEqual(['Apples.txt', 'budget notes.txt']);
+    await set('#myfilesSort', 'size');
+    expect(names()).toEqual(['Apples.txt', 'budget notes.txt']);
+
+    await set('#myfilesFind', 'BUDGET', 'input');
+    expect(body()).toContain('in all your folders');
+    expect(names().sort()).toEqual(['Budget 2026.xlsx', 'budget notes.txt']);
+
+    await tap(UI, 'myfiles-view', { v: 'list' });
+    expect(document.querySelectorAll('#myfilesMain .file-tile').length).toBe(0);
+    const first = document.querySelector('#myfilesMain .file-row');
+    expect(first?.querySelector('b')?.textContent).toBe('Budget 2026.xlsx'); // biggest first
+    expect(first?.querySelector('small')?.textContent).toMatch(/^300 bytes · .* · Work$/); // with its folder
+    await tap(UI, 'myfiles-view', { v: 'grid' });
+    expect(document.querySelectorAll('#myfilesMain .file-tile').length).toBe(2);
+  });
+
+  it('chooses several files to move into a folder, or to the trash', async () => {
+    const { F, UI } = await load();
+    const box = await F.makeFolder('Box');
+    const a = await F.putFile(new Uint8Array(10), { name: 'a' });
+    const b = await F.putFile(new Uint8Array(11), { name: 'b' });
+    const c = await F.putFile(new Uint8Array(12), { name: 'c' });
+    await tap(UI, 'myfiles-open');
+    await tap(UI, 'myfiles-pick-start');
+    await tap(UI, 'myfiles-pick', { id: a.id });
+    await tap(UI, 'myfiles-pick', { id: b.id });
+    expect(document.querySelector('.files-pickbar')?.textContent).toContain('2 chosen');
+    expect(document.querySelectorAll('#myfilesMain [data-act="myfiles-pick"][aria-pressed="true"]').length).toBe(2);
+    await set('#myfilesMoveTo', box);
+    await tap(UI, 'myfiles-move');
+    expect(document.querySelector('#toast')?.textContent).toBe('2 files moved.');
+    expect((await F.listFiles()).filter((f) => f.dir === box).map((f) => f.name).sort()).toEqual(['a', 'b']);
+    expect(names()).toEqual(['c']);
+
+    await tap(UI, 'myfiles-pick-start');
+    await tap(UI, 'myfiles-pick-all');
+    await tap(UI, 'myfiles-trash');
+    expect(document.querySelector('#toast')?.textContent).toContain('1 file moved to the trash');
+    expect((await F.listFiles({ trash: true })).map((f) => f.id)).toEqual([c.id]);
+  });
+
+  it('shows the trash: put back, and empty it after a plain warning', async () => {
+    const { F, UI } = await load();
+    const a = await F.putFile(new Uint8Array(10), { name: 'a' });
+    const b = await F.putFile(new Uint8Array(11), { name: 'b' });
+    const c = await F.putFile(new Uint8Array(12), { name: 'c' });
+    await F.trashFiles([a.id, b.id, c.id]);
+    await tap(UI, 'myfiles-open');
+    expect(document.querySelector('[data-act="myfiles-bin"]')?.textContent).toContain('Trash (3)');
+    await tap(UI, 'myfiles-bin');
+    expect(body()).toContain('Deleted files wait here for 30 days');
+    expect(body()).toContain('goes for good in 30 days');
+    await tap(UI, 'myfiles-restore', { id: a.id });
+    expect((await F.listFiles()).map((f) => f.id)).toEqual([a.id]);
+
+    let asked = '';
+    globalThis.confirm = (q?: string) => ((asked = q || ''), false);
+    await tap(UI, 'myfiles-empty');
+    expect(asked).toBe("Delete all 2 files in the trash for good, from all your devices? This can't be undone.");
+    expect(await F.listFiles({ trash: true })).toHaveLength(2);
+    globalThis.confirm = () => true;
+    await tap(UI, 'myfiles-empty');
+    expect(await F.listFiles({ trash: 'all' })).toHaveLength(1);
+    expect(body()).toContain('The trash is empty.');
+  });
+
+  it('finds copies, and keeping one sends the others to the trash', async () => {
+    const { F, UI } = await load();
+    const same = () => new Uint8Array([1, 2, 3, 4, 5]);
+    const a = await F.putFile(same(), { name: 'a.txt', type: 'text/plain', at: 1000 });
+    await F.putFile(same(), { name: 'a copy.txt', type: 'text/plain', at: 2000 });
+    await F.putFile(new Uint8Array([9]), { name: 'other.txt', type: 'text/plain' });
+    await tap(UI, 'myfiles-open');
+    await tap(UI, 'myfiles-copies');
+    await tick();
+    expect(body()).toContain('2 copies of the same file');
+    expect(document.querySelectorAll('[data-act="myfiles-keep"]').length).toBe(2);
+    await tap(UI, 'myfiles-keep', { id: a.id });
+    expect(document.querySelector('#toast')?.textContent).toBe('Kept one. The copy went to the trash.');
+    expect((await F.listFiles()).map((f) => f.name).sort()).toEqual(['a.txt', 'other.txt']);
+    await tick();
+    expect(body()).toContain('No copies found.');
+  });
+
+  it("shows a goal's project folders on the goal, and makes one from there", async () => {
+    const { F, UI } = await load();
+    const S = await import('../store');
+    S.saveGoal({ id: 'g1', title: 'Learn Spanish', category: 'learning', quests: [] });
+    document.body.insertAdjacentHTML('beforeend', `<section class="goal">${UI.goalSlot('g1')}</section>`);
+    await tick();
+    expect(document.querySelector('.goal-files')?.textContent).toContain('Add a project folder');
+    await tap(UI, 'myfiles-project', { goal: 'g1' });
+    const [id] = Object.keys((await F.listFolders()).dirs);
+    expect((await F.listFolders()).dirs[id]).toMatchObject({ name: 'Learn Spanish', g: 'g1' });
+    // It opens, ready for files.
+    expect(document.querySelector('.files-path')?.textContent).toContain('Learn Spanish');
+    expect(body()).toContain('The project folder of Learn Spanish');
+    await F.putFile(new Uint8Array(10), { name: 'verbs.pdf', type: 'application/pdf', dir: id });
+    await UI.fillGoalSlots();
+    expect(document.querySelector('.goal-files')?.textContent?.replace(/\s+/g, ' ')).toContain('Learn Spanish · 1 file');
+  });
+
+  it("moves one file from its sheet, and puts one back from the trash there", async () => {
+    const { F, UI } = await load();
+    const box = await F.makeFolder('Box');
+    const f = await F.putFile(new Uint8Array(10), { name: 'a' });
+    await tap(UI, 'myfiles-file', { id: f.id });
+    await set('#myfilesFileDir', box);
+    expect((await F.listFiles())[0].dir).toBe(box);
+    await F.trashFile(f.id);
+    await tap(UI, 'myfiles-file', { id: f.id });
+    expect(document.querySelector('.sheet-body')?.textContent).toContain('In the trash.');
+    await tap(UI, 'myfiles-restore', { id: f.id });
+    expect((await F.listFiles()).map((x) => x.id)).toEqual([f.id]);
   });
 });
