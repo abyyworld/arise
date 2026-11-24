@@ -4,6 +4,21 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.35.0',
+    notes: [
+      'See where your time goes on a map: tap a place for its visits and time, and give it a name like Home or Lab. The map is drawn on your device; the street map underneath is optional.',
+      'Your world, on Me: your goals, people and places as a constellation, a turning globe, or a simple list.',
+      'Look back: see any day, month or year, and what Arise knew about you then.',
+      'Not quite right? Fix any record, or tell Arise what is true, and it stays fixed.',
+      'Photos and files is now a file manager: folders, project folders on your goals, search, sorting, a grid or a list, and moving or deleting several at once. Deleted files wait in the trash for 30 days, and Arise finds exact copies so you keep just one.',
+      'A quick one: short questions from your coach on Today, like the 3 things that matter this week, or whether a late to-do still matters. Your answer does the thing straight away.',
+      'Morning brief: your day in a few lines, on Today and as a notification at the time you pick (Settings, Your plan and next steps).',
+      'Invite people to an event: add who is coming, then send an invite they can accept in their own calendar.',
+      'Rules for each AI app: what it may just do, what it must ask you first, and what it may never do, plus house rules in your own words.',
+      'System health, in Setup and connections: one check that says whether sync, the AI, reminders, AI apps, calendars and your storage are working.',
+    ],
+  },
+  {
     version: '1.34.0',
     notes: [
       'One box on Today: write anything. Arise works out if it is a to-do (with its day and time), groceries, money owed, a question for your coach or a note, and shows you before saving. Pick another kind if it guessed wrong. You can add a file too.',
