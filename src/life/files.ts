@@ -206,7 +206,7 @@ export async function setSynced(id: string, on: boolean): Promise<LOCAL.StoredFi
 // Whether a file stays on this device whatever the setting, and why ('' when it syncs).
 export function staysHere(f: Pick<FileMeta, 'size' | 'sync'>): string {
   if (!f.sync) return 'Only on this device.';
-  if (f.size > SYNC.SYNC_FILE_MAX) return `Only on this device: files over ${Math.round(SYNC.SYNC_FILE_MAX / 1048576)} MB don't sync.`;
+  if (f.size > SYNC.fileMax()) return `Only on this device: files over ${Math.round(SYNC.fileMax() / 1048576)} MB don't sync${SYNC.ownStorageOn() ? '' : ' without your own storage'}.`;
   return '';
 }
 

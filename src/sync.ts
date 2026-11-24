@@ -54,7 +54,8 @@ const TIMEOUT = 45_000;
 // 10: your own calendar events (lib/events.ts), which 1.30 would drop.
 // 11: decisions and early warnings put away (lib/decisions.ts), and the next-step message settings,
 // which 1.30 would drop.
-export const SCHEMA = 11;
+// 12: the Player's own storage for photos and files (lib/own-storage.ts), which 1.32 would drop.
+export const SCHEMA = 12;
 
 interface Meta {
   uid?: string;

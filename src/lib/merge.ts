@@ -15,6 +15,7 @@ import { mergeStudy } from './study';
 import { mergeTodos } from './todos';
 import { mergeEvents } from './events';
 import { mergeDecisions, mergeDismissed } from './decisions';
+import { mergeOwnStorage } from './own-storage';
 
 export type CloudCopy = Omit<State, 'active' | 'updatedAt'>;
 
@@ -250,5 +251,6 @@ export function merge(local: CloudCopy, localAt: number, remote: CloudCopy, remo
     events: mergeEvents(local.events, remote.events, now),
     decisions: mergeDecisions(local.decisions, remote.decisions, now),
     dismissed: mergeDismissed(local.dismissed, remote.dismissed, now),
+    storage: mergeOwnStorage(local.storage, remote.storage),
   };
 }
