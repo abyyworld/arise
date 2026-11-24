@@ -1,7 +1,8 @@
 // The Import screen: bring in years of history from the files Google, Spotify, Netflix, Apple
-// Health, WhatsApp and other chat apps, AI apps (Claude, ChatGPT, Gemini), and banks give people. The file is read here, on the
-// device (in a worker, life/import/client.ts), and what it finds goes to the store it's given:
-// the life log.
+// Health, Fitbit, WhatsApp and other chat apps, AI apps (Claude, ChatGPT, Gemini), notes apps
+// (Obsidian, Notion, Apple Notes, Google Keep), documents (Word, PDF) and banks give people. The
+// file is read here, on the device (in a worker, life/import/client.ts), and what it finds goes to
+// the store it's given: the life log. It also takes the life log out again, as an Obsidian vault.
 
 import { esc, icon } from '../ui.js';
 import { importer as sharedImporter } from './import/client';
@@ -69,6 +70,16 @@ export const SOURCES = [
       'Tap your picture at the top right, then “Export All Health Data”, then “Export”.',
       'Wait a few minutes while it gets ready. Then tap “Save to Files”.',
       'Choose export.zip here. Big files are fine: Arise reads them a bit at a time.',
+    ],
+  },
+  {
+    id: 'fitbit',
+    name: 'Fitbit',
+    what: 'Steps, sleep and resting heart rate, a day at a time.',
+    steps: [
+      'Go to takeout.google.com and tap “Deselect all”.',
+      'Tick Fitbit, then tap “Next step” and “Create export”.',
+      'When Google emails you, download the zip and choose it here. An older export from your Fitbit account works too.',
     ],
   },
   {
@@ -211,6 +222,57 @@ export const SOURCES = [
       'Choose the file here. Then check which columns are the date, the description and the amount.',
     ],
   },
+  {
+    id: 'obsidian',
+    name: 'Obsidian',
+    what: 'Your notes, one for each file, with their folders and tags.',
+    steps: [
+      'Find your vault on your computer: it’s the folder you picked when you made it in Obsidian.',
+      'Make a zip of it. On a Mac, right-click the folder and choose “Compress”. On Windows, right-click it, then “Send to”, then “Compressed (zipped) folder”.',
+      'Choose the zip here. Single .md files work too.',
+    ],
+  },
+  {
+    id: 'notion',
+    name: 'Notion',
+    what: 'Your pages as notes, and each row of a database as a note.',
+    steps: [
+      'In Notion, open Settings, then “Export all workspace content”. For one page, tap ⋯ on the page and choose Export.',
+      'Choose “Markdown & CSV” and tap Export.',
+      'Download the zip and choose it here. If there’s another zip inside it, open it and choose that one.',
+    ],
+  },
+  {
+    id: 'apple-notes',
+    name: 'Apple Notes',
+    what: 'Your notes from iCloud. Apple has no export button, so this uses the copy of your data Apple sends.',
+    steps: [
+      'Go to privacy.apple.com and sign in.',
+      'Choose “Request a copy of your data”, tick iCloud Notes, and carry on.',
+      'When Apple says it’s ready (it can take a few days), download the iCloud Notes zip and choose it here.',
+      'Just one note: copy it into a text file (.txt) and choose that.',
+    ],
+  },
+  {
+    id: 'keep',
+    name: 'Google Keep',
+    what: 'Your notes and lists. Notes in the bin are left out.',
+    steps: [
+      'Go to takeout.google.com and tap “Deselect all”.',
+      'Tick Keep, then tap “Next step” and “Create export”.',
+      'When Google emails you, download the zip and choose it here.',
+    ],
+  },
+  {
+    id: 'documents',
+    name: 'Word and PDF files',
+    what: 'The words of a document, as one note. A scanned PDF holds pictures of pages, not words, so Arise can’t read it yet.',
+    steps: [
+      'Choose a Word file (.docx) or a PDF here. Each file becomes one note.',
+      'An older Word file (.doc): open it in Word or Pages and save it as .docx first.',
+      'A PDF locked with a password: open it, and save or print a copy without the password first.',
+    ],
+  },
 ];
 
 const PROBLEM = {
@@ -221,6 +283,7 @@ const PROBLEM = {
   tgz: { text: 'This is a .tgz file. At takeout.google.com, choose “.zip” as the file type and make the export again.' },
   'zip-method': { text: 'Arise can’t open this zip. Unzip it in the Files app or on a computer, then choose the file inside (like export.xml or Timeline.json).' },
   empty: { text: 'This file is empty.' },
+  'no-text': { text: 'Arise found no words it could read in this file. It may be a scan or photos of pages, or locked with a password. Arise can’t read words in pictures yet.' },
   unknown: { text: 'Arise doesn’t know this file. Check the steps below for the service it came from.' },
 };
 
@@ -264,10 +327,17 @@ export function renderImport(root, { store = null, importer = null, back = 'sett
       <div class="col">
         <section class="panel" id="importPanel">
           <div class="panel-title"><span>Bring in a file</span></div>
-          <p>Choose a file you downloaded from Google, Spotify, Netflix, Apple Health, WhatsApp, another chat app, an AI app like ChatGPT, or your bank. Arise works out what it is.</p>
+          <p>Choose a file you downloaded from Google, Spotify, Netflix, Apple Health, Fitbit, WhatsApp, another chat app, an AI app like ChatGPT, a notes app like Obsidian or Notion, or your bank. Word files and PDFs work too. Arise works out what it is.</p>
           <p class="muted small">${PRIVATE}</p>
           <input type="file" id="lifeImportFile" multiple hidden>
           <div id="importStatus">${statusHTML()}</div>
+        </section>
+        <section class="panel" id="exportPanel">
+          <div class="panel-title"><span>Take it out</span></div>
+          <p class="small">Your whole life log as notes for Obsidian: one file for each day, and your notes as their own files, linked from their day.</p>
+          <p class="muted small">Made on this device. Nothing is uploaded.</p>
+          <div id="exportStatus" aria-live="polite"></div>
+          <button class="btn" data-act="life-export-obsidian">Export to Obsidian</button>
         </section>
       </div>
       <div class="col">
@@ -751,9 +821,64 @@ function showProgress() {
   if (now && now.textContent !== reading(p.label)) now.textContent = reading(p.label);
 }
 
+// ---------- taking it out: the life log as an Obsidian vault
+
+let exporting = false;
+
+function exportStatus(html) {
+  const el = $('#exportStatus');
+  if (el) el.innerHTML = html;
+}
+
+async function exportObsidian() {
+  if (exporting) return;
+  exporting = true;
+  exportStatus('<p class="small">Making your notes…</p>');
+  try {
+    const X = await import('./export-obsidian');
+    const got = await X.exportVault();
+    if (!got) {
+      exportStatus('<p class="muted small">Your life log isn’t on this device yet, so there’s nothing to take out.</p>');
+      return;
+    }
+    await saveZip(got.name, new Blob([got.bytes], { type: 'application/zip' }));
+    exportStatus(`<p class="ok small" role="status">${esc(`Saved ${got.name}: ${plural(got.days, 'day')}. Unzip it and open the Arise folder in Obsidian.`)}</p>`);
+  } catch (err) {
+    exportStatus(`<p class="error small" role="alert">${esc(`Arise couldn’t make the file. ${err?.message ?? ''}`.trim())}</p>`);
+  } finally {
+    exporting = false;
+  }
+}
+
+// To the share sheet in the phone apps and on phones, else a download.
+async function saveZip(name, blob) {
+  const N = await import('../native.js');
+  if (N.isNative) return N.shareBytes(name, blob);
+  const file = new File([blob], name, { type: 'application/zip' });
+  if (navigator.canShare?.({ files: [file] }) && matchMedia('(pointer: coarse)').matches) {
+    try {
+      await navigator.share({ files: [file], title: name });
+      return;
+    } catch (e) {
+      if (e?.name === 'AbortError') return;
+    }
+  }
+  const u = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = u;
+  a.download = name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 2000);
+}
+
 // Returns true when it handled the action. `el`: the element tapped (for its data-).
 export function handleAction(act, el) {
   switch (act) {
+    case 'life-export-obsidian':
+      exportObsidian();
+      return true;
     case 'life-import-tick-all':
     case 'life-import-untick-all':
       if (st.phase === 'ask') tickAll(act === 'life-import-tick-all');

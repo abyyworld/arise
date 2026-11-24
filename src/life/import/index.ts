@@ -27,6 +27,12 @@ import { isLinkedInMessages, parseLinkedIn } from './linkedin';
 import { listClaude, parseClaude } from './claude';
 import { listChatGPT, parseChatGPT } from './chatgpt';
 import { listGemini, parseGemini } from './gemini';
+import { APPLE_NOTES, isAppleNote, parseAppleNotes, parseFileNotes } from './markdown';
+import { NOTION_NAME, parseNotion } from './notion';
+import { KEEP_HEAD, KEEP_PATH, parseKeep } from './keep';
+import { parseWord, WORD_BODY, WORD_PROPS } from './word';
+import { parsePdf } from './pdf';
+import { FITBIT_FILE, FITBIT_HEAD, parseFitbit } from './fitbit';
 
 export type * from './types';
 
@@ -68,6 +74,14 @@ function encodingOf(head: Uint8Array): string | undefined {
 }
 
 class Cancelled extends Error {}
+
+// The same for bytes.
+async function* guardBytes(it: AsyncIterable<Uint8Array>, signal?: AbortSignal): AsyncGenerator<Uint8Array> {
+  for await (const b of it) {
+    if (signal?.aborted) throw new Cancelled();
+    yield b;
+  }
+}
 
 // Every piece read is a chance to stop.
 async function* guard(it: AsyncIterable<string>, signal?: AbortSignal): AsyncGenerator<string> {
@@ -111,7 +125,21 @@ export const KIND_LABEL: Record<ImportKind, string> = {
   chatgpt: 'ChatGPT chats',
   gemini: 'Gemini chats',
   'bank-csv': 'Bank statement',
+  obsidian: 'Obsidian notes',
+  notion: 'Notion pages',
+  'apple-notes': 'Apple Notes',
+  notes: 'Notes',
+  'note-file': 'A note',
+  keep: 'Google Keep notes',
+  word: 'Word document',
+  pdf: 'PDF',
+  fitbit: 'Fitbit',
 };
+
+// Notes and documents: one note event each (notes.ts).
+export const NOTE_KINDS: ReadonlySet<ImportKind> = new Set(['obsidian', 'notion', 'apple-notes', 'notes', 'note-file', 'keep', 'word', 'pdf']);
+// Documents whose words may not be readable (a scanned PDF): then the Player is told.
+const DOCUMENTS: ReadonlySet<ImportKind> = new Set(['word', 'pdf']);
 
 // Kinds of chat from a social app: one event per chat per day, read from one or more files.
 const SOCIAL: ReadonlySet<ImportKind> = new Set(['telegram', 'instagram', 'messenger', 'x-messages', 'tiktok', 'snapchat', 'discord', 'linkedin']);
@@ -137,9 +165,13 @@ const isChat = (head: string) => {
 export function classify(name: string, head: string, inZip: boolean): ImportKind | 'html' | null {
   const t = head.replace(/^﻿/, '').trimStart();
   const lower = name.toLowerCase();
+  if (t.startsWith('%PDF-')) return 'pdf';
+  if (!inZip && /\.(md|markdown)$/.test(lower)) return 'note-file';
   if (t.startsWith('<')) {
     if (/<HealthData[\s>]|<!DOCTYPE HealthData/.test(t)) return 'apple-health';
     if (/<html/i.test(t) && /outer-cell|content-cell|mdl-grid/.test(t)) return GEMINI_PATH.test(name) || /Gemini Apps/.test(t) ? 'gemini' : 'html';
+    // A web page on its own (a note saved as HTML).
+    if (!inZip && /\.html?$/.test(lower)) return 'note-file';
     return null;
   }
   // The X archive's messages: JavaScript that sets a variable to JSON.
@@ -147,6 +179,8 @@ export function classify(name: string, head: string, inZip: boolean): ImportKind
   // JSON: an object, or an array of objects (an iPhone WhatsApp chat starts with "[13/01/24" too).
   if (/^\{|^\[\s*([[{"\]]|$)/.test(t)) {
     if (t.startsWith('{')) {
+      // A Google Keep note: when it was made or changed, in microseconds.
+      if (KEEP_HEAD.test(t) && /"(textContent|listContent|title)"\s*:/.test(t)) return 'keep';
       // Telegram: a full export (who the Player is, then their chats), or one chat on its own.
       if (/"personal_information"\s*:\s*\{/.test(t) && /"user_id"\s*:/.test(t)) return 'telegram';
       if (/"chats"\s*:\s*\{\s*"about"/.test(t) || (TELEGRAM_TYPE.test(t) && /"messages"\s*:\s*\[/.test(t))) return 'telegram';
@@ -163,6 +197,7 @@ export function classify(name: string, head: string, inZip: boolean): ImportKind
       if (/"chat_messages"\s*:/.test(t) && /"uuid"\s*:/.test(t)) return 'claude';
       if (/"mapping"\s*:\s*\{/.test(t) && /"(create_time|current_node|conversation_id)"\s*:/.test(t)) return 'chatgpt';
     }
+    if (FITBIT_FILE.test(name) && FITBIT_HEAD.test(t)) return 'fitbit';
     if (/"semanticSegments"\s*:/.test(t)) return 'maps-timeline';
     if (/^\[\s*\{/.test(t) && /"(startTime|endTime)"\s*:/.test(t) && /"(visit|activity|timelinePath|timelineMemory)"\s*:/.test(t)) return 'maps-timeline';
     if (/"timelineObjects"\s*:/.test(t)) return 'maps-semantic';
@@ -230,12 +265,21 @@ async function look(file: Named, d: Detection, signal?: AbortSignal): Promise<De
     } catch {
       return { ...d, problem: 'unknown' };
     }
+    // A Word document is a zip: its words are in word/document.xml.
+    const body = entries.find((e) => e.name === WORD_BODY);
+    if (body) {
+      const props = entries.find((e) => e.name === WORD_PROPS);
+      const parts = props ? [props, body] : [body];
+      d.found.push({ kind: 'word', path: WORD_BODY, size: parts.reduce((s, e) => s + e.packed, 0), label: KIND_LABEL.word, parts: parts.map((e) => e.name), file: name });
+      return d;
+    }
     let unopenable = 0;
     const social = new Social(name, entries);
+    const files = new FileGroups(entries);
     for (const e of entries) {
       if (signal?.aborted) throw new Cancelled();
       if (!e.size || SKIP.test(e.name)) continue;
-      if (social.take(e) || !LOOK.test(e.name)) continue;
+      if (social.take(e) || files.take(e) || !LOOK.test(e.name)) continue;
       let head: Uint8Array;
       try {
         head = await entryHead(file, e, SNIFF);
@@ -249,6 +293,7 @@ async function look(file: Named, d: Detection, signal?: AbortSignal): Promise<De
       else if (kind) d.found.push(await describe(kind, e.name, e.packed, name, encoding, () => guard(decode(entryBytes(file, e), encoding), signal)));
     }
     d.found.push(...social.found());
+    d.found.push(...files.found(d.found.length));
     // Gemini saved both ways: the JSON is enough.
     if (d.found.some((f) => f.kind === 'gemini' && !/\.html?$/i.test(f.path))) d.found = d.found.filter((f) => f.kind !== 'gemini' || !/\.html?$/i.test(f.path));
     if (!d.found.length) d.problem = html ? 'html' : unopenable ? 'zip-method' : 'unknown';
@@ -260,6 +305,8 @@ async function look(file: Named, d: Detection, signal?: AbortSignal): Promise<De
     else if (kind) {
       const f = await describe(kind, name, file.size, name, encoding, () => guard(decode(fileBytes(file), encoding), signal));
       if (f.kind !== 'bank-csv' || f.csv?.ok) d.found.push(f);
+      // A text file that isn't a statement: a note.
+      else if (/\.txt$/i.test(name)) d.found.push({ kind: 'note-file', path: name, size: file.size, label: KIND_LABEL['note-file'], ...(encoding ? { encoding } : {}) });
     }
     if (!d.found.length) d.problem = html ? 'html' : 'unknown';
   }
@@ -324,6 +371,83 @@ class Social {
   }
 }
 
+// Notes, documents and day totals in a zip, known by where their files are, each kind read as
+// one part: an Obsidian vault (the folder with .obsidian in it), Notion's export (names ending in
+// a long id), Apple Notes (the "iCloud Notes" folder), Google Keep, Fitbit, and Markdown files.
+class FileGroups {
+  private vault: string | null = null; // the folder with .obsidian in it
+  private notion = false;
+  private md: ZipEntry[] = [];
+  private csv: ZipEntry[] = []; // Notion's databases
+  private apple: ZipEntry[] = [];
+  private appleRoot = '';
+  private keep: ZipEntry[] = [];
+  private fitbit: ZipEntry[] = [];
+
+  constructor(entries: ZipEntry[]) {
+    for (const e of entries) {
+      const m = e.name.match(/^(.*?)\.obsidian\//);
+      if (m && (this.vault === null || m[1].length < this.vault.length)) this.vault = m[1];
+      if (NOTION_NAME.test(e.name)) this.notion = true;
+    }
+  }
+
+  // Whether the entry is one of these (and so needs no other look).
+  take(e: ZipEntry): boolean {
+    const n = e.name;
+    // What a Mac adds to a zip it makes: not the Player's files.
+    if (/(^|\/)(__MACOSX\/|\._)/.test(n)) return false;
+    // A vault's settings and its bin.
+    if (/(^|\/)\.(obsidian|trash)\//.test(n)) return true;
+    if (APPLE_NOTES.test(n)) {
+      if (isAppleNote(n)) {
+        const m = n.match(APPLE_NOTES)!;
+        if (!this.apple.length) this.appleRoot = n.slice(0, m.index! + m[0].length);
+        this.apple.push(e);
+      }
+      return true;
+    }
+    if (KEEP_PATH.test(n)) return this.keep.push(e), true;
+    if (FITBIT_FILE.test(n)) return this.fitbit.push(e), true;
+    if (/\.(md|markdown)$/i.test(n)) return this.md.push(e), true;
+    if (this.notion && /\.csv$/i.test(n) && NOTION_NAME.test(n)) return this.csv.push(e), true;
+    return false;
+  }
+
+  // `others`: how many other things the zip has. Markdown files alone are notes; next to other
+  // things (a README in an app's export), they're left out.
+  found(others: number): Found[] {
+    const out: Found[] = [];
+    const byName = (a: ZipEntry, b: ZipEntry) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    const add = (kind: ImportKind, path: string, list: ZipEntry[]) => {
+      if (!list.length) return;
+      out.push({ kind, path, size: list.reduce((s, e) => s + e.packed, 0), label: KIND_LABEL[kind], parts: list.map((e) => e.name) });
+    };
+    const md = this.md.sort(byName);
+    if (this.notion) {
+      // A database written twice: the "_all" one has every row.
+      const all = new Set(this.csv.filter((e) => /_all\.csv$/i.test(e.name)).map((e) => e.name.replace(/_all\.csv$/i, '.csv')));
+      const csv = this.csv.filter((e) => !all.has(e.name)).sort(byName);
+      add('notion', `${commonDir([...md, ...csv])}*.md`, [...md, ...csv]);
+    } else if (this.vault !== null) add('obsidian', `${this.vault}*.md`, md);
+    else if (!others && !this.apple.length && !this.keep.length && !this.fitbit.length) add('notes', `${commonDir(md)}*.md`, md);
+    // Apple's list of notes first, for their dates.
+    const csvFirst = (a: ZipEntry, b: ZipEntry) => Number(/\.csv$/i.test(b.name)) - Number(/\.csv$/i.test(a.name)) || byName(a, b);
+    add('apple-notes', `${this.appleRoot}*.txt`, this.apple.sort(csvFirst));
+    add('keep', `${commonDir(this.keep)}*.json`, this.keep.sort(byName));
+    add('fitbit', `${commonDir(this.fitbit)}*.json`, this.fitbit.sort(byName));
+    return out;
+  }
+}
+
+// The folder all of these are in ("Takeout/Keep/"), or ''.
+function commonDir(list: ZipEntry[]): string {
+  if (!list.length) return '';
+  let dir = list[0].name.slice(0, list[0].name.lastIndexOf('/') + 1);
+  for (const e of list) while (dir && !e.name.startsWith(dir)) dir = dir.slice(0, dir.slice(0, -1).lastIndexOf('/') + 1);
+  return dir;
+}
+
 async function describe(kind: ImportKind, path: string, size: number, outer: string, encoding: string | undefined, read: () => AsyncIterable<string>): Promise<Found> {
   const f: Found = { kind, path, size, label: labelFor(kind, path, outer) };
   if (encoding) f.encoding = encoding;
@@ -344,7 +468,11 @@ async function describe(kind: ImportKind, path: string, size: number, outer: str
 
 // Files whose events are totals for a day: a newer export completes the day the older one was
 // made on, so the store replaces what it has (see ImportOptions.onEvents).
-const TOTALS: ReadonlySet<ImportKind> = new Set(['apple-health', 'whatsapp', ...SOCIAL, ...AI_KINDS]);
+// Notes too: a newer export has the newer words.
+const TOTALS: ReadonlySet<ImportKind> = new Set(['apple-health', 'whatsapp', 'fitbit', ...SOCIAL, ...AI_KINDS, ...NOTE_KINDS]);
+
+// The folder a group of files is in (FileGroups gives it as the part's path: "Vault/*.md").
+const rootOf = (path: string) => (path.includes('*') ? path.slice(0, path.lastIndexOf('*')) : '');
 
 function parserFor(f: Found, input: TextInput, choices: ImportChoices, parts: AsyncIterable<TextInput>): AsyncGenerator<LifeEvent[]> {
   switch (f.kind) {
@@ -390,6 +518,23 @@ function parserFor(f: Found, input: TextInput, choices: ImportChoices, parts: As
       return parseChatGPT(input, choices.chats);
     case 'gemini':
       return parseGemini(input, choices.chats);
+    case 'obsidian':
+      return parseFileNotes(parts, { app: 'Obsidian', root: rootOf(f.path) });
+    case 'notes':
+    case 'note-file':
+      return parseFileNotes(parts, { app: 'Notes', root: f.kind === 'notes' ? rootOf(f.path) : '' });
+    case 'notion':
+      return parseNotion(parts, rootOf(f.path));
+    case 'apple-notes':
+      return parseAppleNotes(parts, rootOf(f.path));
+    case 'keep':
+      return parseKeep(parts);
+    case 'word':
+      return parseWord(parts, f.file);
+    case 'pdf':
+      return parsePdf(input);
+    case 'fitbit':
+      return parseFitbit(parts);
   }
 }
 
@@ -426,6 +571,8 @@ export async function importFile(file: Named, opts: ImportOptions): Promise<Impo
     report();
   };
   const signal = opts.signal;
+  // When the file was last changed: the time of a note that says nothing else.
+  const changed = typeof (file as File).lastModified === 'number' && (file as File).lastModified > 0 ? (file as File).lastModified : undefined;
   try {
     const entries = detection.zip ? new Map((await listZip(file)).map((e) => [e.name, e])) : null;
     for (const f of parts) {
@@ -436,8 +583,11 @@ export async function importFile(file: Named, opts: ImportOptions): Promise<Impo
       const open = (path: string): TextInput | null => {
         const entry = entries?.get(path);
         if (entries && !entry) return null;
-        const bytes = entry ? entryBytes(file, entry, onRead) : fileBytes(file, onRead);
-        return { name: path, text: guard(decode(bytes, f.encoding), signal) };
+        const bytes = () => (entry ? entryBytes(file, entry, onRead) : fileBytes(file, onRead));
+        const one: TextInput = { name: path, text: guard(decode(bytes(), f.encoding), signal), raw: () => guardBytes(bytes(), signal) };
+        const modified = entry?.modified ?? changed;
+        if (modified) one.modified = modified;
+        return one;
       };
       // A part read with others (a chat in a Meta inbox): one that's damaged is left out, and
       // the rest go on.
@@ -445,11 +595,12 @@ export async function importFile(file: Named, opts: ImportOptions): Promise<Impo
       async function* parts(): AsyncGenerator<TextInput> {
         for (const path of f.parts!) {
           const one = open(path);
-          if (one) yield { name: path, text: keepGoing(one.text, (err) => (hurt.err ??= err)) };
+          if (one) yield { ...one, text: keepGoing(one.text, (err) => (hurt.err ??= err)) };
         }
       }
       const input = f.parts ? { name: f.path, text: (async function* () {})() } : open(f.path);
       if (!input) continue;
+      const foundBefore = result.found;
       try {
         for await (const batch of parserFor(f, input, opts, f.parts ? parts() : onePart(input))) {
           if (!batch.length) continue;
@@ -479,6 +630,11 @@ export async function importFile(file: Named, opts: ImportOptions): Promise<Impo
         if (!result.failed.includes(f.label)) result.failed.push(f.label);
       }
       read = before + f.size;
+      // A document with no words Arise can read (a scan): say so, as nothing else will.
+      if (DOCUMENTS.has(f.kind) && result.found === foundBefore) {
+        result.problem ??= 'no-text';
+        continue;
+      }
       if (!result.labels.includes(f.label)) result.labels.push(f.label);
     }
   } catch (err) {
