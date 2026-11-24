@@ -4,6 +4,12 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.32.0',
+    notes: [
+      'Sign in with Google on the web, if you like. You still make an Arise password: it locks your data, so Google can\'t read it. Marked less private, because Google learns you use Arise. Already have an account? Turn it on in Settings, Account, More.',
+    ],
+  },
+  {
     version: '1.31.0',
     notes: [
       'Your plan: Today now plans the rest of your day around your calendar, with hard work in the hours you think best. When your day changes, the plan changes too and says what moved. Tap This week to see the days ahead.',
