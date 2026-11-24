@@ -400,6 +400,9 @@ function senderIn(text: string): string {
 // letters ("AMAZON", "HMRC"). A person's handle is a phone number or an address.
 const machineHandle = (h: string) => !h.includes('@') && digits(h).length < 7;
 
+// How the person a call or message was with is shown: their name as the source kept it.
+export const personName = (e: LifeEvent) => whoOf(e).trim().slice(0, 60);
+
 // The person a call or message was with, or '' when it wasn't someone (the coach, a newsletter,
 // a missed call, a call nobody answered, a text from a company).
 export function personOf(e: LifeEvent): string {

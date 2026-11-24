@@ -23,6 +23,9 @@ export type ImportKind =
   | 'snapchat' // chat_history.json from Snapchat's My Data
   | 'discord' // messages/ in Discord's data package
   | 'linkedin' // messages.csv from LinkedIn's data export
+  | 'claude' // conversations.json from Claude's Export data
+  | 'chatgpt' // conversations.json from ChatGPT's Export data
+  | 'gemini' // My Activity for Gemini Apps in a Google Takeout (JSON, or HTML when there's no JSON)
   | 'bank-csv'; // a bank or card statement saved as CSV
 
 // Which column is which in a bank statement. Columns are counted from 0.
@@ -57,6 +60,15 @@ export interface Found {
   chat?: string; // WhatsApp: who the chat is with, when the file name says
   encoding?: string; // when it isn't UTF-8 (some banks write Windows-1252)
   parts?: string[]; // several entries of a zip read as one, in this order (a Meta inbox, a Discord package)
+  chats?: AiChatInfo[]; // chats with an AI app: each one, to pick from before reading
+}
+
+// One chat with an AI app, as the picker lists it.
+export interface AiChatInfo {
+  id: string; // the app's own id for it (Gemini: the day, as Takeout has no id)
+  title: string;
+  at: number; // its last message, ms
+  n: number; // how many messages
 }
 
 export type Problem =
@@ -89,6 +101,7 @@ export interface ImportChoices {
   paths?: string[]; // only these parts (Found.path); all of them when left out
   profiles?: string[]; // Netflix: only these profiles
   csv?: CsvMapping; // bank statements: the columns, as the Player confirmed them
+  chats?: string[]; // AI apps: only the chats with these ids (AiChatInfo.id); all of them when left out
 }
 
 export interface ImportOptions extends ImportChoices {

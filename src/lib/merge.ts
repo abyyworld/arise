@@ -14,6 +14,7 @@ import type { Checks, Goal, Values } from './goals';
 import { mergeStudy } from './study';
 import { mergeTodos } from './todos';
 import { mergeEvents } from './events';
+import { mergeDecisions, mergeDismissed } from './decisions';
 
 export type CloudCopy = Omit<State, 'active' | 'updatedAt'>;
 
@@ -247,5 +248,7 @@ export function merge(local: CloudCopy, localAt: number, remote: CloudCopy, remo
     study: mergeStudy(local.study, remote.study),
     todos: mergeTodos(local.todos, remote.todos, now),
     events: mergeEvents(local.events, remote.events, now),
+    decisions: mergeDecisions(local.decisions, remote.decisions, now),
+    dismissed: mergeDismissed(local.dismissed, remote.dismissed, now),
   };
 }

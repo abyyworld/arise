@@ -169,3 +169,29 @@ describe('reading a calendar file from another app', () => {
     expect(() => fromIcs('hello', NOW)).toThrow();
   });
 });
+
+describe('to-dos in a calendar file', () => {
+  const file = (body: string) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nX-WR-CALNAME:Hackathons and events\r\n${body}END:VCALENDAR\r\n`;
+  it('come in as to-dos of your own: the title, the day (and time) due, done, and the calendar they came from', () => {
+    const { todos, events } = fromIcs(
+      file(
+        [
+          'BEGIN:VTODO\r\nUID:hx-todo-a@example\r\nDUE;VALUE=DATE:20261124\r\nSUMMARY:Decide 28 Nov: one event\\, or the other \r\n (a folded line)\r\nSTATUS:NEEDS-ACTION\r\nEND:VTODO\r\n',
+          'BEGIN:VTODO\r\nUID:hx-todo-b@example\r\nDUE:20261125T170000Z\r\nSUMMARY:Send the form\r\nEND:VTODO\r\n',
+          'BEGIN:VTODO\r\nUID:hx-todo-c@example\r\nSUMMARY:Done already\r\nSTATUS:COMPLETED\r\nCOMPLETED:20261120T100000Z\r\nEND:VTODO\r\n',
+          'BEGIN:VTODO\r\nUID:hx-todo-d@example\r\nSUMMARY:Called off\r\nSTATUS:CANCELLED\r\nEND:VTODO\r\n',
+          'BEGIN:VTODO\r\nUID:hx-todo-e@example\r\nEND:VTODO\r\n',
+        ].join(''),
+      ),
+      NOW,
+    );
+    expect(events).toEqual([]);
+    expect(todos.map(({ created: _c, at: _a, ...t }) => t)).toEqual([
+      { id: expect.stringMatching(/^i/), title: 'Decide 28 Nov: one event, or the other (a folded line)', day: '2026-11-24', from: 'Hackathons and events' },
+      { id: expect.stringMatching(/^i/), title: 'Send the form', day: '2026-11-25', time: '17:00', from: 'Hackathons and events' },
+      { id: expect.stringMatching(/^i/), title: 'Done already', done: Date.UTC(2026, 10, 20, 10), from: 'Hackathons and events' },
+    ]);
+    // The same file read again makes the same ids, so it changes them instead of adding them twice.
+    expect(fromIcs(file('BEGIN:VTODO\r\nUID:hx-todo-a@example\r\nSUMMARY:Renamed\r\nEND:VTODO\r\n'), NOW).todos[0].id).toBe(todos[0].id);
+  });
+});

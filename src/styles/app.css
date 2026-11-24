@@ -1138,6 +1138,13 @@ body.locked { overflow: hidden; }
 .src-list li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
 .src-name { flex: 1; min-width: 0; display: grid; }
 .src-name small { color: var(--muted); font-size: 14px; }
+/* Import: the AI chats to pick, and the ones in the life log. Long lists scroll in place. */
+.ai-pick-list { list-style: none; margin: 0 0 8px; padding: 0; max-height: 340px; overflow-y: auto; }
+.ai-pick-list .check { margin: 0; padding: 6px 0; }
+.ai-pick-list .check span { min-width: 0; overflow-wrap: anywhere; }
+.ai-chats { margin-top: 10px; }
+.ai-chat-list { max-height: 360px; overflow-y: auto; }
+.ai-chat-list .src-name b { overflow-wrap: anywhere; }
 .life-back-head { justify-content: flex-start; align-items: center; }
 .life-about p + p { margin-top: 8px; }
 .life-note { margin: 10px 0 0; }

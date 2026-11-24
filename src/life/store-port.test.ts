@@ -24,6 +24,17 @@ describe('the life store port', () => {
     expect(await log.getEvent('manual:b')).toBeNull();
   });
 
+  it('reads and deletes everything from one source (the chats from an AI app)', async () => {
+    const port = await import('./store-port');
+    const store = (await port.loadLifeStore())!;
+    const chat = (id: string, source: 'claude' | 'chatgpt'): LifeEvent => ({ id: `${source}:${id}`, source, kind: 'message', at: Date.UTC(2026, 9, 2, 9), title: `Chatted with ${source}`, tier: 3, meta: { conv: id } });
+    await store.addEvents([chat('a', 'claude'), chat('b', 'claude'), chat('c', 'chatgpt')]);
+    expect((await store.eventsFrom!('claude')).map((e) => e.id).sort()).toEqual(['claude:a', 'claude:b']);
+    expect(await store.deleteSource!('claude')).toBe(2);
+    expect(await store.eventsFrom!('claude')).toEqual([]);
+    expect((await store.eventsFrom!('chatgpt')).map((e) => e.id)).toEqual(['chatgpt:c']);
+  });
+
   it('has no store while one is set to none on purpose, until one is set', async () => {
     const port = await import('./store-port');
     port.setLifeStore(null);

@@ -25,6 +25,7 @@ import { EXERCISES } from './program.js';
 import * as S from './store';
 import { normalizePlan, plain } from './lib/clean';
 import * as G from './lib/goals';
+import * as DC from './lib/decisions';
 import * as LC from './lib/life-check';
 import * as Device from './lib/on-device';
 import * as F from './lib/free-ai';
@@ -1623,9 +1624,24 @@ export function signalsFor(e = engine(), compact = false, most = 3) {
   }
 }
 
+// Today's plan and the early warnings, worked out on this device (src/ahead.ts registers itself
+// here): `ahead(cap)` gives only what that AI may read, as { text, tier }.
+let ahead = null;
+export function useAhead(fn) {
+  ahead = fn;
+}
+function aheadFor(e, most = 3) {
+  try {
+    const r = ahead?.(Math.min(memoryCap(e), most));
+    return { text: r?.text || '', tier: r?.tier || 1 };
+  } catch {
+    return { text: '', tier: 1 };
+  }
+}
+
 // The highest tier in what buildContext gives this AI from the life log besides the notes: the
 // profile, what Arise saw and the patterns. A reply made from them carries it.
-const contextTier = (e, compact) => Math.max(memoryProfileTier(e, compact), signalsFor(e, compact).tier, insightFor(e, compact).tier);
+const contextTier = (e, compact) => Math.max(memoryProfileTier(e, compact), signalsFor(e, compact).tier, insightFor(e, compact).tier, aheadFor(e).tier);
 
 // Everything the coach knows, as compact text. Recent weeks in detail; older history by month.
 // `recalled`: what the life log holds for the question being asked (see chat). `e`: the engine it's
@@ -1692,6 +1708,15 @@ export function buildContext({ full = false, compact = false, recalled = '', e =
     out.push('', '## Calendar, next 7 days');
     for (const o of soon.slice(0, compact ? 10 : 30)) out.push(`- ${dayOf(o.start)} ${o.allDay ? (o.lastDay !== o.day ? `all day, to ${o.lastDay}` : 'all day') : `${hm(o.start)}-${hm(o.end)}`}: ${o.title}`);
   }
+
+  // Today's plan and the early warnings (src/ahead.ts), as far as this AI may read them; and the
+  // decisions they made with Arise and how those went (lib/decisions.ts), so advice learns.
+  if (saw) {
+    const a = aheadFor(e, most);
+    if (a.text) out.push('', a.text);
+  }
+  const past = DC.decisionsText(st.decisions, compact ? 3 : 8, Math.min(memoryCap(e), most));
+  if (past) out.push('', past);
 
   const p = st.profile;
   out.push('', '## Profile');
@@ -2229,6 +2254,69 @@ export async function proposeQuests(goal, request = '') {
     ],
   });
   return normalizeQuests(json);
+}
+
+// ---------- decisions (lib/decisions.ts)
+
+const DECISION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['options', 'pick', 'why', 'unknown'],
+  properties: {
+    options: {
+      type: 'array',
+      description: '2 to 4 real options side by side, including ones they did not name if they are worth it (often: wait, or a smaller version).',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'costs', 'gains'],
+        properties: {
+          name: { type: 'string', description: 'A short name, at most 8 words.' },
+          costs: { type: 'string', description: 'What it costs them: time, money, sleep, energy, people. One or two sentences, with real numbers from their data where there are some.' },
+          gains: { type: 'string', description: 'What it moves them toward: which goal, value or person. One or two sentences.' },
+        },
+      },
+    },
+    pick: { type: 'string', description: "The name of the option you would pick, exactly as in options." },
+    why: { type: 'string', description: 'Why, in 2 to 4 short sentences, naming the real things from their data it rests on (a goal, a date, their sleep, a past decision and how it went).' },
+    unknown: { type: 'string', description: "What you don't know that could change the answer, in one or two sentences. Say when you are guessing." },
+  },
+};
+
+// Arise's advice on a choice: the options side by side with what each costs and moves them toward,
+// its pick and why, and what it doesn't know. It reads everything this AI may (their goals,
+// calendar, plan, what Arise saw, the notes the life log holds about the question, and past
+// decisions with how they went). Nothing is saved here: the screen saves what they keep.
+// `tier`: the most private part of the life log the advice was made from.
+export async function adviseDecision(question, details = '', { signal } = {}) {
+  const { context, tier } = await withNotes(`${question} ${details}`.trim());
+  const { json } = await ask({
+    context,
+    effort: 'high',
+    maxTokens: 8000,
+    schema: DECISION_SCHEMA,
+    signal,
+    messages: [
+      {
+        role: 'user',
+        content: `Help me decide.\nMy question: ${question}${details ? `\nMore about it: ${details}` : ''}\n\nRules:\n- Look at everything you know about me first: my goals and their deadlines, my calendar and today's plan, my sleep and energy lately, my money if you can see it, the people involved, what helps me and what costs me, and my past decisions and how they went.\n- Lay out 2 to 4 real options. For each, what it costs me and what it moves me toward, with real details from my data, not general advice.\n- Say which one you would pick and why, honestly, even if it's not what I seem to want. If a goal is costing me too much, say so.\n- Say what you don't know, and when you are guessing.\n- I decide, not you. Plain words, short sentences.`,
+      },
+    ],
+  });
+  const options = (Array.isArray(json?.options) ? json.options : [])
+    .map((o) => DC.cleanOption({ name: plain(o?.name || ''), costs: plain(o?.costs || ''), gains: plain(o?.gains || '') }))
+    .filter(Boolean)
+    .slice(0, 4);
+  if (options.length < 2) throw new AIError('format', `${answerer()} sent an unexpected answer. Try again.`);
+  const pick = plain(json.pick || '').trim();
+  const t = tier();
+  return {
+    options,
+    pick: options.some((o) => o.name === pick) ? pick : '',
+    why: plain(json.why || '').trim().slice(0, 2000),
+    unknown: plain(json.unknown || '').trim().slice(0, 1000),
+    tier: t === 2 || t === 3 ? t : 1,
+  };
 }
 
 // ---------- personalised reminder texts

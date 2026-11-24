@@ -93,7 +93,7 @@ export function createImporter(make: () => WorkerLike | null = defaultWorker): I
     if (opts.signal?.aborted) return Promise.resolve({ found: 0, added: 0, labels: [], cancelled: true });
     const w = get();
     if (!w) return inPage().then((lib) => lib.importFile(file, opts));
-    const { detection, paths, profiles, csv } = opts;
+    const { detection, paths, profiles, csv, chats } = opts;
     return new Promise((resolve, reject) => {
       const id = ++seq;
       let started = false;
@@ -141,7 +141,7 @@ export function createImporter(make: () => WorkerLike | null = defaultWorker): I
             break;
         }
       });
-      w.postMessage({ t: 'import', id, file, choices: { detection, paths, profiles, csv } });
+      w.postMessage({ t: 'import', id, file, choices: { detection, paths, profiles, csv, chats } });
     });
   };
 

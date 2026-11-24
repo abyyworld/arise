@@ -21,6 +21,9 @@ export type LifeSource =
   | 'snapchat'
   | 'discord'
   | 'linkedin' // its messages
+  | 'claude' // chats with AI apps, from each app's own data download
+  | 'chatgpt'
+  | 'gemini'
   | 'email' // Gmail, Outlook
   | 'calendar'
   | 'shortcut' // iPhone Shortcuts automations

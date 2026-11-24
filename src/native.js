@@ -92,6 +92,19 @@ export function eventReminders(now = new Date(), until = S.addDays(S.todayKey(),
     .map((r) => ({ ...EV.reminderText(r, details), at: new Date(r.at) }));
 }
 
+// Where the next-step messages come from (app.js: src/ahead.ts nudges). None until it's set.
+let nudgeSource = () => [];
+export function useNudges(fn) {
+  nudgeSource = fn;
+}
+function nudgeList(now) {
+  try {
+    return (nudgeSource(now.getTime()) || []).filter((n) => n && n.at > now.getTime()).slice(0, 15);
+  } catch {
+    return [];
+  }
+}
+
 // Everything that should be pending right now, soonest first. Done days, football days and rest
 // days get no quest reminders; the journal's come every day (each has its own switch). `open`:
 // the day whose journal a tap opens.
@@ -118,6 +131,9 @@ export function upcoming(now = new Date()) {
   todoReminders(now, S.addDays(today, MORNING_DAYS)).forEach((r, i) => list.push({ id: 6000 + i, ...r }));
   // Your own calendar events' reminders (lib/events.ts), the same way.
   eventReminders(now, S.addDays(today, MORNING_DAYS)).forEach((r, i) => list.push({ id: 7000 + i, ...r }));
+  // Next-step messages from the plan and the early warnings (src/ahead.ts, which app.js hooks in
+  // with useNudges), for the next 3 days: planned again whenever the app opens or the plan changes.
+  nudgeList(now).forEach((r, i) => list.push({ id: 8000 + i, title: r.title, body: r.body, at: new Date(r.at) }));
   list.sort((a, b) => a.at - b.at || a.id - b.id);
   // Within what iOS keeps: the soonest ones, and the note that they stop where they do.
   let stop = timeOn(S.addDays(today, MORNING_DAYS), st.remindAt, '07:00');

@@ -685,14 +685,16 @@ export async function importFile(file) {
     toast("That isn't a calendar file (.ics).");
     return 0;
   }
-  if (!got.events.length) {
-    toast('No events in that file.');
+  if (!got.events.length && !got.todos.length) {
+    toast('No events or to-dos in that file.');
     return 0;
   }
-  const n = S.importEvents(got.events);
+  const n = got.events.length ? S.importEvents(got.events) : 0;
+  const t = got.todos.length ? S.importTodos(got.todos) : 0;
   repaint();
-  toast(`Added ${n} ${n === 1 ? 'event' : 'events'}${got.name ? ` from ${got.name}` : ''}.`);
-  return n;
+  const parts = [n ? `${n} ${n === 1 ? 'event' : 'events'}` : '', t ? `${t} ${t === 1 ? 'to-do' : 'to-dos'}` : ''].filter(Boolean);
+  toast(`Added ${parts.join(' and ') || 'nothing new'}${got.name ? ` from ${got.name}` : ''}.`);
+  return n + t;
 }
 
 // ---------- taps

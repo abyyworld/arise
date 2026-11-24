@@ -9,6 +9,7 @@
 
 import { AHEAD, BACK, eventId, instantToWall, intlZone, parseDuration, parseIcs, parseRule, parseWhen, prop, props, readCalendar, unescape, wallToInstant, zoneName, zones, NotACalendar, type Comp, type Rule, type When } from '../connect/ics';
 import { hash } from '../connect/sink';
+import { cleanTodo, type Todo } from './todos';
 import { cleanEvent, COLORS, deviceZone, localDay, localWall, wallOf, wallText, ALL_DAY_REMIND_AT, type CalEvent, type CalEvents, type Change, type Color, type Repeat } from './events';
 
 const DAY = 86_400_000;
@@ -115,6 +116,7 @@ export function toIcs(events: CalEvents, now = Date.now()): string {
 
 export interface Imported {
   events: CalEvent[];
+  todos: Todo[]; // the file's to-dos (VTODO), as to-dos of your own
   name: string; // the calendar's own name, if it has one
 }
 
@@ -297,5 +299,32 @@ export function fromIcs(text: string, now = Date.now(), tzHere = deviceZone()): 
       if (e) out.push(e);
     }
   }
-  return { events: out, name };
+  // To-dos (VTODO): the title, the day (and time) it's due, and done. The same file read again
+  // changes the to-dos it made, like its events. Cancelled ones are left out.
+  const todos: Todo[] = [];
+  const hhmm = (ms: number) => {
+    const d = new Date(ms);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+  for (const c of cal.comps.filter((x) => x.type === 'VTODO')) {
+    if (cancelled(c)) continue;
+    const dp = prop(c, 'DUE');
+    const due = dp ? parseWhen(dp.value, dp.params) : null;
+    const raw: Record<string, unknown> = { id: idFor(uidOf(c)), title: txt(c, 'SUMMARY').trim(), created: now, at: now };
+    if (due?.date) raw.day = wallText(due.wall, true);
+    else if (due) {
+      const t = momentOf(due);
+      raw.day = localDay(t);
+      raw.time = hhmm(t);
+    }
+    if (/^COMPLETED$/i.test((prop(c, 'STATUS')?.value || '').trim()) || prop(c, 'COMPLETED')) {
+      const cp = prop(c, 'COMPLETED');
+      const cw = cp ? parseWhen(cp.value, cp.params) : null;
+      raw.done = cw ? momentOf(cw) : now;
+    }
+    if (name) raw.from = name;
+    const t = cleanTodo(raw);
+    if (t) todos.push(t);
+  }
+  return { events: out, todos, name };
 }

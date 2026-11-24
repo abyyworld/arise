@@ -60,6 +60,20 @@ async function show(id) {
   } catch {}
 }
 
+// Next-step messages from the plan and the early warnings (src/ahead.ts, hooked in by app.js with
+// useNudges): shown while Arise is open, like the rest here.
+let nudgeSource = () => [];
+export function useNudges(fn) {
+  nudgeSource = fn;
+}
+function nudgesSoon(now) {
+  try {
+    return (nudgeSource(now) || []).filter((n) => n && n.at > now && n.at <= now + AHEAD);
+  } catch {
+    return [];
+  }
+}
+
 // Plans the timers again from the to-dos as they are now. Says which ids it planned.
 export function planAlerts(now = Date.now()) {
   for (const t of timers) clearTimeout(t);
@@ -69,7 +83,10 @@ export function planAlerts(now = Date.now()) {
   for (const { id, at } of due) timers.push(setTimeout(() => void show(id), at - now));
   const evs = eventsSoon(now);
   for (const r of evs) timers.push(setTimeout(() => showEvent(r.tag, r.at), r.at - now));
-  return [...due.map((x) => x.id), ...evs.map((r) => r.tag)];
+  const next = nudgesSoon(now);
+  // Still the same message when its timer fires (the plan may have moved meanwhile).
+  for (const n of next) timers.push(setTimeout(() => nudgesSoon(n.at - 60_000).some((x) => x.tag === n.tag) && void notify(n.title, n.body, n.tag), n.at - now));
+  return [...due.map((x) => x.id), ...evs.map((r) => r.tag), ...next.map((n) => n.tag)];
 }
 
 export function initTodoAlerts() {

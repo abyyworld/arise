@@ -4,6 +4,17 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.31.0',
+    notes: [
+      'Your plan: Today now plans the rest of your day around your calendar, with hard work in the hours you think best. When your day changes, the plan changes too and says what moved. Tap This week to see the days ahead.',
+      'Heads up: early warnings when a deadline is close with nothing done, your sleep is sliding, or someone you talk to most weeks has gone quiet.',
+      'Help me decide: on Coach, ask about a choice. Arise lays out the options with what each costs you, says which it would pick and why, and asks later how it went.',
+      'Next-step messages: a few at the right moment, from your plan. Choose how many a day and when Arise stays quiet, in Settings.',
+      'Bring in your chats with Claude, ChatGPT and Gemini. Pick the ones you want, and delete any of them later.',
+      'Import a calendar file now brings in its to-dos too, with their day and time, on your to-do list.',
+    ],
+  },
+  {
     version: '1.30.0',
     notes: [
       'Calendar: a new tab with month, week, day and list views. Add your own events with times, repeats and reminders, and see your to-dos and other calendars in the same place. Bring events in from a calendar file, or save yours as one. Your events are locked on your device before they sync, and their reminders come from your device only.',

@@ -4,6 +4,7 @@
 
 import { EXERCISES } from './program.js';
 import * as S from './store';
+import * as AHEAD from './ahead-ui.js';
 import * as AI from './ai.js';
 import * as Device from './lib/on-device';
 import * as F from './lib/free-ai';
@@ -867,7 +868,11 @@ const QUICK = [
   },
   { label: 'Hard day', recall: 'the last 2 days', text: 'Today is hard. Help me make it a lighter day: the one smallest thing worth doing, and how to look after myself tonight. No pep talk.' },
   { label: 'Busy week', text: "I'm travelling or my schedule is different this week. Adapt today's and this week's quests to what I can realistically do, and make sure I still rest. Keep it short." },
-  { label: 'I missed days', text: "I missed days recently. Help me restart without guilt: first ask what got in the way if you can't see it in my data, then the smallest version of my quests that keeps me moving this week." },
+  { label: 'I missed days', text: "I missed days recently. Help me restart without guilt: first ask what got in the way if you can't see it in my data, then the smallest version of my quests that keeps me moving this week." },  {
+    label: 'Walk me through today',
+    recall: 'the last 2 days',
+    text: "Look at Arise's plan for today and my early warnings. Is it the best use of my day, given my goals, my calendar, my sleep and energy? Say what you'd change, if anything, and the one thing that matters most today.",
+  },
 ];
 
 let chatState = { busy: false, controller: null, text: '' };
@@ -921,6 +926,7 @@ export function renderCoach(root) {
             ${S.workoutsOn() ? '<button class="quick-btn" data-act="nav" data-v="plan">Personalise my workout plan →</button>' : ''}
           </div>
         </section>
+        ${AHEAD.decideCard()}
         <section class="panel small-print">
           <p class="small">Replies come from ${esc(AI.engineLabel())}. ${
             AI.isPrivate()
