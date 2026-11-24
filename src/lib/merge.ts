@@ -14,6 +14,7 @@ import type { Checks, Goal, Values } from './goals';
 import { mergeStudy } from './study';
 import { mergeTodos } from './todos';
 import { mergeDebts, mergeGroceries } from './everyday';
+import { mergePlaceNames } from './place-names';
 import { mergeEvents } from './events';
 import { mergeDecisions, mergeDismissed } from './decisions';
 import { mergeOwnStorage } from './own-storage';
@@ -255,5 +256,6 @@ export function merge(local: CloudCopy, localAt: number, remote: CloudCopy, remo
     decisions: mergeDecisions(local.decisions, remote.decisions, now),
     dismissed: mergeDismissed(local.dismissed, remote.dismissed, now),
     storage: mergeOwnStorage(local.storage, remote.storage),
+    placeNames: mergePlaceNames(local.placeNames, remote.placeNames, now),
   };
 }

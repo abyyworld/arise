@@ -14,6 +14,7 @@ import * as EV2 from './lib/everyday';
 import * as EV from './lib/events';
 import * as DC from './lib/decisions';
 import * as OS from './lib/own-storage';
+import * as PN from './lib/place-names';
 
 export type { Goal, Quest };
 
@@ -1313,6 +1314,7 @@ export function importData(raw: unknown): number {
   state.todos = TD.mergeTodos(state.todos, data.todos);
   state.debts = EV2.mergeDebts(state.debts, data.debts);
   state.groceries = EV2.mergeGroceries(state.groceries, data.groceries);
+  state.placeNames = PN.mergePlaceNames(state.placeNames, data.placeNames);
   state.events = EV.mergeEvents(state.events, data.events);
   state.decisions = DC.mergeDecisions(state.decisions, data.decisions);
   state.dismissed = DC.mergeDismissed(state.dismissed, data.dismissed);
@@ -1407,6 +1409,20 @@ export function removeTodo(id: string) {
   if (!t || t.gone) return;
   state.todos = TD.cleanTodos({ ...state.todos, [id]: { id, title: '', created: t.created, at: Date.now(), gone: true } });
   save();
+}
+
+// ---------- names for places (lib/place-names.ts): "Home", "Lab", synced with the rest
+
+export const placeNames = () => state.placeNames;
+
+// Names the place kept under `key` (no name: takes its name away). False if the key isn't a place.
+export function namePlace(key: string, name: string): boolean {
+  const next = PN.setPlaceName(state.placeNames, key, name);
+  if (!next) return false;
+  if (next === state.placeNames) return true;
+  state.placeNames = next;
+  save();
+  return true;
 }
 
 // ---------- money owed and groceries (lib/everyday.ts)

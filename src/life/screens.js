@@ -26,6 +26,7 @@ import { WAITS, byText } from './strength';
 import { CHECKIN, hasCheckin } from '../lib/life-check';
 import { hasLifeStore } from './store-port';
 import { hasSpot } from './location';
+import { withPlaceNames } from '../lib/place-names';
 import { MOODS, isTextFile, noteWithFile, setFileStore, sizeText } from './quick-note';
 import * as FILES from './files';
 
@@ -235,7 +236,7 @@ export function renderDays(root) {
   root.innerHTML = `
     <header class="page-head">
       <div><p class="kicker">Your life log</p><h1 class="display">Your days</h1></div>
-      <button class="btn small ghost" data-act="nav" data-v="knows">${icon('system')} What Arise knows</button>
+      <div class="row"><button class="btn small ghost" data-act="nav" data-v="places">${icon('pin')} Your places</button><button class="btn small ghost" data-act="nav" data-v="knows">${icon('system')} What Arise knows</button></div>
     </header>
     ${HUB.entryRow()}
     <div class="cols">
@@ -294,6 +295,7 @@ async function fillDay() {
   try {
     await M.load().catch(() => {});
     [events, journal] = await Promise.all([L.eventsBetween(dayStart(k), dayEnd(k), { limit: 5000 }), M.journalView(k).catch(() => null)]);
+    events = withPlaceNames(events, S.placeNames()); // "At Home for 2 h", with the names they gave places
   } catch (err) {
     const box = el();
     if (box) box.innerHTML = `<p class="error small">${esc(lifeError(err))}</p>`;
