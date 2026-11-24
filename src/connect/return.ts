@@ -9,6 +9,16 @@ export const PENDING = 'arise-connect-pending';
 export const RETURN = 'arise-connect-return';
 export const CHANNEL = 'arise-connect';
 
+// Where a sign-in waits and comes back: linking an account (above), or signing in to Arise with
+// Google (account.ts), kept apart so neither picks up the other's answer.
+export interface Keys {
+  pending: string;
+  ret: string;
+  channel: string;
+}
+export const CONNECT: Keys = { pending: PENDING, ret: RETURN, channel: CHANNEL };
+export const SIGNIN: Keys = { pending: 'arise-signin-pending', ret: 'arise-signin-return', channel: 'arise-signin' };
+
 export interface Back {
   state: string;
   params: string;
@@ -19,7 +29,7 @@ export interface Back {
 export function isOAuthReturn(hash: string): boolean {
   if (!hash.startsWith('#')) return false;
   const p = new URLSearchParams(hash.slice(1));
-  return !!p.get('state') && (p.has('access_token') || p.has('code') || p.has('error'));
+  return !!p.get('state') && (p.has('access_token') || p.has('id_token') || p.has('code') || p.has('error'));
 }
 
 // True when this window was only the sign-in pop-up: it passes the answer on and closes, and
@@ -30,18 +40,26 @@ export function handleOAuthReturn(): boolean {
   const state = new URLSearchParams(params).get('state') || '';
   history.replaceState(null, '', `${location.pathname}${location.search}#settings`);
   let pending: { state?: string; mode?: string } | null = null;
-  try {
-    pending = JSON.parse(localStorage.getItem(PENDING) || 'null');
-  } catch {}
+  let keys = CONNECT;
+  for (const k of [CONNECT, SIGNIN]) {
+    try {
+      const p = JSON.parse(localStorage.getItem(k.pending) || 'null');
+      if (p?.state === state) {
+        pending = p;
+        keys = k;
+        break;
+      }
+    } catch {}
+  }
   // Not a sign-in this device started: ignored, and the app starts as usual.
   if (!pending || pending.state !== state) return false;
   const back: Back = { state, params, at: Date.now() };
   try {
-    localStorage.setItem(RETURN, JSON.stringify(back));
+    localStorage.setItem(keys.ret, JSON.stringify(back));
   } catch {}
-  if (pending.mode !== 'popup') return false; // the app picks it up as it starts (see connect/index.ts)
+  if (pending.mode !== 'popup') return false; // the app picks it up as it starts (connect/engine.ts, sync.ts)
   try {
-    const ch = new BroadcastChannel(CHANNEL);
+    const ch = new BroadcastChannel(keys.channel);
     ch.postMessage(back);
     ch.close();
   } catch {}

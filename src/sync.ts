@@ -23,6 +23,7 @@ import { SHARE_OFF } from './lib/share';
 import { holdsOwnData as lifeLogHoldsData } from './life/log';
 import { mustSignOut } from './lib/session-cut';
 import { esc, icon, openSheet, closeSheet, toast } from './ui.js';
+import * as GSI from './signin-google';
 
 export const configured = A.configured;
 
@@ -106,6 +107,8 @@ export const status = {
   pending: null as A.Setup | null, // codes the Player still has to save
   pendingFor: '', // whose codes they are
   more: '' as '' | 'password' | 'code' | 'way' | 'delete' | 'everywhere',
+  // Signed in with Google or Microsoft, waiting for the Arise password (`fresh`: to make one).
+  with: null as null | { p: A.Provider; user: A.User; fresh: boolean },
 };
 
 const readMeta = (): Meta => {
@@ -754,18 +757,29 @@ async function enter(kind: 'in' | 'up', values: Values) {
     // only if the Player says so; otherwise it goes into the new account. With nothing of the
     // Player's own in it (that account's settings at most, and what the app wrote by itself),
     // nothing is lost: the new account starts without it, and no question.
-    const { other, synced } = otherAccount(result.user.uid, h, { signUp: true });
-    const leftover = !!h.owner && !h.orphan && !h.same && !S.hasOwnData() && !h.life;
-    const replaced = leftover || (other && confirm(`This device has data from another account. Start your new account empty?${lostText(synced, h.lifeLost)}\n\nChoose Cancel to copy this device's data into your new account instead.`));
-    if (replaced) await replaceHere();
-    await LIFE.joining(result.user.uid, h.owner);
-    await signedIn(result, { replaced });
-    if (!status.error) toast('Account created. Your data is encrypted and backed up.');
+    await afterSignUp(result, h);
     return;
   }
   startDeciding();
   const h = await holder(v('id'));
   const result = await A.signIn(v('id').trim(), v('password'), knows);
+  await afterSignIn(result, h);
+}
+
+// After a new account was made: this device's data goes into it, unless it's another account's
+// and the Player says to start empty.
+async function afterSignUp(result: A.Result, h: Awaited<ReturnType<typeof holder>>) {
+  const { other, synced } = otherAccount(result.user.uid, h, { signUp: true });
+  const leftover = !!h.owner && !h.orphan && !h.same && !S.hasOwnData() && !h.life;
+  const replaced = leftover || (other && confirm(`This device has data from another account. Start your new account empty?${lostText(synced, h.lifeLost)}\n\nChoose Cancel to copy this device's data into your new account instead.`));
+  if (replaced) await replaceHere();
+  await LIFE.joining(result.user.uid, h.owner);
+  await signedIn(result, { replaced });
+  if (!status.error) toast('Account created. Your data is encrypted and backed up.');
+}
+
+// After signing in to an account that has its keys: the question about this device's data first.
+async function afterSignIn(result: A.Result, h: Awaited<ReturnType<typeof holder>>) {
   // The password was set from a reset email (Email reset): Firebase has this one now.
   const reset = 'reset' in result && !!result.reset;
   const { other, remade, deleted, synced } = otherAccount(result.user.uid, h);
@@ -791,8 +805,123 @@ async function enter(kind: 'in' | 'up', values: Values) {
   if (!status.error && !status.repair) toast(reset ? "Password changed. You're signed in." : 'Signed in. Your data is synced.');
 }
 
+// ---------- with Google or Microsoft (account.ts: a second way into an email account)
+
+const native = () => !!(globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.();
+export const providers = () => A.providers(native());
+
+// After the pop-up (signin-google.ts): Firebase signs in with Google's ID token. Until the Arise
+// password is typed no sync runs (the question about this device's data comes after it), and
+// closing the app in between undoes this sign-in (see dropUnanswered).
+async function startWith(p: A.Provider, idToken: string) {
+  await A.load(onUser);
+  await dropUnanswered();
+  if (A.currentUid() && A.currentUid() !== readMeta().uid) {
+    await A.signOut();
+    status.user = null;
+  }
+  startDeciding();
+  try {
+    const r = await A.signInWith(p, idToken);
+    status.with = { p, ...r };
+  } catch (err) {
+    doneDeciding();
+    throw err;
+  }
+}
+
+// A sign-in with Google that came back to this page (the whole page went to Google).
+async function resumeWith() {
+  let token: string | null = null;
+  try {
+    token = GSI.pickUpGoogle();
+  } catch (err) {
+    status.error = A.friendly(err);
+  }
+  if (!token) return;
+  try {
+    await startWith('google', token);
+  } catch (err) {
+    status.error = A.friendly(err);
+  }
+  hooks.render();
+}
+
+async function cancelWith() {
+  status.with = null;
+  await A.signOut().catch(() => {});
+  status.user = null;
+  doneDeciding();
+}
+
+// The Arise password, after the pop-up: makes the account's keys, or opens them on this device.
+// A wrong password keeps the step open (and still no sync).
+async function finishWith(values: Values) {
+  const v = (name: string) => values[name] ?? '';
+  const w = status.with;
+  if (!w) return;
+  status.busy = true;
+  status.error = '';
+  hooks.render();
+  try {
+    startDeciding();
+    const h = await holder(w.user.id);
+    if (w.fresh) {
+      if (v('password') !== v('password2')) throw new A.AccountError('mismatch', "The two passwords don't match.");
+      const result = await A.makeWith(w.user, v('password'));
+      status.with = null;
+      await afterSignUp(result, h);
+    } else {
+      const result = await A.unlockWith(w.user, v('password'));
+      status.with = null;
+      await afterSignIn(result, h);
+    }
+    doneDeciding();
+  } catch (err) {
+    status.error = A.friendly(err);
+    if (!A.currentUid() || A.currentUid() !== w.user.uid) {
+      status.with = null;
+      doneDeciding();
+    }
+  }
+  status.busy = false;
+  hooks.render();
+}
+
+const withButtons = (verb: string) => {
+  const list = providers();
+  if (!list.length) return '';
+  return `<div class="stack with">
+      ${list.map((p) => `<button class="btn ghost" type="button" data-act="sync-with" data-v="${p}">${verb} with ${A.PROVIDER_NAME[p]}</button>`).join('')}
+      <p class="muted small"><span class="tag">Less private</span> ${esc(list.map((p) => A.PROVIDER_NAME[p]).join(' or '))} learns that you use Arise. You still make an Arise password: it locks your data, so Google can't open it.</p>
+    </div>`;
+};
+
+function withPanel(err: string, busy: boolean) {
+  const w = status.with!;
+  const name = A.PROVIDER_NAME[w.p];
+  return `<section class="panel" id="accountPanel">${title}
+    ${
+      w.fresh
+        ? `<p>Signed in with ${esc(name)} as <b>${esc(w.user.id)}</b>. Now make your Arise password. It locks your data on this device before it leaves, so ${esc(name)} can't read it. On the phone apps you sign in with this email and this password.</p>`
+        : `<p>Signed in with ${esc(name)} as <b>${esc(w.user.id)}</b>. Type your Arise password once to unlock your data on this device.</p>`
+    }
+    <form class="stack" data-form="with">
+      ${
+        w.fresh
+          ? `${field('password', 'Arise password', 'password', `required minlength="${A.MIN_PASSWORD}" autocomplete="new-password" placeholder="At least ${A.MIN_PASSWORD} characters"`)}${field('password2', 'Arise password again', 'password', 'required autocomplete="new-password"')}
+             <p class="muted small">Make it one you don't use anywhere else. You'll get a recovery code next, in case you forget it.</p>`
+          : field('password', 'Arise password', 'password', 'required autocomplete="current-password"')
+      }
+      ${err}
+      <button class="btn primary" type="submit" ${busy ? 'disabled' : ''}>${busy ? 'Encrypting…' : w.fresh ? 'Create account' : 'Unlock'}</button>
+    </form>
+    <div class="row"><button class="link small" data-act="sync-with-cancel">Cancel</button></div></section>`;
+}
+
 function onUser(u: A.User | null) {
   if (u?.uid !== status.user?.uid) status.way = status.notice = '';
+  if (!u || (status.with && u.uid !== status.with.user.uid)) status.with = null;
   status.user = u;
   status.loading = false;
   hooks.render();
@@ -1146,6 +1275,7 @@ export function panel(): string {
   const busy = status.busy || status.loading;
   if (status.loading && !u) return `<section class="panel" id="accountPanel">${title}<p class="muted">Loading…</p></section>`;
 
+  if (status.with) return withPanel(err, busy);
   if (u && status.repair) {
     return `<section class="panel" id="accountPanel">${title}
       ${
@@ -1208,6 +1338,13 @@ export function panel(): string {
           <button class="link small" data-act="sync-more" data-v="code">Make a new recovery code</button>
           ${A.usesCode(u.id) ? '' : '<button class="link small" data-act="sync-more" data-v="way">How you get back in if you forget your password</button>'}
           <button class="link small" data-act="sync-more" data-v="everywhere">Sign out of all devices</button>
+          ${providers()
+            .map((p) =>
+              A.linked().includes(p)
+                ? `<button class="link small" data-act="sync-unlink" data-v="${p}">Stop signing in with ${A.PROVIDER_NAME[p]}</button>`
+                : `<button class="link small" data-act="sync-link" data-v="${p}">Also sign in with ${A.PROVIDER_NAME[p]} (less private)</button>`,
+            )
+            .join('')}
           ${more}
           <p class="muted small">Your account ID: <code class="account-id">${esc(status.user!.uid)}</code></p>
           <button class="btn ghost small" data-act="sync-out-clear">Sign out and remove my data from this device</button>
@@ -1263,6 +1400,7 @@ export function panel(): string {
         ${err}
         <button class="btn primary" type="submit" ${busy ? 'disabled' : ''}>${busy ? 'Encrypting…' : 'Create account'}</button>
       </form>
+      ${status.noEmail ? '' : withButtons('Sign up')}
       <div class="row"><button class="link small" data-act="sync-form" data-v="in">Already have an account? Sign in</button></div></section>`;
   }
   return `<section class="panel" id="accountPanel">${title}
@@ -1273,6 +1411,7 @@ export function panel(): string {
       ${err}
       <button class="btn primary" type="submit" ${busy ? 'disabled' : ''}>${busy ? 'Unlocking…' : 'Sign in'}</button>
     </form>
+    ${withButtons('Continue')}
     <div class="row">
       <button class="link small" data-act="sync-form" data-v="up">New here? Create an account</button>
       <button class="link small" data-act="sync-form" data-v="recover">Forgot password?</button>
@@ -1332,6 +1471,30 @@ export async function handleAction(act: string, el?: HTMLElement): Promise<boole
       case 'sync-kind':
         status.noEmail = el?.dataset.v === 'code';
         break;
+      case 'sync-with': {
+        const p = el?.dataset.v as A.Provider;
+        if (!providers().includes(p)) return true;
+        status.error = '';
+        await startWith(p, await GSI.askGoogle()); // the pop-up opens first, straight from the tap
+        break;
+      }
+      case 'sync-with-cancel':
+        await cancelWith();
+        break;
+      case 'sync-link': {
+        const p = el?.dataset.v as A.Provider;
+        if (!providers().includes(p)) return true;
+        await A.link(p, await GSI.askGoogle());
+        toast(`You can sign in with ${A.PROVIDER_NAME[p]} too now. Your password still unlocks your data.`);
+        break;
+      }
+      case 'sync-unlink': {
+        const p = el?.dataset.v as A.Provider;
+        if (!confirm(`Stop signing in with ${A.PROVIDER_NAME[p]}? Your email and password still work.`)) return true;
+        await A.unlinkProvider(p);
+        toast(`${A.PROVIDER_NAME[p]} sign-in is off.`);
+        break;
+      }
       case 'sync-more':
         status.more = status.more === el?.dataset.v ? '' : ((el?.dataset.v as typeof status.more) ?? '');
         status.error = '';
@@ -1403,6 +1566,7 @@ document.addEventListener('submit', (e) => {
 
 // What the account forms do (kept apart from the page so it can be tested on its own).
 export async function submit(kind: string, values: Values) {
+  if (kind === 'with') return finishWith(values);
   const v = (name: string) => values[name] ?? '';
   status.busy = true;
   status.error = '';
@@ -1545,6 +1709,8 @@ export function initSync(h: Partial<typeof hooks>): Promise<void> {
     if (status.user && !status.locked) syncNow();
     else if (status.user) void checkCut();
   });
+  // A sign-in with Google that came back to this page (an iPhone's Home Screen app).
+  void resumeWith();
   // Only load Firebase at start if this device was signed in before.
   const meta = readMeta();
   if (!meta.uid && !meta.deleting && !meta.asking) return Promise.resolve();

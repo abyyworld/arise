@@ -9,12 +9,12 @@
 // everything Arise keeps), which Arise's rules don't allow (index.html). This is the same
 // standard flow it runs, written out.
 
-import { CHANNEL, PENDING, RETURN, type Back } from './return';
+import { CONNECT, type Back, type Keys } from './return';
 import type { ServiceId } from './state';
 
 export interface Pending {
   state: string;
-  service: ServiceId;
+  service: ServiceId | 'signin';
   mode: 'popup' | 'redirect';
   verifier?: string; // PKCE (Microsoft)
   parts: string[];
@@ -52,41 +52,41 @@ function read<T>(key: string): T | null {
     return null;
   }
 }
-const clear = () => {
+const clear = (k: Keys = CONNECT) => {
   try {
-    localStorage.removeItem(PENDING);
-    localStorage.removeItem(RETURN);
+    localStorage.removeItem(k.pending);
+    localStorage.removeItem(k.ret);
   } catch {}
 };
 
 // The answer for the sign-in this device started, once, if it's there and fresh.
-export function takeReturn(state?: string): Done | null {
-  const p = read<Pending>(PENDING);
-  const back = read<Back>(RETURN);
+export function takeReturn(state?: string, k: Keys = CONNECT): Done | null {
+  const p = read<Pending>(k.pending);
+  const back = read<Back>(k.ret);
   if (!p || !back || typeof back.params !== 'string' || back.state !== p.state || (state && p.state !== state)) return null;
-  clear();
+  clear(k);
   if (Date.now() - (p.at || 0) > MAX_AGE) return null;
   return { pending: p, params: new URLSearchParams(back.params) };
 }
 
 let cancelWait: (() => void) | null = null;
 
-export function cancel() {
+export function cancel(k: Keys = CONNECT) {
   cancelWait?.();
-  clear();
+  clear(k);
 }
 
 // Starts a sign-in. Must run straight from the tap (browsers only allow a pop-up then), so the
 // pop-up opens before anything else. `build` makes the sign-in address. Resolves with the answer
 // in pop-up mode; in redirect mode the page leaves, and the app picks it up when it comes back.
-export async function begin(service: ServiceId, parts: string[], build: (o: { state: string; challenge?: string }) => string, { pkce = false } = {}): Promise<Done> {
+export async function begin(service: ServiceId | 'signin', parts: string[], build: (o: { state: string; challenge?: string }) => string, { pkce = false, keys: k = CONNECT }: { pkce?: boolean; keys?: Keys } = {}): Promise<Done> {
   cancelWait?.(); // a sign-in started earlier and never finished
-  const popup = iosHomeScreen() ? null : window.open('', 'arise-connect', 'popup=yes,width=520,height=700');
+  const popup = iosHomeScreen() ? null : window.open('', k.channel, 'popup=yes,width=520,height=700');
   const p: Pending = { state: randomString(16), service, mode: popup ? 'popup' : 'redirect', parts, at: Date.now() };
   if (pkce) p.verifier = randomString(32);
   try {
-    localStorage.setItem(PENDING, JSON.stringify(p));
-    localStorage.removeItem(RETURN);
+    localStorage.setItem(k.pending, JSON.stringify(p));
+    localStorage.removeItem(k.ret);
   } catch {}
   const url = build({ state: p.state, challenge: p.verifier ? await challenge(p.verifier) : undefined });
   if (!popup) {
@@ -94,12 +94,12 @@ export async function begin(service: ServiceId, parts: string[], build: (o: { st
     return new Promise<Done>(() => {}); // the page goes to the sign-in
   }
   popup.location.href = url;
-  return wait(p.state);
+  return wait(p.state, k);
 }
 
 // Waits for the pop-up's answer: a message on this device's channel, a change in storage, or
 // (as a backstop) a look every second.
-function wait(state: string, timeout = 10 * 60_000): Promise<Done> {
+function wait(state: string, k: Keys = CONNECT, timeout = 10 * 60_000): Promise<Done> {
   return new Promise<Done>((resolve, reject) => {
     let ch: BroadcastChannel | null = null;
     const stop = () => {
@@ -110,19 +110,19 @@ function wait(state: string, timeout = 10 * 60_000): Promise<Done> {
       cancelWait = null;
     };
     const check = () => {
-      const done = takeReturn(state);
+      const done = takeReturn(state, k);
       if (done) {
         stop();
         resolve(done);
       }
     };
     try {
-      ch = new BroadcastChannel(CHANNEL);
+      ch = new BroadcastChannel(k.channel);
       ch.onmessage = (e) => {
         const back = e.data as Back;
         if (back?.state !== state) return;
         try {
-          localStorage.setItem(RETURN, JSON.stringify(back));
+          localStorage.setItem(k.ret, JSON.stringify(back));
         } catch {}
         check();
       };

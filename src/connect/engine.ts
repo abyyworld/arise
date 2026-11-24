@@ -160,6 +160,7 @@ export function syncDue(now = Date.now()) {
 export async function finish(done: Done): Promise<boolean> {
   const { pending, params } = done;
   const id = pending.service;
+  if (id === 'signin') return false; // signing in to Arise (signin-google.ts), not a linked account
   const problem = returnError(params);
   if (problem) {
     hooks.toast(problem);

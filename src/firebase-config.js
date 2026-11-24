@@ -10,3 +10,10 @@ export const FIREBASE = {
   messagingSenderId: '539982857665',
   appId: '1:539982857665:web:e58084356bffa686625b40',
 };
+
+// Sign in with Google (account.ts, signin-google.ts): the Web client ID that Firebase made for
+// its Google sign-in (Firebase console, Authentication, Sign-in method, Google, Web SDK
+// configuration), with https://abyyworld.github.io/arise/ among its redirect addresses in Google
+// Cloud (APIs & Services, Credentials). '' hides it. Not a secret: it only names the app. Web only:
+// the phone apps sign in with email and password.
+export const SIGN_IN_WITH = { google: '539982857665-kcaulqo1jpg84hq35o26oosve6c2vcd1.apps.googleusercontent.com' };

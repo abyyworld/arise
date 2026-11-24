@@ -32,7 +32,7 @@
 import * as C from './lib/crypto';
 import * as K from './lib/keystore';
 import { parseCut, type Cut } from './lib/session-cut';
-import { FIREBASE } from './firebase-config.js';
+import { FIREBASE, SIGN_IN_WITH } from './firebase-config.js';
 
 type FB = typeof import('./lib/firebase');
 type FBUser = import('firebase/auth').User;
@@ -315,6 +315,83 @@ export async function signUp({ email, password, noEmail, byEmail }: { email?: st
     throw err;
   }
   return { user, setup: { ...setup, ...(noEmail ? { accountCode: user.id } : {}) } };
+}
+
+// ---------- sign in with Google (web only, opt-in, less private)
+//
+// A second way into a normal email account, never a way around its password: Google only proves
+// who is signing in to Firebase (an ID token from signin-google.ts, with no Google script in
+// Arise). The data key stays wrapped by the Arise password (and the recovery code), so it still
+// has to be typed once on each device, and neither Google, nor anyone who gets into that Google
+// account, can open the data. Google does learn that the person uses Arise, which is why it's
+// marked less private.
+//
+// A new account made this way gets the email login too (the same email, and the value derived
+// from the Arise password, like any email account), so the phone apps sign in with email and
+// password as usual. For an existing account whose login Firebase took away when Google signed
+// in with the same email (it does that for an email it hasn't verified), unlocking puts the
+// email login back (see unlockWith).
+
+export type Provider = 'google';
+export const PROVIDER_NAME: Record<Provider, string> = { google: 'Google' };
+const PROVIDER_ID: Record<Provider, string> = { google: 'google.com' };
+// The ones set up (firebase-config.js), in a browser only.
+export const providers = (native = false): Provider[] => (native || !configured || !SIGN_IN_WITH?.google ? [] : ['google']);
+
+const credentialOf = (_p: Provider, idToken: string) => fb!.GoogleAuthProvider.credential(idToken);
+
+// Which of these the signed-in login can use.
+export function linked(): Provider[] {
+  const ids = new Set((auth?.currentUser?.providerData || []).map((x) => x.providerId));
+  return (Object.keys(PROVIDER_ID) as Provider[]).filter((p) => ids.has(PROVIDER_ID[p]));
+}
+const hasPasswordLogin = () => (auth?.currentUser?.providerData || []).some((x) => x.providerId === 'password');
+
+// Signs in to Firebase with the ID token. `fresh`: no Arise account behind this login yet (make
+// one with makeWith).
+export async function signInWith(p: Provider, idToken: string): Promise<{ user: User; fresh: boolean }> {
+  const cred = await fb!.signInWithCredential(auth!, credentialOf(p, idToken));
+  const user = userOf(cred.user);
+  if (!user.email) {
+    await fb!.signOut(auth!).catch(() => {});
+    throw new AccountError('no-email', `${PROVIDER_NAME[p]} didn't share an email address, so Arise can't make an account with it. Sign up with an email instead.`);
+  }
+  return { user, fresh: !(await readKeys(user.uid)) };
+}
+
+// A new account behind a login made with Google: the Arise password wraps a new data key (with a
+// recovery code, as always), and becomes the email login's password too.
+export async function makeWith(user: User, password: string): Promise<Result> {
+  checkNewPassword(password, user.id);
+  const master = await C.deriveMaster(password, user.id);
+  const current = auth!.currentUser;
+  if (current?.uid !== user.uid) throw new AccountError('signed-out', 'You were signed out on this device. Sign in again, then try again.');
+  if (await readKeys(user.uid)) throw new AccountError('exists', 'This account was set up on another device meanwhile. Type its Arise password instead.');
+  if (!hasPasswordLogin()) await fb!.linkWithCredential(current, fb!.EmailAuthProvider.credential(user.email, master.auth));
+  return { user, setup: await createKeys(user, master) };
+}
+
+// An account that has its keys: the Arise password opens them here. Puts the email login back if
+// Firebase took it away (see above): the same derived value, so nothing else changes.
+export async function unlockWith(user: User, password: string): Promise<Result> {
+  const result = await unlock(user, password);
+  if (!hasPasswordLogin() && auth!.currentUser?.uid === user.uid) {
+    const master = await C.deriveMaster(password, user.id);
+    await fb!.linkWithCredential(auth!.currentUser, fb!.EmailAuthProvider.credential(user.email, master.auth)).catch(() => {});
+  }
+  return result;
+}
+
+// Signed in already: let Google sign in to this account too, or not any more.
+export async function link(p: Provider, idToken: string) {
+  if (!auth?.currentUser) throw new AccountError('signed-out', 'Sign in first.');
+  await fb!.linkWithCredential(auth.currentUser, credentialOf(p, idToken));
+}
+export async function unlinkProvider(p: Provider) {
+  if (!auth?.currentUser) throw new AccountError('signed-out', 'Sign in first.');
+  // Never the last way in: the email login stays.
+  if (!hasPasswordLogin()) throw new AccountError('last-login', 'Unlock your data with your password once first, so your email and password still work.');
+  await fb!.unlink(auth.currentUser, PROVIDER_ID[p]);
 }
 
 // Pending state when the password works but the data key can't be opened with it (the password
@@ -691,8 +768,14 @@ export function friendly(err: unknown): string {
     'not-found': 'The cloud database has not been created in the Firebase project yet.',
     unavailable: "Couldn't reach the cloud. It will sync when you are back online.",
     'wrong-key': "That password isn't right.",
+    'auth/account-exists-with-different-credential': 'There is already an Arise account with that email. Sign in with your email and password, then turn this on in Account.',
+    'auth/credential-already-in-use': 'That account is already used by another Arise account.',
+    'auth/provider-already-linked': 'That is already turned on for this account.',
+    'auth/unauthorized-domain': 'This address is not allowed to sign in with that yet. Use your email and password.',
+    'auth/invalid-idp-response': "Google's answer didn't work. Try again.",
     'bad-code': "That recovery code doesn't look right. It has 32 letters and numbers.",
   };
   if (/api-key-not-valid/.test(code)) return 'The Firebase settings in the app are wrong.';
+  if (e?.message === 'cancelled' || e?.message === 'timeout') return 'The sign-in window was closed before it finished.';
   return map[code] || e?.message || 'Something went wrong.';
 }
