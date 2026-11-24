@@ -141,7 +141,7 @@ function connectSheet(id: ServiceId) {
       ${partBoxes('google')}
       <p class="muted small"><span class="tag less">Less private</span> ${esc(DRIVE_NOTE)}</p>
       <p class="muted small">Google asks you to sign in and say yes. Arise reads straight from Google and keeps what it gets on this device.</p>
-      ${GOOGLE.testing ? "<p class=\"muted small\">Arise's Google access is still in test mode: only people Arise's owner adds can connect, and Google asks you to say yes again every 7 days.</p>" : ''}
+      ${GOOGLE.testing ? "<p class=\"muted small\">Google hasn't checked Arise's access yet, so it shows a warning first: tap Advanced, then Go to Arise. Arise only reads, and only what you pick here.</p>" : ''}
       <p class="error small" id="acctErr" role="alert" hidden></p>
       <button class="btn primary block" data-act="acct-go" data-s="google">Continue to Google</button>`);
   } else if (id === 'microsoft') {

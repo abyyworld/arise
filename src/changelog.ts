@@ -4,6 +4,12 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.35.1',
+    notes: [
+      'Google is here: link your Google Calendar, Gmail (who wrote, the subject and a short preview, never the whole email) and Drive files you pick, in Setup and connections. Google shows a warning first because it has not checked Arise yet: tap Advanced, then Go to Arise.',
+    ],
+  },
+  {
     version: '1.35.0',
     notes: [
       'See where your time goes on a map: tap a place for its visits and time, and give it a name like Home or Lab. The map is drawn on your device; the street map underneath is optional.',
