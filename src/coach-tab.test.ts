@@ -64,6 +64,7 @@ describe('the Coach tab', () => {
   it('offers quick actions about the whole of life, and the workout plan only to people who use it', async () => {
     await boot('coach');
     expect($$('.quick [data-act="ai-quick"]').map((b) => b.textContent!.trim())).toEqual([
+      'Walk me through today',
       'Review my week',
       'What helps me?',
       'Deep review of everything all data',

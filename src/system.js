@@ -4,6 +4,7 @@
 
 import { EXERCISES } from './program.js';
 import * as S from './store';
+import * as AHEAD from './ahead-ui.js';
 import * as AI from './ai.js';
 import * as Device from './lib/on-device';
 import * as F from './lib/free-ai';
@@ -840,6 +841,11 @@ async function reflectToday(btn) {
 // question's own words.
 const QUICK = [
   {
+    label: 'Walk me through today',
+    recall: 'the last 2 days',
+    text: "Look at Arise's plan for today and my early warnings. Is it the best use of my day, given my goals, my calendar, my sleep and energy? Say what you'd change, if anything, and the one thing that matters most today.",
+  },
+  {
     label: 'Review my week',
     recall: 'the last 7 days',
     text: "Review my last 7 days as a whole: sleep, energy and mood, the people I saw, how I spent my time, and my goals. What went well, what didn't, and one change for next week.",
@@ -921,6 +927,7 @@ export function renderCoach(root) {
             ${S.workoutsOn() ? '<button class="quick-btn" data-act="nav" data-v="plan">Personalise my workout plan →</button>' : ''}
           </div>
         </section>
+        ${AHEAD.decideCard()}
         <section class="panel small-print">
           <p class="small">Replies come from ${esc(AI.engineLabel())}. ${
             AI.isPrivate()

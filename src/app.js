@@ -43,6 +43,8 @@ import * as BROWSER from './life/browser-ui.js';
 import * as YOU from './you.js';
 import * as HUB from './life/connect-hub.js';
 import * as TODOS from './todos-ui.js';
+import * as AHEAD from './ahead-ui.js';
+import { initAhead, onAheadChange } from './ahead';
 import * as CAL from './calendar-ui.js';
 import * as PAUSEUI from './life/pause-ui';
 import * as SKIPUI from './life/app-skip-ui';
@@ -186,7 +188,7 @@ function render() {
 // Training, with the rest of it.
 function renderToday() {
   const k = S.todayKey();
-  const main = [dayCard(k), PAUSEUI.todayCard(), ...(isSystem() ? [] : [lookHint()]), resumeBanner(), LIFE.recapSlot(), SYS.systemMessageCard(), STUDY.todayCard(), `<div id="todo">${todo(k)}</div>`, TODOS.todoCard(k), journalNotifyCard(), installBanner()];
+  const main = [dayCard(k), PAUSEUI.todayCard(), ...(isSystem() ? [] : [lookHint()]), resumeBanner(), LIFE.recapSlot(), SYS.systemMessageCard(), ...AHEAD.todayCards(), STUDY.todayCard(), `<div id="todo">${todo(k)}</div>`, TODOS.todoCard(k), journalNotifyCard(), installBanner()];
   const life = S.state.profile?.life;
   const side = isSystem() ? [statusWindow(), quoteCard(k)] : [SIDE.todaySide(), TOP.slot(), SIDE.gameLine(), life && (life.values?.length || life.hope) ? mattersCard(life) : quoteCard(k)];
 
@@ -1787,6 +1789,7 @@ function renderSettings() {
           <button class="btn ghost small" data-act="test-sound">Test sound</button>
         </section>` : ''}
         ${N.isNative ? notifyPanel() : calendarPanel()}
+        <section class="panel" id="aheadPanel"><div class="panel-title">${icon('plan')}<span>Your plan and next steps</span></div>${AHEAD.settingsHTML()}</section>
         ${S.workoutsOn() ? `<section class="panel">
           <div class="panel-title">${icon('moon')}<span>Easy week</span></div>
           <p>${easy ? 'You are in an easy week: half the sets on every exercise.' : `Every 6-8 weeks, take a week with half the sets. You've trained ${S.weeksSinceEasy()} week(s) since the last one.`}</p>
@@ -2348,6 +2351,7 @@ document.addEventListener('click', async (e) => {
       if (GOALS.handleAction(d.act, el)) break;
       if (STUDY.handleAction(d.act, el)) break;
       if (TODOS.handleAction(d.act, el)) break;
+      if (AHEAD.handleAction(d.act, el)) break;
       if (CAL.handleAction(d.act, el)) break;
       if (YOU.handleAction(d.act, el)) break;
       if (await LIFE.handleAction(d.act, el)) break;
@@ -2677,6 +2681,10 @@ useJournal({
 initIngest();
 initMemory();
 initInsight();
+initAhead();
+// The plan's cards follow the life log (calendars, sleep, people) as it's read.
+onAheadChange(() => AHEAD.repaintCards());
+S.onSave(() => AHEAD.repaintCards());
 initJournalNotes();
 // Linked accounts (Settings, Your life) sync on opening and every few minutes while open.
 CONNECT.initConnect();
