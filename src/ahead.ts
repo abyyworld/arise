@@ -8,6 +8,8 @@
 import * as S from './store';
 import * as AI from './ai.js';
 import * as A from './lib/ahead';
+import * as PR from './lib/priorities';
+import { money } from './lib/everyday';
 import * as G from './lib/goals';
 import * as INS from './life/insight';
 import * as L from './life/log';
@@ -163,6 +165,23 @@ export function gather(now = Date.now(), { cap = 3 }: { cap?: number } = {}): A.
     people: cap < 3 ? [] : people,
     dismissed: st.dismissed,
   };
+}
+
+// ---------- what matters, and when (lib/priorities.ts)
+
+// To-dos not done, your own events and the life log's calendars, goals' milestones and money you
+// owe, over the next 14 days.
+export function priorities(now = Date.now()): PR.Grid {
+  const today = S.keyOf(new Date(now));
+  const st = S.state;
+  const items: PR.Item[] = [];
+  for (const t of Object.values(st.todos)) if (!t.gone && !t.done) items.push({ id: `t:${t.id}`, kind: 'todo', title: t.title, ...(t.day ? { day: t.day } : {}), ...(t.big ? { big: true } : {}), ...(t.time ? { note: t.time } : {}) });
+  const mid = S.parseKey(today).getTime();
+  for (const o of S.eventsBetween(mid, mid + (PR.HORIZON + 1) * DAY_MS)) items.push({ id: `e:${o.id}:${o.key}`, kind: 'event', title: o.title, day: S.keyOf(new Date(o.start)) });
+  for (const b of logBusy) if (b.start >= mid) items.push({ id: `l:${b.title}:${b.start}`, kind: 'event', title: b.title, day: S.keyOf(new Date(b.start)) });
+  for (const g of S.activeGoals()) for (const m of g.milestones) if (!m.done && m.due) items.push({ id: `m:${m.id}`, kind: 'milestone', title: m.title, day: m.due, note: `For ${g.title}` });
+  for (const d of Object.values(st.debts)) if (!d.gone && !d.settled && d.dir === 'owe') items.push({ id: `d:${d.id}`, kind: 'debt', title: `Pay ${d.who} back ${money(d.amount, d.cur)}`, ...(d.due ? { day: d.due } : {}), ...(d.what ? { note: d.what } : {}) });
+  return PR.grid(items, today);
 }
 
 // ---------- what the screens use

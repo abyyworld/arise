@@ -41,3 +41,23 @@ extension; visitor analytics.
 6. Left: sign-in with Google or Microsoft (#7, needs the owner to turn on the providers in Firebase first).
 
 What shipped is in `src/changelog.ts`; the owner's steps for each are in `docs/LAUNCH.md`.
+
+## Second look, with Eternal's own app open (24 November 2026)
+
+With a database connected, Eternal's main app showed more. Shipped in 1.34: one box on Today that
+works out what you wrote, money owed between people, groceries, What matters (the next 14 days in
+four boxes), Write it my way, and imports from Obsidian, Notion, Apple Notes, Google Keep, Word,
+PDF and Fitbit, plus an export to Obsidian.
+
+Still to do, most useful first:
+
+1. Places on a real map, where your time goes, with names for places.
+2. Looking back by day, month or year, with what Arise knew about you then.
+3. A file manager for Photos and files: folders, a duplicate finder and a trash.
+4. Correcting any record ("not quite, fix it") and teaching it about a part of your life.
+5. The coach asking short questions and check-ins on Today.
+6. Rules for AI apps: what they may do, must ask about first, and must never do (needs a connector Worker deploy).
+7. A morning brief at a set time, and hiding details on the lock screen per message.
+8. Passkey sign-in to the account itself.
+9. Inviting people to an event.
+10. Life map views (a globe of people, projects and places): low value.

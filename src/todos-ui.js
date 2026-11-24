@@ -59,7 +59,7 @@ export function todoCard(k = S.todayKey()) {
     ${open.length || done.length ? `<ul class="qlist">${[...open, ...done].map((t) => row(t, k)).join('')}</ul>` : '<p class="muted small">Nothing to do. Add anything you want to get done, today or another day.</p>'}
     ${addForm()}
     ${next.length ? `<p class="label">Coming up</p><ul class="qlist later">${next.map((t) => row(t, k)).join('')}</ul>${later.length > next.length ? `<p class="muted small">And ${later.length - next.length} more.</p>` : ''}` : ''}
-    <div class="row"><button class="link" data-act="nav" data-v="${CALENDAR}">${icon('days')} Calendar</button></div>
+    <div class="row"><button class="link" data-act="nav" data-v="${CALENDAR}">${icon('days')} Calendar</button><button class="link" data-act="ahead-matters">${icon('target')} What matters</button></div>
   </section>`;
 }
 
@@ -115,6 +115,7 @@ function editSheet(t) {
       <label class="field"><span class="k">What</span><input id="todoEditTitle" type="text" maxlength="200" value="${esc(t.title)}" autocomplete="off"></label>
       <label class="field"><span class="k">Day</span><input id="todoEditDay" type="date" value="${esc(t.day || '')}"></label>
       <label class="field"><span class="k">Time</span><input id="todoEditTime" type="time" value="${esc(t.time || '')}"></label>
+      <label class="check"><input id="todoEditBig" type="checkbox" ${t.big ? 'checked' : ''}> Matters a lot (it goes first in What matters)</label>
       <p class="muted small">${esc(remindText())}${t.from ? ` Added by ${esc(t.from)}.` : ''}</p>
       <div class="row">
         <button class="btn primary small" type="submit">Save</button>
@@ -139,7 +140,7 @@ function save() {
     toast('Pick a day for the time too.');
     return;
   }
-  S.editTodo(id, { title, day, time: day ? time : null });
+  S.editTodo(id, { title, day, time: day ? time : null, big: !!$('#todoEditBig')?.checked });
   closeSheet();
   repaint();
   toast('Saved.');

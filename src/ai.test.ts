@@ -711,3 +711,26 @@ describe('picking the model for the private and free AI', () => {
     expect(await AI.engineModels('free')).toEqual(['@cf/openai/gpt-oss-120b', '@cf/openai/gpt-oss-20b']);
   });
 });
+
+describe('Write it my way', () => {
+  it('sends only the notes and the sample of how they write, none of the rest of their data', async () => {
+    const { S, AI } = await load({ signedIn: true });
+    S.state.settings.aiEngine = 'free';
+    AI.agreeFree();
+    S.state.settings.voice = 'hey!! so sorry about that lol';
+    S.addTodo({ title: 'Secret plan for Friday' });
+    const sent: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', async (_url: string, init: { body: string }) => {
+      sent.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'Hey Sam! Can’t make Friday, sorry \u2014 I’ll bring the book on Saturday.' }, finish_reason: 'stop' }], usage: { prompt_tokens: 12, completion_tokens: 4 } }));
+    });
+    const out = await AI.writeMyWay('tell sam cant make fri, bring book sat', 'message', { to: 'a friend' });
+    expect(out).toBe('Hey Sam! Can’t make Friday, sorry, I’ll bring the book on Saturday.');
+    const all = JSON.stringify(sent[0]);
+    expect(all).toContain('cant make fri');
+    expect(all).toContain('hey!! so sorry about that lol');
+    expect(all).toContain('for a friend');
+    expect(all).not.toContain('Secret plan');
+    expect(all).not.toContain('Player data');
+  });
+});

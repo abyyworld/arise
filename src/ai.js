@@ -26,6 +26,7 @@ import * as S from './store';
 import { normalizePlan, plain } from './lib/clean';
 import * as G from './lib/goals';
 import * as DC from './lib/decisions';
+import * as EVD from './lib/everyday';
 import * as LC from './lib/life-check';
 import * as Device from './lib/on-device';
 import * as F from './lib/free-ai';
@@ -1696,6 +1697,11 @@ export function buildContext({ full = false, compact = false, recalled = '', e =
     for (const t of td.later.slice(0, compact ? 3 : 8)) out.push(`- [later] ${t.title}${when(t)}`);
   }
 
+  // Money owed between them and other people, and the grocery list (lib/everyday.ts): their own
+  // words, so any AI may read them, like the to-dos.
+  const everyday = EVD.everydayText(st.debts, st.groceries, k, compact);
+  if (everyday) out.push('', everyday);
+
   // Their own calendar events (lib/events.ts) in the next 7 days: titles and times only. (Events
   // from Google, Outlook and the phone are in the life log, which the AI sees by its own rules.)
   const soon = S.eventsBetween(Date.now(), S.parseKey(S.addDays(k, 7)).getTime());
@@ -2317,6 +2323,38 @@ export async function adviseDecision(question, details = '', { signal } = {}) {
     unknown: plain(json.unknown || '').trim().slice(0, 1000),
     tier: t === 2 || t === 3 ? t : 1,
   };
+}
+
+// ---------- Write it my way (everyday-ui.js, on Coach)
+
+export const WRITE_KINDS = {
+  message: 'a short chat message',
+  email: 'an email, with a subject line first ("Subject: ...")',
+  post: 'a social media post',
+  comment: 'a reply or comment',
+};
+
+// Rough notes turned into a message, email, post or comment that sounds like them. Only what's
+// written here goes to the AI, with their sample of how they write if they gave one: none of the
+// rest of their data.
+export async function writeMyWay(notes, kind = 'message', { to = '', signal } = {}) {
+  const voice = (S.state.settings.voice || '').trim();
+  const what = WRITE_KINDS[kind] || WRITE_KINDS.message;
+  const { text } = await ask({
+    bare: true,
+    effort: 'medium',
+    maxTokens: 4000,
+    signal,
+    messages: [
+      {
+        role: 'user',
+        content: `Turn my rough notes into ${what}${to ? ` for ${to}` : ''}, written as me.\n\nMy notes:\n${notes}\n\n${voice ? `How I write (a sample of my own writing, copy its tone, length of sentences, punctuation and words, not its content):\n${voice}\n\n` : ''}Rules:\n- Sound like a person, not an assistant. ${voice ? 'Match my sample.' : 'Plain, warm and direct.'}\n- Keep every fact from my notes and add none.\n- Same language as my notes.\n- No em dashes.\n- Reply with only the text, ready to paste. No notes, no options, no quotes around it.`,
+      },
+    ],
+  });
+  const out = plain(text || '').trim();
+  if (!out) throw new AIError('format', `${answerer()} sent an empty answer. Try again.`);
+  return out;
 }
 
 // ---------- personalised reminder texts

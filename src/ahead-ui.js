@@ -13,6 +13,7 @@ import * as AH from './ahead';
 import * as AI from './ai.js';
 import { hours } from './lib/ahead';
 import { OUTCOME_TEXT } from './lib/decisions';
+import { BOXES } from './lib/priorities';
 import { esc, icon, openSheet, closeSheet, toast } from './ui.js';
 
 const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
@@ -29,6 +30,23 @@ const dayName = (k) => {
 const repaint = () => repaintCards();
 
 // ---------- Today
+
+// What matters, and when: the next 14 days in four boxes (lib/priorities.ts).
+export function mattersSheet(now = Date.now()) {
+  const g = AH.priorities(now);
+  const today = S.keyOf(new Date(now));
+  const when = (it) => (it.day ? (it.day < today ? `was due ${dayName(it.day)}` : dayName(it.day)) : '');
+  const box = (b) => `<section class="${b.key === 'now' ? 'do-now' : ''}">
+      <h3>${esc(b.title)}${g[b.key].length ? ` <span class="muted">(${g[b.key].length})</span>` : ''}</h3>
+      <p class="muted small">${esc(b.hint)}</p>
+      ${g[b.key].length ? `<ul>${g[b.key].slice(0, 12).map((it) => `<li>${esc(it.title)}${when(it) || it.note ? ` <small>${esc([when(it), it.note].filter(Boolean).join(' · '))}</small>` : ''}</li>`).join('')}${g[b.key].length > 12 ? `<li><small>And ${g[b.key].length - 12} more.</small></li>` : ''}</ul>` : '<p class="muted small">Nothing here.</p>'}
+    </section>`;
+  openSheet(`<div class="matters-sheet">
+    <p class="kicker">The next 14 days</p><h2 class="display sheet-title">What matters, and when</h2>
+    <div class="grid4">${BOXES.map(box).join('')}</div>
+    <p class="muted small">From your to-dos, calendar, goals and money you owe, worked out on this device. To move a to-do up, open it and tick Matters a lot.</p>
+  </div>`);
+}
 
 export function planCard(now = Date.now()) {
   let t;
@@ -48,7 +66,7 @@ export function planCard(now = Date.now()) {
       </li>`,
     );
   return `<section class="panel ahead" id="aheadPlan">
-    <div class="panel-title">${icon('plan')}<span>Your plan</span><button class="link small ahead-week" data-act="ahead-week">This week</button></div>
+    <div class="panel-title">${icon('plan')}<span>Your plan</span><span class="ahead-week"><button class="link small" data-act="ahead-matters">What matters</button> · <button class="link small" data-act="ahead-week">This week</button></span></div>
     ${changed.length ? `<div class="ahead-changed" role="status"><p><b>Your day changed, so the plan did too.</b></p><ul>${changed.map((c) => `<li>${esc(c)}</li>`).join('')}</ul><button class="btn small ghost" data-act="ahead-seen">Got it</button></div>` : ''}
     ${rows.length ? `<ul class="ahead-list">${rows.join('')}</ul>` : '<p class="muted small">Nothing left to plan today.</p>'}
     ${plan.left.length ? `<p class="muted small">Didn't fit: ${esc(plan.left.map((x) => x.title).join(', '))}.</p>` : ''}
@@ -367,6 +385,9 @@ globalThis.document?.addEventListener('submit', (e) => {
 export function handleAction(act, el) {
   const id = el?.dataset?.id;
   switch (act) {
+    case 'ahead-matters':
+      mattersSheet();
+      return true;
     case 'ahead-week':
       weekSheet();
       return true;

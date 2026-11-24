@@ -11,6 +11,7 @@ export interface ZipEntry {
   packed: number; // compressed size
   size: number; // unpacked size
   offset: number; // where its local header starts
+  modified?: number; // when it was last changed (ms), when the zip says; not for 1 January 1980 (no date)
 }
 
 export class ZipError extends Error {
@@ -37,6 +38,19 @@ async function bytes(blob: Blob, start: number, end: number): Promise<Uint8Array
 const u16 = (b: Uint8Array, o: number) => b[o] | (b[o + 1] << 8);
 const u32 = (b: Uint8Array, o: number) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
 const u64 = (b: Uint8Array, o: number) => u32(b, o) + u32(b, o + 4) * 2 ** 32;
+
+// The end of 1 January 1980: a zip's times start there, and tools that keep no time (Word) write it.
+const FIRST_DAY = Date.UTC(1980, 0, 2);
+
+// An MS-DOS time and date (the clock where the zip was made, two-second steps), or undefined.
+function dosTime(time: number, date: number): number | undefined {
+  const y = 1980 + (date >> 9);
+  const mo = (date >> 5) & 15;
+  const d = date & 31;
+  if (y === 1980 || mo < 1 || mo > 12 || d < 1) return undefined;
+  const t = new Date(y, mo - 1, d, time >> 11, (time >> 5) & 63, (time & 31) * 2).getTime();
+  return Number.isFinite(t) ? t : undefined;
+}
 
 // Starts like a zip ("PK\3\4", or "PK\5\6" for an empty one).
 export async function isZip(blob: Blob): Promise<boolean> {
@@ -88,6 +102,7 @@ export async function listZip(blob: Blob): Promise<ZipEntry[]> {
     const extraLen = u16(cd, p + 30);
     const commentLen = u16(cd, p + 32);
     let offset = u32(cd, p + 42);
+    let modified = dosTime(u16(cd, p + 12), u16(cd, p + 14));
     const name = names.decode(cd.subarray(p + 46, p + 46 + nameLen));
     // ZIP64 extra field: the 8-byte sizes and offset, for the ones that didn't fit.
     let e = p + 46 + nameLen;
@@ -101,11 +116,18 @@ export async function listZip(blob: Blob): Promise<ZipEntry[]> {
         if (packed === 0xffffffff) (packed = u64(cd, q)), (q += 8);
         if (offset === 0xffffffff) offset = u64(cd, q);
       }
+      // The time in UTC, to the second (Info-ZIP's extended timestamp), when it's there.
+      if (id === 0x5455 && len >= 5 && cd[e + 4] & 1) {
+        const t = u32(cd, e + 5) * 1000;
+        if (t > FIRST_DAY) modified = t;
+      }
       e += 4 + len;
     }
     if (!name.endsWith('/')) {
       if (out.length >= MAX_ENTRIES) throw new ZipError('broken');
-      out.push({ name, method, flags, packed, size, offset });
+      const entry: ZipEntry = { name, method, flags, packed, size, offset };
+      if (modified) entry.modified = modified;
+      out.push(entry);
     }
     p = extraEnd + commentLen;
   }
