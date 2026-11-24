@@ -9,9 +9,10 @@
 
 export const GOOGLE = {
   // A "Web application" OAuth client, like 1234-abc.apps.googleusercontent.com.
-  clientId: '',
-  // The Google app is still in Testing: only people the owner adds as test users can connect,
-  // and Google asks them again every 7 days. The app says so when they connect.
+  clientId: '539982857665-kcaulqo1jpg84hq35o26oosve6c2vcd1.apps.googleusercontent.com',
+  // The Google app is published, but Google hasn't checked its calendar, mail and Drive access
+  // yet: Google shows a warning first, and up to 100 people can connect until it's checked. The
+  // app says so when they connect.
   testing: true,
 };
 

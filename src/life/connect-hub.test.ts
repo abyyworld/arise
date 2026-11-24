@@ -70,7 +70,10 @@ describe('the Connect screen', () => {
   });
 
   it('on the web: says what each phone app adds and where to get it, the accounts, this computer and your history', async () => {
+    // As before the owner registers Arise with Google and Microsoft.
+    vi.doMock('../connect-config', () => ({ GOOGLE: { clientId: '', testing: true }, MICROSOFT: { clientId: '', tenant: 'common' } }));
     const HUB = await screen();
+    vi.doUnmock('../connect-config');
     expect(text('h1')).toBe('Connect');
     expect(text('.kicker')).toBe('Setup and connections');
     expect(text('.hub-lead')).toBe("Connect what you use, and Arise writes your days from it. Everything stays private: it's read on your devices and only leaves them encrypted.");

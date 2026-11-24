@@ -48,6 +48,11 @@ afterEach(() => {
 });
 
 describe('before the owner sets things up', () => {
+  beforeEach(() => {
+    GOOGLE.clientId = '';
+    MICROSOFT.clientId = '';
+  });
+
   it('shows "Coming soon" with what it will read, and nothing to press', () => {
     vi.stubEnv('DEV', false); // the live app
     show();
@@ -140,11 +145,11 @@ describe('the web app, set up', () => {
     expect(card('google').querySelector('img')).toBeNull();
   });
 
-  it('says Google is in test mode when connecting, and opens Google in a pop-up', async () => {
+  it("says Google hasn't checked Arise yet when connecting, and opens Google in a pop-up", async () => {
     show();
     await tap('acct-connect', { s: 'google' });
     const sheet = document.querySelector('.sheet-body')!.textContent!;
-    expect(sheet).toContain("only people Arise's owner adds can connect, and Google asks you to say yes again every 7 days");
+    expect(sheet).toContain("Google hasn't checked Arise's access yet, so it shows a warning first: tap Advanced, then Go to Arise.");
     const popup = { location: { href: '' } };
     const open = vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
     (document.querySelectorAll<HTMLInputElement>('.acct-part')[1]).checked = false; // calendar only
