@@ -1,0 +1,115 @@
+// "A quick one": short questions from your coach on Today, worked out on the device with no AI,
+// from what Arise can see is unclear or stuck. One at a time, each with buttons that do the thing
+// straight away (move a late to-do, pause a goal, mark money paid back), or a few words for the
+// weekly one. An answered or skipped question is put away on every device (store.ts dismissWarning,
+// the same list as the early warnings), so it never asks twice.
+
+export interface Choice {
+  label: string;
+  act: string; // what it does (everyday-ui.js answer)
+  v?: string;
+}
+
+export interface Question {
+  id: string; // stable: put away under 'q:<id>'
+  text: string;
+  hint?: string;
+  choices: Choice[];
+  write?: { placeholder: string; act: string }; // a few words in a box instead
+}
+
+export interface QInput {
+  today: string; // YYYY-MM-DD
+  hour: number; // 0 to 23, local
+  weekday: number; // 0 Sunday to 6 Saturday
+  monday: string; // this week's Monday
+  todos: { id: string; title: string; day?: string; done?: number }[];
+  goals: { id: string; title: string; quests: number; lastTick: string | null; created: string }[]; // active ones
+  owed: { id: string; who: string; text: string; due?: string }[]; // money owed to them, not settled
+  bestTime: string; // '' when not said
+  weekBig: number; // to-dos marked as mattering a lot, not done, due this week
+  dismissed: Record<string, unknown>;
+}
+
+const addDays = (k: string, n: number) => {
+  const [y, m, d] = k.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
+const short = (s: string, n = 60) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+// Every question that fits now, the most useful first.
+export function questions(q: QInput): Question[] {
+  const out: Question[] = [];
+  const seen = (id: string) => q.dismissed[`q:${id}`] != null;
+  const add = (x: Question) => {
+    if (!seen(x.id)) out.push(x);
+  };
+
+  // Monday to Wednesday, if nothing this week is marked as mattering a lot yet.
+  if (q.weekday >= 1 && q.weekday <= 3 && q.weekBig === 0)
+    add({
+      id: `week:${q.monday}`,
+      text: 'What are the 3 things that matter most this week?',
+      hint: 'One a line. They go on your to-do list for this week, marked as mattering a lot.',
+      choices: [],
+      write: { placeholder: 'Finish the essay draft\nEmail Eyal\nBook the dentist', act: 'q-week' },
+    });
+
+  // Money owed to them, past its day.
+  for (const d of q.owed) {
+    if (!d.due || d.due >= q.today) continue;
+    add({ id: `owed:${d.id}`, text: `Did ${d.who} pay you back?`, hint: d.text, choices: [{ label: 'Yes, paid', act: 'q-paid', v: d.id }, { label: 'Not yet', act: 'q-skip' }] });
+  }
+
+  // To-dos 3 or more days late.
+  for (const t of q.todos) {
+    if (t.done || !t.day || t.day > addDays(q.today, -3)) continue;
+    add({
+      id: `late:${t.id}:${t.day}`,
+      text: `Still want to do "${short(t.title)}"?`,
+      hint: `It was due ${t.day}.`,
+      choices: [
+        { label: 'Today', act: 'q-todo-day', v: `${t.id}|${q.today}` },
+        { label: 'Next week', act: 'q-todo-day', v: `${t.id}|${addDays(q.today, 7)}` },
+        { label: 'Drop it', act: 'q-todo-drop', v: t.id },
+      ],
+    });
+  }
+
+  // A goal with quests and nothing ticked for a week (and older than a week).
+  for (const g of q.goals) {
+    if (!g.quests || g.created > addDays(q.today, -7)) continue;
+    if (g.lastTick && g.lastTick > addDays(q.today, -7)) continue;
+    add({
+      id: `quiet:${g.id}:${q.monday}`,
+      text: `Nothing for "${short(g.title)}" this past week. Still on it?`,
+      choices: [
+        { label: 'Yes, keep it', act: 'q-skip' },
+        { label: 'Pause it', act: 'q-goal-pause', v: g.id },
+      ],
+    });
+  }
+
+  if (!q.bestTime)
+    add({
+      id: 'best-time',
+      text: 'When do you think best?',
+      hint: 'Your plan puts hard work in those hours.',
+      choices: [
+        { label: 'Morning', act: 'q-best', v: 'morning' },
+        { label: 'Afternoon', act: 'q-best', v: 'afternoon' },
+        { label: 'Evening', act: 'q-best', v: 'evening' },
+        { label: 'Not sure', act: 'q-skip' },
+      ],
+    });
+
+  return out;
+}
+
+// The 3 things, from a few lines.
+export const threeThings = (text: string) =>
+  text
+    .split(/\n|;/)
+    .map((s) => s.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 3);

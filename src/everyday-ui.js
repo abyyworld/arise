@@ -5,6 +5,7 @@
 import * as S from './store';
 import * as AI from './ai.js';
 import { classify, asKind } from './lib/capture';
+import { questions, threeThings } from './lib/questions';
 import { balanceText, money, totals } from './lib/everyday';
 import { noteWithFile } from './life/quick-note';
 import { hasLifeStore, lifeStore } from './life/store-port';
@@ -322,6 +323,116 @@ function saveDebt() {
   toast('Saved.');
 }
 
+// ---------- A quick one: short questions from your coach (lib/questions.ts)
+
+function questionInput(now = new Date()) {
+  const today = S.todayKey();
+  const st = S.state;
+  const lastTick = (g) => {
+    const ids = new Set(g.quests.map((q) => q.id));
+    for (let i = 0; i < 60; i++) {
+      const k = S.addDays(today, -i);
+      const day = st.checks[k];
+      if (day && Object.entries(day).some(([id, c]) => ids.has(id) && c.done)) return k;
+    }
+    return null;
+  };
+  const monday = S.mondayOf(today);
+  const sunday = S.addDays(monday, 6);
+  return {
+    today,
+    hour: now.getHours(),
+    weekday: now.getDay(),
+    monday,
+    todos: Object.values(st.todos).filter((t) => !t.gone),
+    goals: S.activeGoals().map((g) => ({ id: g.id, title: g.title, quests: g.quests.filter((q) => !q.archived).length, lastTick: lastTick(g), created: g.created })),
+    owed: Object.values(st.debts)
+      .filter((d) => !d.gone && !d.settled && d.dir === 'owed')
+      .map((d) => ({ id: d.id, who: d.who, text: `${money(d.amount, d.cur)}${d.what ? ` for ${d.what}` : ''}`, due: d.due })),
+    bestTime: st.settings.bestTime,
+    weekBig: Object.values(st.todos).filter((t) => !t.gone && !t.done && t.big && (!t.day || t.day <= sunday)).length,
+    dismissed: st.dismissed,
+  };
+}
+
+export function questionCard() {
+  const q = questions(questionInput())[0];
+  if (!q) return '<div id="askCard"></div>';
+  return `<div id="askCard"><section class="panel ask" data-q="${esc(q.id)}">
+    <div class="panel-title">${icon('chat')}<span>A quick one</span><button class="icon-btn small ask-x" data-act="q-skip" aria-label="Not now">${icon('close')}</button></div>
+    <p class="ask-text">${esc(q.text)}</p>
+    ${q.hint ? `<p class="muted small">${esc(q.hint)}</p>` : ''}
+    ${
+      q.write
+        ? `<form data-form="q-write" data-act="${esc(q.write.act)}"><label class="sr-only" for="askIn">${esc(q.text)}</label><textarea id="askIn" class="log-text" rows="3" maxlength="400" placeholder="${esc(q.write.placeholder)}"></textarea><div class="row"><button class="btn small primary" type="submit">Save</button><button class="btn small ghost" type="button" data-act="q-skip">Not now</button></div></form>`
+        : `<div class="row wrap">${q.choices.map((c, i) => `<button class="btn small${i === 0 ? ' primary' : ''}" data-act="${esc(c.act)}"${c.v ? ` data-v="${esc(c.v)}"` : ''}>${esc(c.label)}</button>`).join('')}</div>`
+    }
+  </section></div>`;
+}
+
+function repaintAll() {
+  const el = $('#askCard');
+  if (el) el.outerHTML = questionCard();
+  repaintTodos();
+  repaint();
+}
+
+function answered() {
+  const id = $('#askCard [data-q]')?.dataset.q;
+  if (id) S.dismissWarning(`q:${id}`);
+}
+
+function answerWeek() {
+  const things = threeThings($('#askIn')?.value || '');
+  if (!things.length) {
+    toast('Write at least one thing, or tap Not now.');
+    return;
+  }
+  const sunday = S.addDays(S.mondayOf(S.todayKey()), 6);
+  for (const title of things) {
+    const t = S.addTodo({ title, day: sunday });
+    if (t) S.editTodo(t.id, { big: true });
+  }
+  answered();
+  repaintAll();
+  toast(`Added ${things.length === 1 ? 'it' : `all ${things.length}`} for this week.`);
+}
+
+function answer(act, v) {
+  switch (act) {
+    case 'q-skip':
+      break;
+    case 'q-paid':
+      S.settleDebt(v);
+      toast('Marked as paid back.');
+      break;
+    case 'q-todo-day': {
+      const [id, day] = (v || '').split('|');
+      S.editTodo(id, { day });
+      toast(`Moved to ${dayText(day).toLowerCase() === 'today' ? 'today' : dayText(day)}.`);
+      break;
+    }
+    case 'q-todo-drop':
+      S.removeTodo(v);
+      toast('Dropped.');
+      break;
+    case 'q-goal-pause':
+      S.setGoalStatus(v, 'paused');
+      toast('Paused. Pick it up again in Goals.');
+      break;
+    case 'q-best':
+      S.state.settings.bestTime = v;
+      S.save();
+      toast('Saved. Your plan uses it from now on.');
+      break;
+    default:
+      return false;
+  }
+  answered();
+  repaintAll();
+  return true;
+}
+
 // ---------- Write it my way (on Coach)
 
 export function writeCard() {
@@ -408,6 +519,13 @@ export function handleAction(act, el) {
       picked = v;
       preview();
       return true;
+    case 'q-skip':
+    case 'q-paid':
+    case 'q-todo-day':
+    case 'q-todo-drop':
+    case 'q-goal-pause':
+    case 'q-best':
+      return answer(act, v);
     case 'write-open':
       writeSheet();
       return true;
@@ -505,6 +623,9 @@ globalThis.document?.addEventListener('submit', (e) => {
   } else if (form === 'debt-save') {
     e.preventDefault();
     saveDebt();
+  } else if (form === 'q-write') {
+    e.preventDefault();
+    answerWeek();
   } else if (form === 'write-go') {
     e.preventDefault();
     writeGo();

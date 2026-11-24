@@ -44,3 +44,8 @@
 .health-row.ok .health-dot { background: var(--sys); }
 .health-row.bad .health-dot { background: #e5484d; }
 .health-row small { color: var(--muted); }
+
+/* A quick one (src/everyday-ui.js questionCard), on Today. */
+.ask .panel-title .ask-x { margin-left: auto; }
+.ask-text { font-weight: 600; margin: 4px 0; }
+.ask textarea { width: 100%; }
