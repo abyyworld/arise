@@ -57,7 +57,9 @@ const TIMEOUT = 45_000;
 // 12: the Player's own storage for photos and files (lib/own-storage.ts), which 1.32 would drop.
 // 13: money owed and groceries (lib/everyday.ts), a to-do marked as mattering a lot, and the
 // currency and writing-voice settings, which 1.33 would drop.
-export const SCHEMA = 13;
+// 14: who's invited to an event (lib/events.ts guests), the morning brief's time (settings.briefAt),
+// and 1.35's other additions, which 1.34 would drop.
+export const SCHEMA = 14;
 
 interface Meta {
   uid?: string;
