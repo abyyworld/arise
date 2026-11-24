@@ -195,3 +195,24 @@ describe('base64', () => {
     expect(C.fromB64(C.toB64(bytes))).toEqual(bytes);
   });
 });
+
+describe("a passkey's wrap", () => {
+  it("wraps the data key with the passkey's own secret, and only that secret opens it", async () => {
+    const dk = await C.newDataKey();
+    const secret = C.randomBytes(32);
+    const sealed = await C.wrapKey(dk, await C.passkeyKek(secret), 'passkey/uid1/slot');
+    // The same secret, made again by the passkey: the same key comes out.
+    const back = await C.unwrapKey(sealed, await C.passkeyKek(new Uint8Array(secret)), 'passkey/uid1/slot', { extractable: true });
+    expect(await C.rawKey(back)).toBe(await C.rawKey(dk));
+    // Another passkey's secret, or the wrap moved to another account or passkey, doesn't.
+    await expect(C.unwrapKey(sealed, await C.passkeyKek(C.randomBytes(32)), 'passkey/uid1/slot')).rejects.toMatchObject({ code: 'wrong-key' });
+    await expect(C.unwrapKey(sealed, await C.passkeyKek(secret), 'passkey/uid2/slot')).rejects.toMatchObject({ code: 'wrong-key' });
+    // Nothing of the secret or the key is in the wrap.
+    expect(sealed.ct).not.toContain(C.toB64(secret).slice(0, 12));
+    expect(sealed.ct).not.toContain((await C.rawKey(dk)).slice(0, 12));
+  });
+
+  it('refuses a secret that is too short', async () => {
+    await expect(C.passkeyKek(C.randomBytes(16))).rejects.toMatchObject({ code: 'bad-data' });
+  });
+});

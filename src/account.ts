@@ -23,7 +23,7 @@
 //
 // Cloud layout:
 //   users/{uid}/arise/keys  the data key, wrapped by the password and by the recovery code (and,
-//                           with Email reset, as it is)
+//                           with Email reset, as it is), and by each passkey that can unlock it
 //   users/{uid}/arise/signout  when the Player last chose "Sign out of all devices" (lib/session-cut.ts)
 //   recovery/{login email}  the Firebase password, sealed with the recovery code, and whether the
 //                           account uses Email reset. Anyone may read it (it's useless without the
@@ -143,6 +143,15 @@ interface Keys {
   byRecovery: C.Sealed;
   byEmail?: string; // Email reset only: the data key as it is (see C.rawKey)
   wasEmail?: true; // this key has been kept for Email reset (now or before): someone may have a copy
+  byPasskey?: PasskeyWrap[]; // one per passkey that unlocks the data (see passkeys below)
+}
+
+// The data key wrapped by one passkey's own secret (C.passkeyKek). `id`: which passkey, as a hash
+// of its credential id (see passkeySlot), so the wrap says nothing about the passkey itself.
+export interface PasskeyWrap {
+  id: string;
+  iv: string;
+  ct: string;
 }
 
 interface Recovery {
@@ -250,7 +259,12 @@ export interface Setup {
 // `emailOff`: Email reset was turned off, as what was left of it didn't fit (see emailWay).
 // `otherKey`: the key kept for Email reset wasn't used, as it isn't the account's own as far as
 // this device can tell (see Knows).
-export type Result = { user: User; setup?: Setup; reset?: boolean; emailOff?: boolean } | { user: User; needsRecovery: true; otherKey?: boolean };
+// `locked`: a passkey signed in, but couldn't unlock the data on this device, so the password is
+// needed once (`willWrap`: and from then on the passkey unlocks it too).
+export type Result =
+  | { user: User; setup?: Setup; reset?: boolean; emailOff?: boolean }
+  | { user: User; needsRecovery: true; otherKey?: boolean }
+  | { user: User; locked: true; willWrap?: boolean };
 
 // A new data key, wrapped by the password and by a new recovery code. `dataKey` re-wraps an
 // existing key instead (a new recovery code for the same data). `byEmail` also keeps the key as
@@ -263,6 +277,11 @@ async function createKeys(user: User, master: C.Master, dataKey?: CryptoKey, { b
   const keys: Keys = { v: 1, iter: C.KDF_ITERATIONS, byPassword: await C.wrapKey(dk, master.kek, user.uid), byRecovery: await C.wrapKey(dk, rk, user.uid) };
   if (byEmail) keys.byEmail = await C.rawKey(dk);
   if (byEmail || wasEmail) keys.wasEmail = true;
+  // The same data key: each passkey's wrap of it still fits, so they stay.
+  if (dataKey) {
+    const before = await readKeys(user.uid).catch(() => null);
+    if (before?.byPasskey?.length) keys.byPasskey = before.byPasskey;
+  }
   const rec: Recovery = { uid: user.uid, auth: await C.seal(rk, master.auth, `recovery/${user.uid}`) };
   if (byEmail) rec.email = true;
   const batch = fb!.writeBatch(db!);
@@ -394,6 +413,131 @@ export async function unlinkProvider(p: Provider) {
   await fb!.unlink(auth.currentUser, PROVIDER_ID[p]);
 }
 
+// ---------- passkeys (web only, as private as the password)
+//
+// A passkey (Face ID, Touch ID, Windows Hello, a phone) signs in instead of the password. Firebase
+// has no passkeys, so Arise's small passkey helper (worker/passkey, through passkey.ts) checks the
+// passkey and hands back a Firebase custom token for its account. It only learns which account a
+// passkey belongs to.
+//
+// Unlocking: where the browser and passkey can (the WebAuthn `prf` extension), the passkey makes
+// a secret on the device that never leaves it, and the data key is wrapped by it too, one wrap
+// per passkey, next to the password's and the recovery code's (C.passkeyKek). Without it, the
+// passkey signs in and the password unlocks the data once on that device, as after any sign-in.
+// Removing a passkey removes its wrap.
+
+export const MAX_PASSKEYS = 10; // firestore.rules keeps at most this many wraps
+
+// Which passkey a wrap belongs to: a hash of its credential id (base64url), 43 characters.
+export async function passkeySlot(credentialId: string): Promise<string> {
+  return C.toB64url(await crypto.subtle.digest('SHA-256', C.fromB64url(credentialId)));
+}
+const wrapLabel = (uid: string, slot: string) => `passkey/${uid}/${slot}`;
+
+// A passkey signed in with a secret but has no wrap yet: the password, once typed (see unlock),
+// adds it.
+let passkeyPending: { uid: string; slot: string; secret: Uint8Array } | null = null;
+
+// Adds (or replaces) this passkey's wrap, keeping the others. In one go with what's there, so a
+// wrap added on another device meanwhile stays too.
+async function addWrap(user: User, dk: CryptoKey, slot: string, secret: Uint8Array) {
+  const wrapped = await C.wrapKey(dk, await C.passkeyKek(secret), wrapLabel(user.uid, slot));
+  await fb!.runTransaction(db!, async (tx) => {
+    const snap = await tx.get(keysRef(user.uid));
+    if (!snap.exists()) throw new AccountError('state', 'Sign in again first.');
+    const keys = snap.data() as Keys;
+    const others = (keys.byPasskey || []).filter((w) => w.id !== slot);
+    if (others.length >= MAX_PASSKEYS) throw new AccountError('too-many', `An account can have at most ${MAX_PASSKEYS} passkeys. Remove one first.`);
+    tx.set(keysRef(user.uid), { ...keys, byPasskey: [...others, { id: slot, ...wrapped }] } satisfies Keys);
+  });
+}
+
+// Signs in to Firebase with the helper's custom token, then unlocks the data with the passkey's
+// secret if it has a wrap. `secret`: what the passkey made on the device (null where it can't).
+export async function signInWithPasskey(token: string, credentialId: string, secret: Uint8Array | null): Promise<Result> {
+  const cred = await fb!.signInWithCustomToken(auth!, token);
+  const user = userOf(cred.user);
+  const gone = new AccountError('gone', "This passkey's account no longer exists. You can delete the passkey from your device's passwords.");
+  // Firebase makes a new, empty login for an account that was deleted: that one goes again.
+  if (!user.email) {
+    await fb!.deleteUser(cred.user).catch(() => {});
+    await fb!.signOut(auth!).catch(() => {});
+    throw gone;
+  }
+  const keys = await readKeys(user.uid);
+  if (!keys) {
+    await fb!.signOut(auth!).catch(() => {});
+    throw gone;
+  }
+  const slot = await passkeySlot(credentialId);
+  const wrap = keys.byPasskey?.find((w) => w.id === slot);
+  passkeyPending = null;
+  if (secret && wrap) {
+    try {
+      const key = await C.unwrapKey(wrap, await C.passkeyKek(secret), wrapLabel(user.uid, slot));
+      await K.saveKey({ uid: user.uid, id: user.id, key });
+      return { user };
+    } catch {
+      // A wrap that doesn't open (made by another passkey with this id, or damaged): the password
+      // unlocks the data, and makes a new one.
+    }
+  }
+  if (secret) passkeyPending = { uid: user.uid, slot, secret: new Uint8Array(secret) };
+  return { user, locked: true, ...(secret ? { willWrap: true } : {}) };
+}
+
+// Adding a passkey, in two steps so the passkey's own prompt comes straight from a tap: first the
+// password is checked (and Firebase's sign-in renewed, as the helper asks for a fresh one), which
+// keeps the data key at hand for a few minutes; then, once the passkey is made, its wrap.
+let adding: { uid: string; dk: CryptoKey; until: number } | null = null;
+const ADDING_MS = 5 * 60_000;
+
+export async function readyPasskey(user: User, password: string) {
+  const master = await C.deriveMaster(password, user.id);
+  const keys = await readKeys(user.uid);
+  if (!keys) throw new AccountError('state', 'Sign in again first.');
+  const dk = await C.unwrapKey(keys.byPassword, master.kek, user.uid, { extractable: true }); // a wrong password throws 'wrong-key'
+  await reauthenticate(user, master);
+  adding = { uid: user.uid, dk, until: Date.now() + ADDING_MS };
+}
+export const passkeyReady = (uid: string) => !!adding && adding.uid === uid && adding.until > Date.now();
+export function endPasskey() {
+  adding = null;
+}
+
+// The new passkey's wrap, with its secret (null: it can't unlock, so it only signs in).
+export async function wrapForPasskey(user: User, credentialId: string, secret: Uint8Array | null): Promise<boolean> {
+  if (!passkeyReady(user.uid)) throw new AccountError('state', 'That took too long. Type your password again.');
+  const { dk } = adding!;
+  if (!secret) return false;
+  await addWrap(user, dk, await passkeySlot(credentialId), secret);
+  return true;
+}
+
+// Which passkeys (by credential id) unlock the data, from the keys.
+export async function passkeysThatUnlock(user: User, credentialIds: string[]): Promise<Set<string>> {
+  const keys = await readKeys(user.uid);
+  const slots = new Set((keys?.byPasskey || []).map((w) => w.id));
+  const out = new Set<string>();
+  for (const id of credentialIds) if (slots.has(await passkeySlot(id))) out.add(id);
+  return out;
+}
+
+// Removes a passkey's wrap (before the helper forgets the passkey: a passkey left without its
+// wrap only signs in, never the other way round).
+export async function dropPasskeyWrap(user: User, credentialId: string) {
+  const slot = await passkeySlot(credentialId);
+  await fb!.runTransaction(db!, async (tx) => {
+    const snap = await tx.get(keysRef(user.uid));
+    if (!snap.exists()) return;
+    const keys = snap.data() as Keys;
+    if (!keys.byPasskey?.some((w) => w.id === slot)) return;
+    const { byPasskey, ...rest } = keys;
+    const left = byPasskey.filter((w) => w.id !== slot);
+    tx.set(keysRef(user.uid), (left.length ? { ...rest, byPasskey: left } : rest) satisfies Keys);
+  });
+}
+
 // Pending state when the password works but the data key can't be opened with it (the password
 // was set from a reset email that Arise didn't send, or a password change was interrupted). The
 // recovery code fixes it.
@@ -473,6 +617,10 @@ export async function unlock(user: User, password: string): Promise<Result> {
   const keys = await readKeys(user.uid);
   if (keys) {
     await keep(user, keys, master); // a wrong password throws 'wrong-key'
+    // Signed in with a passkey that has a secret but no wrap yet: it unlocks the data from now on.
+    const p = passkeyPending;
+    passkeyPending = null;
+    if (p?.uid === user.uid) await addWrap(user, await C.unwrapKey(keys.byPassword, master.kek, user.uid, { extractable: true }), p.slot, p.secret).catch(() => {});
     return { user };
   }
   // No keys: making them was interrupted (sign-up). Firebase checks the password first.
@@ -741,6 +889,7 @@ export async function signOutEverywhere(user: User, password: string, { keepThis
 
 export async function signOut() {
   repairing = null;
+  passkeyPending = adding = null;
   await K.forgetKey();
   if (auth) await fb!.signOut(auth);
 }
@@ -773,6 +922,8 @@ export function friendly(err: unknown): string {
     'auth/provider-already-linked': 'That is already turned on for this account.',
     'auth/unauthorized-domain': 'This address is not allowed to sign in with that yet. Use your email and password.',
     'auth/invalid-idp-response': "Google's answer didn't work. Try again.",
+    'auth/invalid-custom-token': "The passkey sign-in didn't work. Sign in with your password instead.",
+    'auth/custom-token-mismatch': "The passkey sign-in didn't work. Sign in with your password instead.",
     'bad-code': "That recovery code doesn't look right. It has 32 letters and numbers.",
   };
   if (/api-key-not-valid/.test(code)) return 'The Firebase settings in the app are wrong.';

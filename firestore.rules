@@ -25,6 +25,27 @@ service cloud.firestore {
     function rawKey(v) {
       return v is string && v.size() == 44 && v.matches('[A-Za-z0-9+/]{43}=');
     }
+    // One passkey's wrap of the data key: which passkey (a hash of its id, 43 characters of
+    // base64url) and the key sealed with a secret only that passkey makes, on the device.
+    function passkeyWrap(w) {
+      return w is map && w.keys().hasOnly(['id', 'iv', 'ct']) && w.keys().hasAll(['id', 'iv', 'ct'])
+        && w.id is string && w.id.matches('[A-Za-z0-9_-]{43}')
+        && shortString(w.iv, 24) && shortString(w.ct, 200);
+    }
+    // Up to 10 of them, each checked (the rules can't loop, so one by one).
+    function passkeyWraps(v) {
+      return v is list && v.size() <= 10
+        && (v.size() < 1 || passkeyWrap(v[0]))
+        && (v.size() < 2 || passkeyWrap(v[1]))
+        && (v.size() < 3 || passkeyWrap(v[2]))
+        && (v.size() < 4 || passkeyWrap(v[3]))
+        && (v.size() < 5 || passkeyWrap(v[4]))
+        && (v.size() < 6 || passkeyWrap(v[5]))
+        && (v.size() < 7 || passkeyWrap(v[6]))
+        && (v.size() < 8 || passkeyWrap(v[7]))
+        && (v.size() < 9 || passkeyWrap(v[8]))
+        && (v.size() < 10 || passkeyWrap(v[9]));
+    }
     // A shared goal's page: the snapshot sealed with the link's key (a 12-byte IV and the
     // ciphertext, in base64), the account that made it, and when it was last updated.
     function sharePage(d) {
@@ -71,18 +92,20 @@ service cloud.firestore {
 
     // The data key, wrapped by the password and by the recovery code. With Email reset, also as
     // it is (byEmail), so a password set from a reset email can open it again. `wasEmail: true`
-    // says it has been kept so, now or before. (Anyone who gets into an account's email can set
+    // says it has been kept so, now or before. `byPasskey`: wrapped by each passkey that unlocks
+    // the data too (src/account.ts). (Anyone who gets into an account's email can set
     // a password and write these too, so the app never takes them on trust.)
     match /users/{uid}/arise/keys {
       allow read, delete: if owner(uid);
       allow write: if owner(uid)
-        && request.resource.data.keys().hasOnly(['v', 'iter', 'byPassword', 'byRecovery', 'byEmail', 'wasEmail'])
+        && request.resource.data.keys().hasOnly(['v', 'iter', 'byPassword', 'byRecovery', 'byEmail', 'wasEmail', 'byPasskey'])
         && request.resource.data.v == 1
         && request.resource.data.iter is int
         && sealed(request.resource.data.byPassword, 200)
         && sealed(request.resource.data.byRecovery, 200)
         && (!('byEmail' in request.resource.data) || rawKey(request.resource.data.byEmail))
-        && (!('wasEmail' in request.resource.data) || request.resource.data.wasEmail == true);
+        && (!('wasEmail' in request.resource.data) || request.resource.data.wasEmail == true)
+        && (!('byPasskey' in request.resource.data) || passkeyWraps(request.resource.data.byPasskey));
     }
 
     // Sign out of all devices (src/lib/session-cut.ts): when the account last chose it, and whether

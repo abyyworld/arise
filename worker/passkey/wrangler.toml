@@ -1,0 +1,33 @@
+# Arise's passkey helper: signing in with a passkey. See README.md.
+name = "arise-passkey"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# Nothing about requests is kept: no request logs, no traces.
+[observability]
+enabled = false
+
+[vars]
+# The Arise web app's addresses: the website and a local copy. (The phone apps don't offer
+# passkeys yet.) A passkey belongs to the address it was made on.
+ALLOWED_ORIGINS = "https://abyyworld.github.io,http://localhost:5173"
+FIREBASE_PROJECT_ID = "arise-a7349"
+
+# Signing in takes two requests; 30 a minute per address is plenty, and slows down guessing.
+[[ratelimits]]
+name = "PER_IP"
+namespace_id = "1008"
+simple = { limit = 30, period = 60 }
+
+# Every passkey's public key and account, in one small store. Nothing to create beforehand.
+[[durable_objects.bindings]]
+name = "PASSKEYS"
+class_name = "Passkeys"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Passkeys"]
+
+# The secret, set by scripts/setup-workers.sh (never in this file):
+#   FIREBASE_SERVICE_ACCOUNT  the Firebase project's service account key (the .json file), to sign
+#                             the sign-in tokens.

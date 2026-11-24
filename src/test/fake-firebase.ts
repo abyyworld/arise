@@ -174,6 +174,22 @@ export async function signInWithCredential(_a: FakeAuth, c: IdCred) {
   setUser(user);
   return { user };
 }
+// Signing in with a custom token (from the passkey helper; in tests: 'custom:' and the uid). Like
+// Firebase: the login with that uid, or a new one with no email and no password when there's none
+// (an account deleted since).
+export async function signInWithCustomToken(_a: FakeAuth, token: string) {
+  if (cloud.hook) await cloud.hook('signInWithCustomToken', token);
+  const uid = /^custom:(.+)$/.exec(token)?.[1];
+  if (!uid) throw fail('auth/invalid-custom-token');
+  let u = cloud.users.get(uid);
+  if (!u) {
+    u = { uid, email: '', password: '' };
+    cloud.users.set(uid, u);
+  }
+  const user = userFor(u.uid, u.email);
+  setUser(user);
+  return { user };
+}
 // An email login (EmailAuthProvider.credential) or Google's ID token, added to this login.
 export async function linkWithCredential(user: FakeUser, cred: { email: string; password: string } | IdCred) {
   const u = cloud.users.get(user.uid)!;
@@ -218,6 +234,12 @@ const str = (v: unknown, max: number) => typeof v === 'string' && v.length <= ma
 const only = (d: Doc, keys: string[]) => Object.keys(d).every((k) => keys.includes(k));
 const sealed = (v: unknown, max: number) => !!v && typeof v === 'object' && only(v as Doc, ['iv', 'ct']) && str((v as Doc).iv, 24) && str((v as Doc).ct, max);
 const rawKey = (v: unknown) => typeof v === 'string' && v.length === 44 && /^[A-Za-z0-9+/]{43}=$/.test(v);
+// Each passkey's wrap of the data key: which passkey (43 characters of base64url) and the sealed key.
+// At most 10.
+const passkeyWraps = (v: unknown) =>
+  Array.isArray(v) &&
+  v.length <= 10 &&
+  v.every((w) => !!w && typeof w === 'object' && only(w as Doc, ['id', 'iv', 'ct']) && typeof (w as Doc).id === 'string' && /^[A-Za-z0-9_-]{43}$/.test((w as Doc).id as string) && sealed({ iv: (w as Doc).iv, ct: (w as Doc).ct }, 200) && typeof (w as Doc).iv === 'string' && typeof (w as Doc).ct === 'string');
 // Firestore refuses a field set to undefined (unless told to drop them, which the app isn't).
 const hasUndefined = (v: unknown): boolean => v === undefined || (!!v && typeof v === 'object' && Object.values(v).some(hasUndefined));
 
@@ -287,7 +309,17 @@ function canWrite(path: string, d: Doc | null) {
   if (!m) return false;
   if (d === null) return true;
   if (m[1] === 'meta') return only(d, ['rev', 'parts', 'enc', 'iv', 'schema']) && str(d.rev, 32) && Number.isInteger(d.parts) && (d.parts as number) >= 1 && (d.parts as number) <= 20 && d.enc === 1 && str(d.iv, 24) && Number.isInteger(d.schema);
-  if (m[1] === 'keys') return only(d, ['v', 'iter', 'byPassword', 'byRecovery', 'byEmail', 'wasEmail']) && d.v === 1 && Number.isInteger(d.iter) && sealed(d.byPassword, 200) && sealed(d.byRecovery, 200) && (!('byEmail' in d) || rawKey(d.byEmail)) && (!('wasEmail' in d) || d.wasEmail === true);
+  if (m[1] === 'keys')
+    return (
+      only(d, ['v', 'iter', 'byPassword', 'byRecovery', 'byEmail', 'wasEmail', 'byPasskey']) &&
+      d.v === 1 &&
+      Number.isInteger(d.iter) &&
+      sealed(d.byPassword, 200) &&
+      sealed(d.byRecovery, 200) &&
+      (!('byEmail' in d) || rawKey(d.byEmail)) &&
+      (!('wasEmail' in d) || d.wasEmail === true) &&
+      (!('byPasskey' in d) || passkeyWraps(d.byPasskey))
+    );
   if (/^part([0-9]|1[0-9])$/.test(m[1])) return only(d, ['rev', 'ct']) && str(d.rev, 32) && str(d.ct, 700000);
   // Sign out of all devices (lib/session-cut.ts): the database's own time, and whether those
   // devices remove their data. Nothing else.
