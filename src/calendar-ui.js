@@ -14,7 +14,8 @@
 import * as S from './store';
 import * as L from './life/log';
 import * as EV from './lib/events';
-import { fromIcs, toIcs } from './lib/events-ics';
+import { fromIcs, inviteIcs, toIcs } from './lib/events-ics';
+import { status as syncStatus } from './sync';
 import { hasLifeStore } from './life/store-port';
 import * as N from './native.js';
 import { allowed as webAlerts } from './todo-alerts.js';
@@ -463,6 +464,7 @@ function draftOf(e, key, scope) {
     repeat: e.repeat || null,
     remind: e.remind || [],
     tz: e.tz || '',
+    guests: (e.guests || []).join(', '),
   };
 }
 
@@ -472,7 +474,7 @@ function newDraft(day, hour) {
   if (h == null) h = k === S.todayKey() ? Math.min(23, new Date().getHours() + 1) : 9;
   const start = `${k}T${pad(h)}:00`;
   const end = h < 23 ? `${k}T${pad(h + 1)}:00` : `${k}T23:59`;
-  return { title: '', allDay: false, start, end, location: '', notes: '', color: 'blue', repeat: null, remind: [], tz: EV.deviceZone() };
+  return { title: '', allDay: false, start, end, location: '', notes: '', color: 'blue', repeat: null, remind: [], tz: EV.deviceZone(), guests: '' };
 }
 
 function sheetHTML() {
@@ -511,12 +513,15 @@ function sheetHTML() {
         <label class="field ev-until"><span class="k">Last day</span><input id="evUntil" type="date" value="${esc(r.until || '')}"></label>
         <label class="field ev-count"><span class="k">Times</span><input id="evCount" type="number" min="1" max="999" value="${r.count || 10}" inputmode="numeric"></label>
       </div>
+      <label class="field"><span class="k">Who's coming <span class="muted">· if you like</span></span><input id="evGuests" type="text" maxlength="2000" value="${esc(d.guests || '')}" autocomplete="off" placeholder="sam@example.com, Jo"></label>
+      <p class="muted small">With email addresses, Send invite makes an invite they can accept in their own calendar. You send it yourself, from your email or messages.</p>
       <fieldset class="ev-remind"><legend class="k">Remind me</legend>${choices.map((m) => `<label class="check"><input type="checkbox" name="evRemind" value="${m}" ${d.remind.includes(m) ? 'checked' : ''}> ${esc(EV.remindLabel(m))}</label>`).join('')}</fieldset>
       <p class="muted small">${esc(remindHelp())} A whole-day event's reminders count from 9:00 that day.</p>`
       }
       <p class="muted small">${esc(PRIVATE)}${e?.from ? ` Added by ${esc(e.from)}.` : ''}</p>
       <div class="row wrap">
         <button class="btn primary small" type="submit">Save</button>
+        ${scope === 'one' ? '' : `<button class="btn small" type="button" data-act="ev-save-invite">Save and send invite</button>`}
         ${id ? `<button class="btn ghost small danger" type="button" data-act="ev-del">${scope === 'one' ? 'Delete this time' : 'Delete'}</button>` : ''}
         <button class="btn ghost small" type="button" data-act="ev-cancel">Cancel</button>
       </div>
@@ -590,14 +595,20 @@ function save() {
     }
     const remind = [...document.querySelectorAll('input[name="evRemind"]:checked')].map((x) => Number(x.value));
     const tz = allDay ? undefined : sheet.draft.tz || EV.deviceZone() || undefined;
-    const fields = { title, start, end: end !== start ? end : undefined, allDay: allDay || undefined, tz, location: location || undefined, notes: notes || undefined, color, repeat, remind };
+    const guests = EV.guestsFrom(v('evGuests'));
+    const fields = { title, start, end: end !== start ? end : undefined, allDay: allDay || undefined, tz, location: location || undefined, notes: notes || undefined, color, repeat, remind, guests: guests.length ? guests : undefined };
     if (id) {
       const e = S.state.events[id];
       // A repeat keeps the times left out and changed on their own.
       S.updateEvent(id, { ...fields, skip: repeat ? e?.skip : undefined, changes: repeat ? e?.changes : undefined });
-    } else if (!S.addEvent(fields)) {
-      toast("That couldn't be saved.");
-      return;
+      savedId = id;
+    } else {
+      const made = S.addEvent(fields);
+      if (!made) {
+        toast("That couldn't be saved.");
+        return;
+      }
+      savedId = made.id;
     }
     // Jump to the day it starts on, if it's off screen.
     if (!id) {
@@ -648,10 +659,49 @@ function showLinked(id) {
   </div>`);
 }
 
+// ---------- invites
+
+let savedId = ''; // the event the last save was for
+const safeName = (s) => (s.replace(/[^\p{L}\p{N} _-]+/gu, '').trim().slice(0, 60) || 'invite').replace(/\s+/g, '-');
+
+// An invite for the event's guests, sent by the person: the share sheet with the invite file where
+// there is one, else the file saved and their email app opened with the guests filled in.
+export async function sendInvite(e) {
+  const emails = (e.guests || []).filter(EV.isEmail);
+  if (!emails.length) {
+    toast("Add the guests' email addresses first, under Who's coming.");
+    return 'none';
+  }
+  const text = inviteIcs(e, { organizer: syncStatus.user?.email || '' });
+  const name = `${safeName(e.title)}.ics`;
+  const when = e.allDay ? e.start.slice(0, 10) : e.start.replace('T', ' at ');
+  if (N.isNative) {
+    try {
+      await N.shareFile(name, text);
+    } catch (err) {
+      toast(err?.message || "The invite couldn't be shared.");
+    }
+    return 'shared';
+  }
+  const file = new File([text], name, { type: 'text/calendar' });
+  if (globalThis.navigator?.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: `Invite: ${e.title}`, text: `${e.title}, ${when}` });
+      return 'shared';
+    } catch {}
+  }
+  await saveIcs(text, name);
+  const body = `You're invited: ${e.title}, ${when}${e.location ? `, ${e.location}` : ''}.\n\nThe invite is attached: open it to add it to your calendar.`;
+  try {
+    globalThis.location.href = `mailto:${emails.map(encodeURIComponent).join(',')}?subject=${encodeURIComponent(`Invite: ${e.title}`)}&body=${encodeURIComponent(body)}`;
+  } catch {}
+  toast(`Saved ${name}. Attach it to the email that opened.`);
+  return 'email';
+}
+
 // ---------- import and export
 
-async function saveIcs(text) {
-  const name = 'arise-calendar.ics';
+async function saveIcs(text, name = 'arise-calendar.ics') {
   if (N.isNative) {
     try {
       await N.shareFile(name, text);
@@ -765,6 +815,13 @@ export function handleAction(act, el) {
     case 'ev-del':
       remove();
       return true;
+    case 'ev-save-invite': {
+      savedId = '';
+      save();
+      const e = savedId && S.state.events[savedId];
+      if (e) void sendInvite(e);
+      return true;
+    }
     case 'ev-cancel':
       sheet = null;
       closeSheet();

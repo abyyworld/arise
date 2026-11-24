@@ -53,6 +53,7 @@ export interface CalEvent {
   changes?: Record<string, Change>;
   remind?: number[]; // minutes before (0: at the time); a whole day's count from 9:00 that day
   from?: string; // the app that added it, if not the Player
+  guests?: string[]; // who's invited: email addresses or names (since SCHEMA 14)
   created: number;
   at: number; // when it last changed
   gone?: true;
@@ -64,6 +65,10 @@ export const TITLE_MAX = 200;
 export const PLACE_MAX = 200;
 export const NOTES_MAX = 2000;
 export const MAX_REMIND = 5;
+export const MAX_GUESTS = 30;
+export const isEmail = (s: string) => /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(s);
+// Who's coming, from what was typed: commas, semicolons or new lines between them.
+export const guestsFrom = (text: string) => [...new Set(text.split(/[,;\n]+/).map((s) => s.replace(/^.*<([^>]+)>.*$/, '$1').trim()).filter(Boolean))].slice(0, MAX_GUESTS);
 export const REMIND_CHOICES = [0, 5, 10, 30, 60, 1440];
 const MAX_SKIP = 500;
 const MAX_CHANGES = 200;
@@ -210,6 +215,10 @@ export function cleanEvent(raw: unknown): CalEvent | null {
   }
   const from = line(r.from, 40);
   if (from) out.from = from;
+  if (Array.isArray(r.guests)) {
+    const guests = [...new Set(r.guests.map((g) => line(g, 120)).filter(Boolean))].slice(0, MAX_GUESTS);
+    if (guests.length) out.guests = guests;
+  }
   return out;
 }
 
