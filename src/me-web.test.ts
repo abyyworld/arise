@@ -245,6 +245,78 @@ describe('an app on the web', () => {
     expect((c.data.get(a.ME.links()[0].web!.id)!.get('e') as unknown[]).length).toBe(2); // the note and what came after
   });
 
+  it("asks the Player first when the app's rules say so, and adds it only when they allow it", async () => {
+    const c = connector();
+    const a = await device();
+    const l = await a.ME.connect('Claude', LINK_DEFAULT);
+    await a.ME.setWeb(l.id, { notes: true });
+    const rules = { ask: ['todo' as const], never: ['note' as const], house: 'Be brief.' };
+    expect(await a.ME.setRules(l.id, rules)).toBe(true);
+    const w = a.ME.links()[0].web!;
+    // Both pages carry them, sealed like the rest.
+    expect((await read(w)).rules).toEqual(rules);
+    expect((await read(l)).rules).toEqual(rules);
+    const address = a.ME.connectorAddress(a.ME.links()[0]);
+    expect((await c.ask(address, 'about_me')).content[0].text).toContain('- Be brief.');
+    expect((await c.ask(address, 'add_note', { text: 'Ran 5 km' })).isError).toBe(true);
+    expect((await c.ask(address, 'add_todo', { text: 'Call mum', day: '2026-11-20' })).content[0].text).toContain("It isn't added yet");
+    expect((await c.ask(address, 'add_todo', { text: 'Buy a bike light' })).isError).toBeUndefined();
+
+    expect(await a.ME.pullFeeds({ force: true })).toBe(0); // nothing added yet
+    expect(Object.values(a.S.state.todos)).toEqual([]);
+    const waiting = a.ME.asksFor(l.id);
+    expect(waiting).toMatchObject([
+      { want: 'add_todo', text: 'Call mum', day: '2026-11-20', client: 'Claude' },
+      { want: 'add_todo', text: 'Buy a bike light' },
+    ]);
+    expect(a.ME.feedOf(l.id).map((e) => e.tool)).toEqual(['about_me', 'add_note', 'ask', 'ask']);
+
+    expect(await a.ME.allowAsk(a.ME.askKey(waiting[0]))).toBe(true);
+    a.ME.dismissAsk(a.ME.askKey(waiting[1]));
+    expect(Object.values(a.S.state.todos)).toMatchObject([{ title: 'Call mum', day: '2026-11-20', from: 'Claude' }]);
+    expect(a.ME.asks()).toEqual([]);
+    expect(await a.ME.allowAsk(a.ME.askKey(waiting[0]))).toBe(false); // once only
+
+    // Turning the link off lets go of what's still waiting.
+    await c.ask(address, 'add_todo', { text: 'Water the plants' });
+    await a.ME.pullFeeds({ force: true });
+    expect(a.ME.asks()).toHaveLength(1);
+    await a.ME.turnOff(l.id);
+    expect(a.ME.asks()).toEqual([]);
+  });
+
+  it('keeps to the rules in Arise too, for a connector from before them, and says it needs the update', async () => {
+    const c = connector();
+    const a = await device();
+    const l = await a.ME.connect('Claude', LINK_DEFAULT);
+    await a.ME.setWeb(l.id, { notes: true });
+    const address = a.ME.connectorAddress(a.ME.links()[0]);
+    // What a connector that doesn't know the rules would take: a note and a to-do, added straight.
+    await c.ask(address, 'add_note', { text: 'Ran 5 km.' });
+    await c.ask(address, 'add_todo', { text: 'Call mum' });
+    await a.ME.setRules(l.id, { ask: ['todo'], never: ['note'], house: '' });
+    await a.ME.pullFeeds({ force: true });
+    expect(a.added).toEqual([]); // never: let go
+    expect(Object.values(a.S.state.todos)).toEqual([]);
+    expect(a.ME.asksFor(l.id)).toMatchObject([{ want: 'add_todo', text: 'Call mum' }]); // ask first: waits
+
+    // This connector keeps to them; one from before doesn't say so.
+    expect(await a.ME.checkConnector()).toBe(true);
+    expect(a.ME.connectorKeepsRules()).toBe(true);
+    expect(a.ME.needsConnectorUpdate(a.ME.links()[0])).toBe(false);
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ok: true, name: 'arise-connector', version: '1.0.0' }), { status: 200 }));
+    expect(await a.ME.checkConnector()).toBe(true);
+    expect(a.ME.connectorKeepsRules()).toBe(false);
+    expect(a.ME.needsConnectorUpdate(a.ME.links()[0])).toBe(true);
+    expect(a.ME.needsConnectorUpdate({ ...a.ME.links()[0], rules: undefined })).toBe(false); // no rules, nothing to keep to
+
+    // Never to both: the page says it takes nothing, so no connector offers a way to add.
+    await a.ME.setRules(l.id, { ask: [], never: ['note', 'todo'], house: '' });
+    expect(a.ME.webNow(a.ME.links()[0])!.notes).toBe(false);
+    expect((await read(a.ME.links()[0].web!)).web!.notes).toBe(false);
+    expect(a.ME.links()[0].web!.notes).toBe(true); // the switch itself stays as the Player set it
+  });
+
   it('asks the connector nothing when no app is on the web', async () => {
     const c = connector();
     const a = await device();

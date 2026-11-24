@@ -14,8 +14,8 @@ import type { LifeEvent, LifeKind, LifeSource, LifeTier } from '../life/types';
 import { LIFE_KINDS, LIFE_SOURCES, floorTier } from '../life/tiers';
 import { cleanPauses, type Pause } from './pause';
 import { cleanBy } from '../life/strength';
-import { ABOUT_DEFAULT, cleanChoice, LINK_DEFAULT, type MeChoice } from './me';
-import { cleanEntry, type FeedEntry } from './feed';
+import { ABOUT_DEFAULT, cleanChoice, cleanRules, LINK_DEFAULT, type MeChoice, type MeRules } from './me';
+import { ASK_WANTS, cleanEntry, type AskWant, type FeedEntry } from './feed';
 import { cleanLife, cleanLifeBefore } from './life-check';
 import { cleanStudy, type Study } from './study';
 import { cleanTodos, type Todos } from './todos';
@@ -803,6 +803,7 @@ export interface MeLink {
   sig?: string; // a fingerprint of what its page says, as last sent from here
   sent?: number; // when its page was last updated
   web?: LinkWeb; // on for AI apps on the web (worker/connector)
+  rules?: MeRules; // what it may just do, must ask about first, or may never do; house rules
 }
 
 // An app's web page: a page of its own, apart from its link, so turning the web off empties it
@@ -854,6 +855,8 @@ export function cleanMeLinks(raw: unknown): MeLink[] {
       if (time(l.sent)) out.sent = time(l.sent);
       const web = cleanLinkWeb(l.web);
       if (web) out.web = web;
+      const rules = cleanRules(l.rules);
+      if (rules) out.rules = rules;
       return [out];
     });
 }
@@ -873,6 +876,39 @@ export function cleanFeedLog(raw: unknown): FeedLog {
     if (entries.length) out[id] = entries.slice(-MAX_FEED_SHOWN);
   }
   return out;
+}
+
+// What apps on the web asked to add, waiting for the Player to allow it or not (me.ts): which
+// link and web page, the connector's number for it and when, what it wants to add and its words.
+export interface MeAsk {
+  link: string;
+  web: string;
+  n: number;
+  at: number;
+  want: AskWant;
+  text: string;
+  day?: string;
+  client?: string;
+}
+export const MAX_ASKS = 100;
+export function cleanMeAsks(raw: unknown): MeAsk[] {
+  const seen = new Set<string>();
+  return arr(raw)
+    .slice(-MAX_ASKS)
+    .flatMap((x) => {
+      const a = obj(x);
+      if (typeof a.link !== 'string' || !LINK_ID.test(a.link) || typeof a.web !== 'string' || !LINK_ID.test(a.web)) return [];
+      if (typeof a.n !== 'number' || !Number.isSafeInteger(a.n) || a.n < 1 || !time(a.at) || !ASK_WANTS.includes(a.want as AskWant)) return [];
+      const c = cleanEntry({ at: a.at, tool: 'ask', ok: true, want: a.want, note: a.text, day: a.day, client: a.client });
+      if (!c?.note) return [];
+      const k = `${a.web}/${a.n}/${a.at}`;
+      if (seen.has(k)) return [];
+      seen.add(k);
+      const out: MeAsk = { link: a.link, web: a.web, n: a.n, at: c.at, want: c.want!, text: c.note };
+      if (c.day) out.day = c.day;
+      if (c.client) out.client = c.client;
+      return [out];
+    });
 }
 
 // Pages still to turn off, and whose they are ('' when that isn't known yet): this device's data
