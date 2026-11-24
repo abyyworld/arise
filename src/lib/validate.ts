@@ -19,6 +19,7 @@ import { cleanEntry, type FeedEntry } from './feed';
 import { cleanLife, cleanLifeBefore } from './life-check';
 import { cleanStudy, type Study } from './study';
 import { cleanTodos, type Todos } from './todos';
+import { cleanDebts, cleanGroceries, type Debts, type Groceries } from './everyday';
 import { cleanEvents, type CalEvents } from './events';
 import { cleanDecisions, cleanDismissed, type Decisions, type Dismissed } from './decisions';
 import { cleanOwnStorage, type OwnStorage } from './own-storage';
@@ -87,6 +88,8 @@ export interface Settings {
   quietFrom: string;
   quietTo: string;
   bestTime: '' | 'morning' | 'afternoon' | 'evening'; // when they think best ('' = worked out)
+  currency: string; // for money owed: ISO code ('' = from the device's region)
+  voice: string; // a sample of how they write, for Write it my way ('' = none)
   // Pause everything (src/life/pause.ts): when nothing was noted, on any device. Left out when none.
   pauses?: Pause[];
 }
@@ -128,6 +131,8 @@ export function cleanSettings(raw: unknown, d: Settings): Settings {
     quietFrom: pick(s.quietFrom, (x) => typeof x === 'string' && TIME.test(x), d.quietFrom),
     quietTo: pick(s.quietTo, (x) => typeof x === 'string' && TIME.test(x), d.quietTo),
     bestTime: pick(s.bestTime, (x) => ['', 'morning', 'afternoon', 'evening'].includes(x as string), d.bestTime),
+    currency: pick(s.currency, (x) => x === '' || (typeof x === 'string' && /^[A-Z]{3}$/.test(x)), d.currency),
+    voice: typeof s.voice === 'string' ? s.voice.replace(/\u0000/g, '').trim().slice(0, 3000) : d.voice,
     ...withPauses(s.pauses),
   };
 }
@@ -471,6 +476,8 @@ export interface State {
   values: Values;
   study: Study;
   todos: Todos;
+  debts: Debts; // money owed between them and other people (lib/everyday.ts)
+  groceries: Groceries; // the grocery list (lib/everyday.ts)
   events: CalEvents; // your own calendar events (lib/events.ts)
   decisions: Decisions; // choices asked about, and how they went (lib/decisions.ts)
   dismissed: Dismissed; // early warnings put away (lib/ahead.ts)
@@ -512,6 +519,8 @@ export function cleanState(raw: unknown, defaults: Settings): State {
     values: cleanValues(d.values),
     study: cleanStudy(d.study),
     todos: cleanTodos(d.todos),
+    debts: cleanDebts(d.debts),
+    groceries: cleanGroceries(d.groceries),
     events: cleanEvents(d.events),
     decisions: cleanDecisions(d.decisions),
     dismissed: cleanDismissed(d.dismissed),

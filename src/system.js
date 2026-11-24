@@ -5,6 +5,7 @@
 import { EXERCISES } from './program.js';
 import * as S from './store';
 import * as AHEAD from './ahead-ui.js';
+import * as EVERYDAY from './everyday-ui.js';
 import * as AI from './ai.js';
 import * as Device from './lib/on-device';
 import * as F from './lib/free-ai';
@@ -927,6 +928,7 @@ export function renderCoach(root) {
           </div>
         </section>
         ${AHEAD.decideCard()}
+        ${EVERYDAY.writeCard()}
         <section class="panel small-print">
           <p class="small">Replies come from ${esc(AI.engineLabel())}. ${
             AI.isPrivate()

@@ -223,6 +223,11 @@ The original weekly split (four workouts over six fixed weekdays, Thursday off) 
 
 ## What else it does
 
+- One box on Today: write anything, and Arise works out on your device if it's a to-do (with its day and time), groceries, money owed, a question for your coach or a note for your day. It shows what it will save first, and you can pick another kind.
+- Who owes whom: money you lent or borrowed, per person and currency, with a day to pay it back. Tap a person to mark things paid back.
+- Groceries: a shopping list on Today. Tick things as you buy them, then clear them.
+- What matters, and when: tap What matters on your plan to see the next 14 days in four boxes (Do now, Plan ahead, Keep it light, Can wait), from your to-dos, calendar, goals and money you owe. Tick Matters a lot on a to-do to move it up.
+- Write it my way, on Coach: rough notes in, a message, email, post or comment out, sounding like you. Paste a few of your own messages once so it can copy your tone. Only those words go to the AI.
 - For the workout plan: shows a how-to video for every exercise, photos for most, and what to do when it gets too easy.
 - Fills in your reps from last time and tells you when you've hit the top of the range on every set, so you know to make it harder.
 - Tracks streaks, a 16-week calendar, each quest's own streak and rate, a chart for every measure and exercise, and your full history.

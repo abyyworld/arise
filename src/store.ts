@@ -10,6 +10,7 @@ import type { Goal, Quest } from './lib/goals';
 import { mergeChat, mergeDaily, neverPlanned, planOn, splicePlanDays } from './lib/merge';
 import * as ST from './lib/study';
 import * as TD from './lib/todos';
+import * as EV2 from './lib/everyday';
 import * as EV from './lib/events';
 import * as DC from './lib/decisions';
 import * as OS from './lib/own-storage';
@@ -41,7 +42,7 @@ const BAR_SWAPS = BAR_SWAPS_JS as unknown as Record<string, { ex: string; min: n
 
 const KEY = 'pit-data-v1';
 
-export const DEFAULT_SETTINGS: Settings = { restBig: 120, restSmall: 60, sound: true, vibrate: true, name: '', remindAt: '07:00', aiDaily: true, template: 'ab', perWeek: 5, notify: false, evening: true, eveningAt: '20:30', aiProvider: '', aiModel: '', aiBase: '', aiEngine: '', bar: 'home', dayOff: true, privateModel: '', freeModel: '', look: 'auto', checkin: true, checkinAt: '21:30', recap: true, recapAt: '', notifyDetails: false, journalVoice: 'first', nudges: 2, quietFrom: '22:00', quietTo: '08:00', bestTime: '' };
+export const DEFAULT_SETTINGS: Settings = { restBig: 120, restSmall: 60, sound: true, vibrate: true, name: '', remindAt: '07:00', aiDaily: true, template: 'ab', perWeek: 5, notify: false, evening: true, eveningAt: '20:30', aiProvider: '', aiModel: '', aiBase: '', aiEngine: '', bar: 'home', dayOff: true, privateModel: '', freeModel: '', look: 'auto', checkin: true, checkinAt: '21:30', recap: true, recapAt: '', notifyDetails: false, journalVoice: 'first', nudges: 2, quietFrom: '22:00', quietTo: '08:00', bestTime: '', currency: '', voice: '' };
 
 export const blank = (): State => cleanState({}, DEFAULT_SETTINGS);
 export const clean = (data: unknown): State => migrate(cleanState(data, DEFAULT_SETTINGS));
@@ -1180,7 +1181,7 @@ export function exportData() {
 
 // Nothing of the Player's own yet: no history and no real goal (an intro that was skipped
 // doesn't count). A backup loaded into a device like this is a full restore.
-export const isEmpty = (s: State = state) => !s.sessions.length && !Object.keys(s.logs).length && !s.body.entries.length && !s.profile?.goal && !s.goals.length && !Object.keys(s.checks).length && !ST.hasStudy(s.study) && !Object.keys(s.todos).length && !Object.keys(s.events).length && !Object.keys(s.decisions).length;
+export const isEmpty = (s: State = state) => !s.sessions.length && !Object.keys(s.logs).length && !s.body.entries.length && !s.profile?.goal && !s.goals.length && !Object.keys(s.checks).length && !ST.hasStudy(s.study) && !Object.keys(s.todos).length && !Object.keys(s.events).length && !Object.keys(s.decisions).length && !Object.keys(s.debts).length && !Object.keys(s.groceries).length;
 
 // Anything at all of the Player's own: history of any kind, a workout in progress, a goal, a
 // plan, the coach's chat, reminder texts asked for, an answer in the profile. Not what a device
@@ -1202,7 +1203,7 @@ export function introOnly(s: State = state) {
 // Nothing done yet: no history of any kind (goals, a profile and settings may be set up, and the
 // weigh-in the intro saves with them).
 export function nothingDone(s: Omit<State, 'active' | 'updatedAt'>) {
-  return !s.sessions.length && !Object.keys(s.logs).length && (!s.body.entries.length || introWeighIn(s)) && !Object.keys(s.checks).length && !Object.keys(s.values).length && !s.football.length && !s.rests.length && !s.easyWeeks.length && !s.customPlan && !s.ai.chat.length && !ST.hasStudy(s.study) && !Object.keys(s.todos).length && !Object.keys(s.events).length && !Object.keys(s.decisions).length;
+  return !s.sessions.length && !Object.keys(s.logs).length && (!s.body.entries.length || introWeighIn(s)) && !Object.keys(s.checks).length && !Object.keys(s.values).length && !s.football.length && !s.rests.length && !s.easyWeeks.length && !s.customPlan && !s.ai.chat.length && !ST.hasStudy(s.study) && !Object.keys(s.todos).length && !Object.keys(s.events).length && !Object.keys(s.decisions).length && !Object.keys(s.debts).length && !Object.keys(s.groceries).length;
 }
 // The intro saves the weight it asks for as a weigh-in, just before its goal (system.js): the only
 // one, on the day a goal was made, from before that goal was last saved.
@@ -1310,6 +1311,8 @@ export function importData(raw: unknown): number {
   }
   state.study = ST.mergeStudy(state.study, data.study);
   state.todos = TD.mergeTodos(state.todos, data.todos);
+  state.debts = EV2.mergeDebts(state.debts, data.debts);
+  state.groceries = EV2.mergeGroceries(state.groceries, data.groceries);
   state.events = EV.mergeEvents(state.events, data.events);
   state.decisions = DC.mergeDecisions(state.decisions, data.decisions);
   state.dismissed = DC.mergeDismissed(state.dismissed, data.dismissed);
@@ -1390,10 +1393,10 @@ export function setTodoDone(id: string, done: boolean) {
   save();
 }
 
-export function editTodo(id: string, patch: { title?: string; day?: string | null; time?: string | null }) {
+export function editTodo(id: string, patch: { title?: string; day?: string | null; time?: string | null; big?: boolean }) {
   const t = state.todos[id];
   if (!t || t.gone) return;
-  const next = TD.cleanTodo({ ...t, ...(patch.title != null ? { title: patch.title } : {}), day: patch.day === null ? undefined : (patch.day ?? t.day), time: patch.time === null ? undefined : (patch.time ?? t.time), at: Date.now() });
+  const next = TD.cleanTodo({ ...t, ...(patch.title != null ? { title: patch.title } : {}), day: patch.day === null ? undefined : (patch.day ?? t.day), time: patch.time === null ? undefined : (patch.time ?? t.time), big: patch.big == null ? t.big : patch.big || undefined, at: Date.now() });
   if (!next) return;
   state.todos = TD.cleanTodos({ ...state.todos, [id]: next });
   save();
@@ -1403,6 +1406,81 @@ export function removeTodo(id: string) {
   const t = state.todos[id];
   if (!t || t.gone) return;
   state.todos = TD.cleanTodos({ ...state.todos, [id]: { id, title: '', created: t.created, at: Date.now(), gone: true } });
+  save();
+}
+
+// ---------- money owed and groceries (lib/everyday.ts)
+
+export type { Debt, Grocery, Balance, Dir } from './lib/everyday';
+export const currency = () => state.settings.currency || EV2.currencyFor(globalThis.navigator?.language || '');
+export const balances = () => EV2.balances(state.debts);
+export const groceriesList = () => EV2.liveGroceries(state.groceries).sort((a, b) => (a.got ? 1 : 0) - (b.got ? 1 : 0) || (a.got || 0) - (b.got || 0) || a.created - b.created);
+
+export function addDebt(input: { who: string; amount: number; cur?: string; dir: EV2.Dir; what?: string; due?: string }): EV2.Debt | null {
+  const now = Date.now();
+  const id = `d${EV2.newId()}`;
+  const d = EV2.cleanDebt({ ...input, cur: input.cur || currency(), id, created: now, at: now });
+  if (!d) return null;
+  state.debts = EV2.cleanDebts({ ...state.debts, [id]: d });
+  save();
+  return d;
+}
+
+export function settleDebt(id: string, settled = true) {
+  const d = state.debts[id];
+  if (!d || d.gone) return;
+  const now = Date.now();
+  const { settled: _s, ...rest } = d;
+  state.debts = EV2.cleanDebts({ ...state.debts, [id]: { ...rest, ...(settled ? { settled: now } : {}), at: now } });
+  save();
+}
+
+export function removeDebt(id: string) {
+  const d = state.debts[id];
+  if (!d || d.gone) return;
+  state.debts = EV2.cleanDebts({ ...state.debts, [id]: { id, gone: true, created: d.created, at: Date.now() } });
+  save();
+}
+
+// Adds what isn't on the list yet (by name); one bought already goes back on the list. How many.
+export function addGroceries(items: { name: string; qty?: string }[]): number {
+  const now = Date.now();
+  const next: Record<string, unknown> = { ...state.groceries };
+  const have = new Map(EV2.liveGroceries(state.groceries).map((g) => [g.name.toLowerCase(), g]));
+  let n = 0;
+  for (const it of items) {
+    const name = EV2.line(it.name, 80);
+    if (!name) continue;
+    const was = have.get(name.toLowerCase());
+    if (was && !was.got) continue;
+    const id = was ? was.id : `g${EV2.newId()}${n}`;
+    // (A millisecond apart, so they keep the order they were written in.)
+    next[id] = { id, name, ...(it.qty ? { qty: it.qty } : {}), created: was ? was.created : now + n, at: now };
+    n++;
+  }
+  if (!n) return 0;
+  state.groceries = EV2.cleanGroceries(next);
+  save();
+  return n;
+}
+
+export function setGot(id: string, got: boolean) {
+  const g = state.groceries[id];
+  if (!g || g.gone) return;
+  const now = Date.now();
+  const { got: _g, ...rest } = g;
+  state.groceries = EV2.cleanGroceries({ ...state.groceries, [id]: { ...rest, ...(got ? { got: now } : {}), at: now } });
+  save();
+}
+
+export function removeGroceries(ids: string[]) {
+  const now = Date.now();
+  const next: Record<string, unknown> = { ...state.groceries };
+  for (const id of ids) {
+    const g = state.groceries[id];
+    if (g && !g.gone) next[id] = { id, gone: true, created: g.created, at: now };
+  }
+  state.groceries = EV2.cleanGroceries(next);
   save();
 }
 

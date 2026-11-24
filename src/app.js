@@ -44,6 +44,7 @@ import * as YOU from './you.js';
 import * as HUB from './life/connect-hub.js';
 import * as TODOS from './todos-ui.js';
 import * as AHEAD from './ahead-ui.js';
+import * as EVERYDAY from './everyday-ui.js';
 import { initAhead, onAheadChange, nudges as aheadNudges } from './ahead';
 import * as CAL from './calendar-ui.js';
 import * as PAUSEUI from './life/pause-ui';
@@ -188,7 +189,7 @@ function render() {
 // Training, with the rest of it.
 function renderToday() {
   const k = S.todayKey();
-  const main = [dayCard(k), PAUSEUI.todayCard(), ...(isSystem() ? [] : [lookHint()]), resumeBanner(), LIFE.recapSlot(), SYS.systemMessageCard(), ...AHEAD.todayCards(), STUDY.todayCard(), `<div id="todo">${todo(k)}</div>`, TODOS.todoCard(k), journalNotifyCard(), installBanner()];
+  const main = [PAUSEUI.todayCard(), EVERYDAY.captureCard(), dayCard(k), ...(isSystem() ? [] : [lookHint()]), resumeBanner(), LIFE.recapSlot(), SYS.systemMessageCard(), ...AHEAD.todayCards(), STUDY.todayCard(), `<div id="todo">${todo(k)}</div>`, TODOS.todoCard(k), EVERYDAY.everydayCard(), journalNotifyCard(), installBanner()];
   const life = S.state.profile?.life;
   const side = isSystem() ? [statusWindow(), quoteCard(k)] : [SIDE.todaySide(), TOP.slot(), SIDE.gameLine(), life && (life.values?.length || life.hope) ? mattersCard(life) : quoteCard(k)];
 
@@ -2351,6 +2352,7 @@ document.addEventListener('click', async (e) => {
       if (GOALS.handleAction(d.act, el)) break;
       if (STUDY.handleAction(d.act, el)) break;
       if (TODOS.handleAction(d.act, el)) break;
+      if (EVERYDAY.handleAction(d.act, el)) break;
       if (AHEAD.handleAction(d.act, el)) break;
       if (CAL.handleAction(d.act, el)) break;
       if (YOU.handleAction(d.act, el)) break;
@@ -2682,6 +2684,8 @@ initIngest();
 initMemory();
 initInsight();
 initAhead();
+// The box on Today sends a question to the coach.
+EVERYDAY.initEveryday({ ask: (text) => SYS.askCoach(text) });
 // The plan's cards follow the life log (calendars, sleep, people) as it's read.
 // Next-step messages: planned on the phone in the phone apps, shown while open on the web.
 N.useNudges((now) => aheadNudges(now));

@@ -1,0 +1,37 @@
+/* On Today (src/everyday-ui.js): the box to write anything, and the card with money owed and
+   groceries. Colour tokens only, so both looks get them. */
+
+.capture textarea {
+  width: 100%; min-height: 64px; resize: vertical; padding: 10px 12px; border-radius: var(--radius);
+  border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; line-height: 1.4;
+}
+.capture textarea:focus { outline: none; border-color: var(--sys); }
+.capture-what { min-height: 1.3em; margin: 6px 0 0; }
+.capture-kinds { margin-top: 4px; }
+.capture-row { justify-content: space-between; align-items: center; margin-top: 8px; gap: 8px; }
+.capture-file { cursor: pointer; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.everyday .seg { margin-top: 4px; }
+.money-list li { list-style: none; }
+.money-row {
+  width: 100%; display: grid; gap: 2px; text-align: left; padding: 8px 10px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--radius); background: transparent; color: var(--text); font: inherit;
+}
+.money-row.in { box-shadow: inset 3px 0 0 var(--sys); }
+.money-row.out { box-shadow: inset 3px 0 0 var(--muted); }
+.money-who { overflow-wrap: anywhere; font-weight: 600; }
+.grocery-list .qbody { cursor: default; }
+.debt-amount { display: grid; grid-template-columns: 1fr 8em; gap: 8px; }
+.debt-sheet .seg { margin-bottom: 4px; }
+
+.grid4 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 520px) { .grid4 { grid-template-columns: 1fr; } }
+.grid4 > section { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; min-width: 0; }
+.grid4 h3 { margin: 0 0 2px; font-size: 1rem; }
+.grid4 .muted { margin: 0 0 6px; }
+.grid4 ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.grid4 li { overflow-wrap: anywhere; font-size: 0.92rem; }
+.grid4 li small { color: var(--muted); }
+.grid4 .do-now { box-shadow: inset 3px 0 0 var(--sys); }
+
+.write-out { white-space: pre-wrap; border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0; }

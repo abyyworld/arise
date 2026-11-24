@@ -11,6 +11,7 @@ export interface Todo {
   day?: string; // YYYY-MM-DD
   time?: string; // HH:MM, only with a day
   done?: number; // when it was done
+  big?: true; // matters a lot (the priority grid, lib/ahead.ts)
   from?: string; // the app that added it (the web connector), if not the Player
   created: number;
   at: number; // when it last changed
@@ -43,6 +44,7 @@ export function cleanTodo(raw: unknown): Todo | null {
     if (typeof r.time === 'string' && TIME.test(r.time)) out.time = r.time;
   }
   if (isTime(r.done)) out.done = r.done;
+  if (r.big === true) out.big = true;
   const from = line(r.from, 40);
   if (from) out.from = from;
   return out;

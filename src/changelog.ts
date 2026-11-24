@@ -4,6 +4,16 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.34.0',
+    notes: [
+      'One box on Today: write anything. Arise works out if it is a to-do (with its day and time), groceries, money owed, a question for your coach or a note, and shows you before saving. Pick another kind if it guessed wrong. You can add a file too.',
+      'Who owes whom: keep track of money you lent or borrowed, per person, with a day to pay back. Write "Sam owes me 10 for lunch" in the box, or add it on Today.',
+      'Groceries: a shopping list on Today. Write "buy milk and eggs" in the box, tick things off as you buy them.',
+      'What matters, and when: the next 14 days in four boxes, from Do now to Can wait. Tap What matters on your plan. Mark a to-do as Matters a lot to move it up.',
+      'Write it my way: on Coach, turn rough notes into a message, email, post or comment that sounds like you. Only those words go to the AI.',
+    ],
+  },
+  {
     version: '1.33.0',
     notes: [
       'Your own storage: keep photos and files in your own free Cloudflare storage, up to 10 GB and 200 MB a file, instead of 250 MB. They are still encrypted on your device first, so Cloudflare cannot open them. In Photos and files.',

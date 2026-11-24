@@ -55,7 +55,9 @@ const TIMEOUT = 45_000;
 // 11: decisions and early warnings put away (lib/decisions.ts), and the next-step message settings,
 // which 1.30 would drop.
 // 12: the Player's own storage for photos and files (lib/own-storage.ts), which 1.32 would drop.
-export const SCHEMA = 12;
+// 13: money owed and groceries (lib/everyday.ts), a to-do marked as mattering a lot, and the
+// currency and writing-voice settings, which 1.33 would drop.
+export const SCHEMA = 13;
 
 interface Meta {
   uid?: string;
