@@ -1,5 +1,5 @@
 // The Import screen: bring in years of history from the files Google, Spotify, Netflix, Apple
-// Health, WhatsApp and other chat apps, and banks give people. The file is read here, on the
+// Health, WhatsApp and other chat apps, AI apps (Claude, ChatGPT, Gemini), and banks give people. The file is read here, on the
 // device (in a worker, life/import/client.ts), and what it finds goes to the store it's given:
 // the life log.
 
@@ -166,6 +166,42 @@ export const SOURCES = [
     ],
   },
   {
+    id: 'claude',
+    ai: true,
+    name: 'Claude',
+    what: 'Your chats with Claude: the title, how many messages, and your own questions. Not Claude’s answers.',
+    steps: [
+      'On claude.ai, open Settings, then Privacy.',
+      'Tap “Export data”. Claude emails you a link when it’s ready.',
+      'Download the zip from the email and choose it here.',
+      'Arise lists your chats first. Untick any you want to leave out.',
+    ],
+  },
+  {
+    id: 'chatgpt',
+    ai: true,
+    name: 'ChatGPT',
+    what: 'Your chats with ChatGPT: the title, how many messages, and your own questions. Not ChatGPT’s answers.',
+    steps: [
+      'In ChatGPT, tap your name, then Settings, then “Data controls”.',
+      'Tap “Export data”, then “Confirm export”.',
+      'ChatGPT emails you a link. Download the zip and choose it here.',
+      'Arise lists your chats first. Untick any you want to leave out.',
+    ],
+  },
+  {
+    id: 'gemini',
+    ai: true,
+    name: 'Gemini',
+    what: 'Your questions to Gemini, put together as one chat per day. Not Gemini’s answers.',
+    steps: [
+      'Go to takeout.google.com and tap “Deselect all”.',
+      'Tick “My Activity”. Tap “All activity data included”, tap “Deselect all”, tick “Gemini Apps” and tap OK.',
+      'Tap “Multiple formats” and choose JSON. Then tap “Next step” and “Create export”.',
+      'When Google emails you, download the zip and choose it here. Arise lists your days first. Untick any you want to leave out.',
+    ],
+  },
+  {
     id: 'bank',
     name: 'Bank or card statements',
     what: 'What you spent, where, and what came in.',
@@ -200,7 +236,8 @@ const importer = () => ctx.importer ?? sharedImporter();
 let resolvedStore; // undefined: not looked for yet; null: there's none
 // The answers given so far (mapping, profiles) stay in `st`, so a redraw of the screen (a sync,
 // say) doesn't undo them.
-const st = { phase: 'idle', queue: [], file: null, detection: null, mapping: null, profiles: null, progress: null, results: [], ctrl: null, error: '' };
+// `skip`: the AI chats unticked in the picker (by id).
+const st = { phase: 'idle', queue: [], file: null, detection: null, mapping: null, profiles: null, skip: new Set(), progress: null, results: [], ctrl: null, error: '' };
 
 async function getStore() {
   const s = ctx.store;
@@ -227,7 +264,7 @@ export function renderImport(root, { store = null, importer = null, back = 'sett
       <div class="col">
         <section class="panel" id="importPanel">
           <div class="panel-title"><span>Bring in a file</span></div>
-          <p>Choose a file you downloaded from Google, Spotify, Netflix, Apple Health, WhatsApp, another chat app or your bank. Arise works out what it is.</p>
+          <p>Choose a file you downloaded from Google, Spotify, Netflix, Apple Health, WhatsApp, another chat app, an AI app like ChatGPT, or your bank. Arise works out what it is.</p>
           <p class="muted small">${PRIVATE}</p>
           <input type="file" id="lifeImportFile" multiple hidden>
           <div id="importStatus">${statusHTML()}</div>
@@ -240,6 +277,7 @@ export function renderImport(root, { store = null, importer = null, back = 'sett
             (s) => `<details class="other" data-source="${s.id}"><summary>${esc(s.name)}</summary>
             <p class="small">${esc(s.what)}</p>
             <ol class="changes small">${s.steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>
+            ${s.ai ? `<div class="ai-chats" id="aiChats-${s.id}" data-ai="${s.id}"></div>` : ''}
           </details>`,
           ).join('')}
         </section>
@@ -249,6 +287,10 @@ export function renderImport(root, { store = null, importer = null, back = 'sett
   getStore().then((s) => {
     if (st.phase === 'idle' && s !== had) paint();
   });
+  // An AI app's steps, opened: its chats in the life log, each with Delete.
+  for (const d of root.querySelectorAll('#importHow details[data-source]')) {
+    if (SOURCES.find((s) => s.id === d.dataset.source)?.ai) d.addEventListener('toggle', () => d.open && fillAiChats(d.dataset.source));
+  }
 }
 
 function paint() {
@@ -335,8 +377,11 @@ function statusHTML() {
 
 // ---------- questions before reading: whose Netflix, which bank columns
 
+const AI_KINDS = new Set(['claude', 'chatgpt', 'gemini']);
+const isAi = (f) => AI_KINDS.has(f.kind);
+
 function needsAsking(d) {
-  return d.found.some((f) => (f.kind === 'netflix-activity' && (f.profiles?.length ?? 0) > 1) || f.kind === 'bank-csv');
+  return d.found.some((f) => (f.kind === 'netflix-activity' && (f.profiles?.length ?? 0) > 1) || f.kind === 'bank-csv' || (isAi(f) && (f.chats?.length ?? 0) > 0));
 }
 
 function askHTML() {
@@ -351,9 +396,159 @@ function askHTML() {
     }
     if (f.kind === 'bank-csv' && f.csv) parts.push(mappingHTML(f));
   }
+  const ai = d.found.filter((f) => isAi(f) && f.chats?.length);
+  if (ai.length) parts.push(pickerHTML(ai));
   return `<p id="importNow"><b>${esc(st.file?.name ?? '')}</b></p>${parts.join('')}
     <p class="error small" id="importAskErr" role="alert" hidden></p>
     <div class="row"><button class="btn primary" data-act="life-import-go">Bring it in</button><button class="btn ghost" data-act="life-import-cancel">Cancel</button></div>`;
+}
+
+// ---------- which AI chats to bring in
+
+const DAY_FMT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+const dateText = (at) => {
+  try {
+    return DAY_FMT.format(at);
+  } catch {
+    return '';
+  }
+};
+
+const allChats = () => (st.detection?.found ?? []).filter((f) => isAi(f) && f.chats?.length).flatMap((f) => f.chats);
+const tickedText = () => {
+  const all = allChats().length;
+  return `${n(all - st.skip.size)} of ${n(all)} ticked`;
+};
+
+// Every chat with its title, date and length, all ticked unless unticked. Kept plain (one label
+// each, no work per row beyond its text) so thousands of chats draw at once.
+function pickerHTML(found) {
+  const lists = found.map((f) => {
+    const rows = f.chats
+      .map((c) => `<li><label class="check"><input type="checkbox" name="importChat" value="${esc(c.id)}"${st.skip.has(c.id) ? '' : ' checked'}><span>${esc(c.title)} <small class="muted">${esc(dateText(c.at))} · ${esc(plural(c.n, 'message'))}</small></span></label></li>`)
+      .join('');
+    return `<p class="small">${esc(f.label)}: ${esc(plural(f.chats.length, 'chat'))}. Untick any you want to leave out.</p><ul class="ai-pick-list">${rows}</ul>`;
+  });
+  return `<fieldset class="ways" id="importChats"><legend class="label">Which chats to bring in?</legend>
+    <div class="row"><button class="btn small ghost" data-act="life-import-tick-all">Tick all</button><button class="btn small ghost" data-act="life-import-untick-all">Untick all</button></div>
+    <p class="muted small" id="importChatCount" aria-live="polite">${esc(tickedText())}</p>
+    ${lists.join('')}
+  </fieldset>`;
+}
+
+function tickAll(on) {
+  for (const b of document.querySelectorAll('input[name="importChat"]')) b.checked = on;
+  st.skip = on ? new Set() : new Set(allChats().map((c) => c.id));
+  const count = $('#importChatCount');
+  if (count) count.textContent = tickedText();
+}
+
+// ---------- the AI chats in the life log, each with Delete
+
+const sourceName = (id) => SOURCES.find((s) => s.id === id)?.name ?? id;
+
+// The source's events, one row per conversation (meta.conv), newest first.
+export function groupChats(events) {
+  const by = new Map();
+  for (const e of events) {
+    const conv = typeof e.meta?.conv === 'string' ? e.meta.conv : '';
+    if (!conv) continue;
+    let g = by.get(conv);
+    if (!g) by.set(conv, (g = { conv, title: typeof e.meta.chat === 'string' && e.meta.chat ? e.meta.chat : e.title, at: 0, n: 0, ids: [] }));
+    g.at = Math.max(g.at, e.end ?? e.at);
+    g.n += typeof e.value === 'number' ? e.value : 0;
+    g.ids.push(e.id);
+  }
+  return [...by.values()].sort((a, b) => b.at - a.at);
+}
+
+// Draws the list of a source's chats; `note` says what just happened. A plain redraw already on
+// its way is shared (opening the steps and an import finishing both ask for one).
+const filling = new Map();
+function fillAiChats(source, note = '') {
+  if (!note && filling.has(source)) return filling.get(source);
+  const p = drawAiChats(source, note).finally(() => {
+    if (filling.get(source) === p) filling.delete(source);
+  });
+  if (!note) filling.set(source, p);
+  return p;
+}
+
+async function drawAiChats(source, note) {
+  const el = document.getElementById(`aiChats-${source}`);
+  if (!el) return;
+  const store = resolvedStore ?? (await getStore());
+  if (!store || typeof store.eventsFrom !== 'function') {
+    el.innerHTML = '';
+    return;
+  }
+  let chats;
+  try {
+    chats = groupChats(await store.eventsFrom(source));
+  } catch {
+    el.innerHTML = '<p class="error small">Arise couldn’t read your life log just now.</p>';
+    return;
+  }
+  const name = sourceName(source);
+  const status = note ? `<p class="ok small" role="status">${esc(note)}</p>` : '';
+  if (!chats.length) {
+    el.innerHTML = `${status}<p class="muted small">No ${esc(name)} chats in your life log yet.</p>`;
+    return;
+  }
+  const rows = chats
+    .map(
+      (c) =>
+        `<li><span class="src-name"><b>${esc(c.title)}</b><small>${esc(dateText(c.at))} · ${esc(plural(c.n, 'message'))}</small></span><button class="btn small ghost" data-act="life-import-ai-del" data-src="${esc(source)}" data-v="${esc(c.conv)}" aria-label="${esc(`Delete ${c.title}`)}">Delete</button></li>`,
+    )
+    .join('');
+  el.innerHTML = `<p class="label">Your ${esc(name)} chats in Arise</p>${status}
+    <p class="muted small">${esc(plural(chats.length, 'chat'))}. Deleting one takes it off your other devices too.</p>
+    <ul class="src-list ai-chat-list">${rows}</ul>
+    <button class="btn small ghost danger-link" data-act="life-import-ai-wipe" data-src="${esc(source)}">Delete everything from ${esc(name)}</button>`;
+}
+
+async function deleteChat(source, conv) {
+  const store = resolvedStore ?? (await getStore());
+  if (!store?.eventsFrom || !store.removeIds) return;
+  let chat;
+  try {
+    chat = groupChats(await store.eventsFrom(source)).find((c) => c.conv === conv);
+  } catch {}
+  if (!chat) return fillAiChats(source);
+  if (!confirm(`Delete “${chat.title}” from your life log? It goes from your other devices too.`)) return;
+  try {
+    await store.removeIds(chat.ids);
+  } catch {
+    return fillAiChats(source, 'Arise couldn’t delete it just now. Try again.');
+  }
+  return fillAiChats(source, 'Deleted.');
+}
+
+async function deleteAll(source) {
+  const store = resolvedStore ?? (await getStore());
+  if (!store?.eventsFrom || !store.deleteSource) return;
+  let count = 0;
+  try {
+    count = groupChats(await store.eventsFrom(source)).length;
+  } catch {}
+  const name = sourceName(source);
+  if (!confirm(`Delete everything from ${name} in your life log (${plural(count, 'chat')})? It goes from your other devices too.`)) return;
+  try {
+    await store.deleteSource(source);
+  } catch {
+    return fillAiChats(source, 'Arise couldn’t delete it just now. Try again.');
+  }
+  return fillAiChats(source, `Deleted everything from ${name}.`);
+}
+
+// After an import from an AI app: its list opens, so the chats can be checked and deleted.
+function showAiChats(kinds) {
+  for (const k of kinds) {
+    const d = document.querySelector(`#importHow details[data-source="${k}"]`);
+    if (!d) continue;
+    d.open = true;
+    fillAiChats(k);
+  }
 }
 
 function mappingHTML(f) {
@@ -423,6 +618,11 @@ document.addEventListener('change', (e) => {
     const files = [...(t.files ?? [])];
     t.value = '';
     if (files.length) start(files);
+  } else if (t.name === 'importChat') {
+    if (t.checked) st.skip.delete(t.value);
+    else st.skip.add(t.value);
+    const count = $('#importChatCount');
+    if (count) count.textContent = tickedText();
   } else if (t.name === 'importProfile') {
     st.profiles = [...document.querySelectorAll('input[name="importProfile"]')].filter((b) => b.checked).map((b) => b.value);
   } else if (t.classList?.contains('imp-map')) {
@@ -458,6 +658,7 @@ async function next() {
   st.detection = null;
   st.mapping = null;
   st.profiles = null;
+  st.skip = new Set();
   st.phase = 'looking';
   // A big zip takes a while to look through: Cancel stops that too, and nothing is read.
   const ctrl = new AbortController();
@@ -520,6 +721,8 @@ async function run(choices) {
     });
     st.results.push({ name: file.name, html: st.detection.html, ...r });
     if (r.cancelled) st.queue = [];
+    const ai = [...new Set(st.detection.found.filter((f) => isAi(f) && (!choices.paths || choices.paths.includes(f.path))).map((f) => f.kind))];
+    if (ai.length) setTimeout(() => showAiChats(ai), 0);
   } catch (err) {
     st.results.push({ name: file.name, found: 0, added: 0, labels: [] });
     st.error = `Arise couldn’t finish this file. ${err?.message ?? ''}`.trim();
@@ -548,9 +751,19 @@ function showProgress() {
   if (now && now.textContent !== reading(p.label)) now.textContent = reading(p.label);
 }
 
-// Returns true when it handled the action.
-export function handleAction(act) {
+// Returns true when it handled the action. `el`: the element tapped (for its data-).
+export function handleAction(act, el) {
   switch (act) {
+    case 'life-import-tick-all':
+    case 'life-import-untick-all':
+      if (st.phase === 'ask') tickAll(act === 'life-import-tick-all');
+      return true;
+    case 'life-import-ai-del':
+      if (el?.dataset.src && el.dataset.v) deleteChat(el.dataset.src, el.dataset.v);
+      return true;
+    case 'life-import-ai-wipe':
+      if (el?.dataset.src) deleteAll(el.dataset.src);
+      return true;
     case 'life-import-pick':
       $('#lifeImportFile')?.click();
       return true;
@@ -579,6 +792,24 @@ export function handleAction(act) {
       }
       const bank = st.detection.found.find((f) => f.kind === 'bank-csv');
       if (bank) choices.csv = readMapping(bank);
+      const chats = allChats();
+      if (chats.length && st.skip.size) {
+        const ticked = chats.filter((c) => !st.skip.has(c.id)).map((c) => c.id);
+        if (ticked.length) choices.chats = ticked;
+        else {
+          // No chat ticked: the rest of the file (a Takeout with Gemini and searches) still comes in.
+          const rest = st.detection.found.filter((f) => !isAi(f)).map((f) => f.path);
+          if (!rest.length) {
+            const err = $('#importAskErr');
+            if (err) {
+              err.textContent = 'Tick at least one chat.';
+              err.hidden = false;
+            }
+            return true;
+          }
+          choices.paths = rest;
+        }
+      }
       run(choices);
       return true;
     }
@@ -594,6 +825,7 @@ export function _reset() {
   st.detection = null;
   st.mapping = null;
   st.profiles = null;
+  st.skip = new Set();
   st.progress = null;
   st.results = [];
   st.ctrl = null;
