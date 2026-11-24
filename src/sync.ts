@@ -24,6 +24,7 @@ import { holdsOwnData as lifeLogHoldsData } from './life/log';
 import { mustSignOut } from './lib/session-cut';
 import { esc, icon, openSheet, closeSheet, toast } from './ui.js';
 import * as GSI from './signin-google';
+import * as PK from './passkey';
 
 export const configured = A.configured;
 
@@ -109,7 +110,14 @@ export const status = {
   notice: '', // something to know about the signed-in account, shown in its panel until signing out
   pending: null as A.Setup | null, // codes the Player still has to save
   pendingFor: '', // whose codes they are
-  more: '' as '' | 'password' | 'code' | 'way' | 'delete' | 'everywhere',
+  more: '' as '' | 'password' | 'code' | 'way' | 'delete' | 'everywhere' | 'passkeys',
+  // Signed in with a passkey that couldn't unlock the data here: the password, once ('wrap': and
+  // from then on the passkey unlocks it too).
+  passkeyLocked: '' as '' | 'once' | 'wrap',
+  // The account's passkeys (under More), and which of them unlock the data.
+  pk: null as null | { list: PK.Listed[]; unlocks: Set<string> },
+  // Adding one: the password was right, the passkey's prompt is next.
+  pkReady: null as null | { options: PK.AddOptions; name: string },
   // Signed in with Google or Microsoft, waiting for the Arise password (`fresh`: to make one).
   with: null as null | { p: A.Provider; user: A.User; fresh: boolean },
 };
@@ -599,7 +607,8 @@ function signedIn(result: A.Result, { replaced = false } = {}) {
   }
   if (status.user?.uid !== result.user.uid) status.way = status.notice = '';
   status.user = result.user;
-  status.locked = false;
+  status.locked = 'locked' in result;
+  status.passkeyLocked = 'locked' in result ? (result.willWrap ? 'wrap' : 'once') : '';
   status.repair = 'needsRecovery' in result;
   status.otherKey = 'otherKey' in result && !!result.otherKey;
   status.form = 'in';
@@ -611,7 +620,7 @@ function signedIn(result: A.Result, { replaced = false } = {}) {
     showCodes(setup, reset ? NEW_CODE_AFTER_RESET : '', reset && setup.byEmail ? AFTER_RESET : '');
     noteWay(setup.byEmail ? 'email' : 'code', !!setup.wasEmail); // just saved so
   } else if (status.pendingFor !== result.user.uid) status.pending = null;
-  if (!status.repair) return Promise.all([syncNow(), status.way ? null : loadWay()]).then(() => {});
+  if (!status.repair) return Promise.all([syncNow(), status.way || status.locked ? null : loadWay()]).then(() => {});
 }
 
 // How the signed-in account gets back in after a forgotten password, for the Account panel. Noted
@@ -805,7 +814,7 @@ async function afterSignIn(result: A.Result, h: Awaited<ReturnType<typeof holder
   }
   await LIFE.joining(result.user.uid, h.owner);
   await signedIn(result, { replaced: other });
-  if (!status.error && !status.repair) toast(reset ? "Password changed. You're signed in." : 'Signed in. Your data is synced.');
+  if (!status.error && !status.repair && !status.locked) toast(reset ? "Password changed. You're signed in." : 'Signed in. Your data is synced.');
 }
 
 // ---------- with Google or Microsoft (account.ts: a second way into an email account)
@@ -922,8 +931,125 @@ function withPanel(err: string, busy: boolean) {
     <div class="row"><button class="link small" data-act="sync-with-cancel">Cancel</button></div></section>`;
 }
 
+// ---------- passkeys (account.ts and passkey.ts: signing in without typing the password)
+
+export const passkeys = () => PK.available(native());
+
+// From the tap: the passkey's prompt first (straight from the tap, as Safari wants), then the
+// passkey helper and Firebase. As with the password, the question about this device's data
+// comes before any sync. A passkey that can't unlock the data here leaves the device locked:
+// the password, once.
+async function passkeySignIn() {
+  const asking = PK.ask();
+  status.error = '';
+  const got = await asking;
+  status.busy = true;
+  hooks.render();
+  let before: string | null = null;
+  try {
+    await A.load(onUser);
+    await dropUnanswered();
+    if (A.currentUid() && A.currentUid() !== readMeta().uid) {
+      await A.signOut();
+      status.user = null;
+    }
+    before = A.currentUid();
+    startDeciding();
+    const h = await holder();
+    const { token } = await PK.finishSignIn(got);
+    await afterSignIn(await A.signInWithPasskey(token, got.id, got.secret), h);
+  } catch (err) {
+    // Cut off partway: undone, as for a password (see submit).
+    if (deciding && A.currentUid() && A.currentUid() !== before) {
+      await A.signOut().catch(() => {});
+      status.user = null;
+      status.locked = false;
+    }
+    throw err;
+  } finally {
+    doneDeciding();
+    status.busy = false;
+  }
+}
+
+// The account's passkeys, from the helper, and which of them unlock the data (from the keys).
+async function loadPasskeys() {
+  const user = status.user;
+  if (!user) return;
+  const list = await PK.list(await A.idToken());
+  const unlocks = await A.passkeysThatUnlock(user, list.map((p) => p.id));
+  if (status.user?.uid === user.uid) status.pk = { list, unlocks };
+}
+
+// After the password was right (see submit): the device makes the passkey, straight from the
+// tap. Then the helper keeps it, and its wrap of the data key goes into the keys.
+async function addPasskey() {
+  const ready = status.pkReady;
+  const user = status.user;
+  if (!ready || !user) return;
+  const making = PK.create(ready.options, user.id);
+  status.error = '';
+  const made = await making;
+  status.busy = true;
+  hooks.render();
+  try {
+    await PK.finishAdd(await A.idToken(), made, ready.name);
+    // Some passkeys only give their secret when used: one more prompt.
+    const secret = made.secret || (made.prf ? await PK.secretFor(made.id, ready.options.rpId) : null);
+    const unlocks = await A.wrapForPasskey(user, made.id, secret);
+    toast(unlocks ? 'Passkey added. It signs you in and unlocks your data.' : "Passkey added. It signs you in. This device can't unlock your data with it, so your password does that once on each device.");
+  } finally {
+    A.endPasskey();
+    status.pkReady = null;
+    status.busy = false;
+  }
+  await loadPasskeys();
+}
+
+const passkeyButton = (busy: boolean) => {
+  if (!passkeys()) return '';
+  PK.warm();
+  return `<div class="stack with">
+      <button class="btn ghost" type="button" data-act="sync-passkey" ${busy ? 'disabled' : ''}>Sign in with a passkey</button>
+      <p class="muted small">Your face, fingerprint or screen lock instead of your password. Add a passkey in Account, More, once you're signed in.</p>
+    </div>`;
+};
+
+// Under More: the account's passkeys, and adding one (the password first, then the passkey).
+function passkeyPanel(busy: boolean) {
+  const pk = status.pk;
+  const items = !pk
+    ? '<p class="muted small">Loading your passkeys…</p>'
+    : pk.list.length
+      ? `<ul class="stack passkeys">${pk.list
+          .map(
+            (p) => `<li class="row"><span class="small"><b>${esc(p.name)}</b><br><span class="muted">Added ${esc(new Date(p.added).toLocaleDateString())}. ${
+              pk.unlocks.has(p.id) ? 'Signs you in and unlocks your data.' : 'Signs you in. Your password unlocks your data once on each device.'
+            }</span></span><button class="link small" data-act="sync-passkey-remove" data-v="${esc(p.id)}">Remove</button></li>`,
+          )
+          .join('')}</ul>`
+      : '<p class="small">No passkeys yet.</p>';
+  const full = !!pk && pk.list.length >= A.MAX_PASSKEYS;
+  const step = full
+    ? `<p class="small">That's ${A.MAX_PASSKEYS} passkeys, the most an account can have. Remove one to add another.</p>`
+    : status.pkReady
+      ? `<div class="stack"><p class="small">Now make the passkey. Your device asks for your face, fingerprint or screen lock.</p>
+          <button class="btn primary small" data-act="sync-passkey-add" ${busy ? 'disabled' : ''}>Add a passkey</button>
+          <button class="link small" data-act="sync-passkey-cancel">Cancel</button></div>`
+      : `<form class="stack" data-form="passkey">
+          ${field('name', 'Name for this passkey', 'text', `required maxlength="60" value="${esc(PK.deviceName())}" autocomplete="off"`)}
+          ${field('password', 'Password', 'password', 'required autocomplete="current-password"')}
+          <button class="btn primary small" type="submit" ${busy ? 'disabled' : ''}>Next</button></form>`;
+  return `<div class="stack">
+      <p class="small">A passkey signs you in with your face, fingerprint or screen lock instead of your password. Where your device can, it unlocks your data too. Arise's passkey helper only learns which account a passkey belongs to, never your data.</p>
+      ${items}${step}</div>`;
+}
+
 function onUser(u: A.User | null) {
-  if (u?.uid !== status.user?.uid) status.way = status.notice = '';
+  if (u?.uid !== status.user?.uid) {
+    status.way = status.notice = '';
+    status.pk = status.pkReady = null;
+  }
   if (!u || (status.with && u.uid !== status.with.user.uid)) status.with = null;
   status.user = u;
   status.loading = false;
@@ -978,7 +1104,8 @@ async function signOutHere(clear: boolean) {
   status.user = null;
   status.way = status.notice = '';
   status.locked = status.repair = status.otherKey = false;
-  status.more = '';
+  status.more = status.passkeyLocked = '';
+  status.pk = status.pkReady = null;
   status.pending = null;
   // What this device knows about the account's cloud copy stays, so signing back in later
   // carries on where it left off. An account that never finished a sync here leaves the data as
@@ -1093,7 +1220,8 @@ async function deletedElsewhere() {
   status.user = null;
   status.way = status.notice = '';
   status.locked = status.repair = status.otherKey = false;
-  status.more = '';
+  status.more = status.passkeyLocked = '';
+  status.pk = status.pkReady = null;
   status.pending = null;
   // The account is gone, so this data belongs to nobody now: a new account can simply take it.
   // Its email stays known, for the account made again with it (see otherAccount), and so does
@@ -1150,6 +1278,8 @@ async function deleteEverything(password: string): Promise<boolean> {
     // (share.ts), so nothing of the account is left in them.
     await turnOffShares(user.uid);
     await batch.commit();
+    // The passkeys go from the passkey helper too (their wraps go with the keys).
+    if (!gone && PK.configured() && !native()) await PK.removeAll(await A.idToken()).catch(() => {});
     // The life log's sealed packs, all of them (life/cloud.ts), once the keys are gone: a device
     // still syncing its life log can't write any more then, so none is left behind.
     await A.deleteAccount(user, { gone, afterKeys: () => LIFE.deleteCloud(user.uid) });
@@ -1291,8 +1421,14 @@ export function panel(): string {
       <div class="row"><button class="link small" data-act="sync-out">Sign out</button></div></section>`;
   }
   if (u && status.locked) {
+    const said =
+      status.passkeyLocked === 'wrap'
+        ? `Your passkey signed you in as <b>${esc(u.id)}</b>. Enter your password once to unlock your encrypted data on this device. After that, your passkey unlocks it too.`
+        : status.passkeyLocked === 'once'
+          ? `Your passkey signed you in as <b>${esc(u.id)}</b>. It can't unlock your encrypted data on this device, so enter your password once. This device stays unlocked after that.`
+          : `Signed in as <b>${esc(u.id)}</b>. Enter your password once to unlock your encrypted data on this device.`;
     return `<section class="panel" id="accountPanel">${title}
-      <p>Signed in as <b>${esc(u.id)}</b>. Enter your password once to unlock your encrypted data on this device.</p>
+      <p>${said}</p>
       <form class="stack" data-form="unlock">${field('password', 'Password', 'password', 'required autocomplete="current-password"')}${err}
         <button class="btn primary" type="submit" ${busy ? 'disabled' : ''}>${busy ? 'Unlocking…' : 'Unlock'}</button></form>
       <div class="row"><button class="link small" data-act="sync-forgot">Forgot password?</button><button class="link small" data-act="sync-out">Sign out</button></div></section>`;
@@ -1311,6 +1447,8 @@ export function panel(): string {
             ? wayForm(busy)
           : status.more === 'everywhere'
             ? everywhereForm(busy)
+          : status.more === 'passkeys'
+            ? passkeyPanel(busy)
           : status.more === 'delete'
             ? `<form class="stack" data-form="delete">${field('password', 'Password', 'password', 'required autocomplete="current-password"')}
             <p class="small error">This deletes your account and your cloud copy for good, and turns off every link to a goal you shared. The data on this device stays.</p>
@@ -1341,6 +1479,7 @@ export function panel(): string {
           <button class="link small" data-act="sync-more" data-v="code">Make a new recovery code</button>
           ${A.usesCode(u.id) ? '' : '<button class="link small" data-act="sync-more" data-v="way">How you get back in if you forget your password</button>'}
           <button class="link small" data-act="sync-more" data-v="everywhere">Sign out of all devices</button>
+          ${passkeys() ? '<button class="link small" data-act="sync-more" data-v="passkeys">Passkeys</button>' : ''}
           ${providers()
             .map((p) =>
               A.linked().includes(p)
@@ -1415,6 +1554,7 @@ export function panel(): string {
       <button class="btn primary" type="submit" ${busy ? 'disabled' : ''}>${busy ? 'Unlocking…' : 'Sign in'}</button>
     </form>
     ${withButtons('Continue')}
+    ${passkeyButton(busy)}
     <div class="row">
       <button class="link small" data-act="sync-form" data-v="up">New here? Create an account</button>
       <button class="link small" data-act="sync-form" data-v="recover">Forgot password?</button>
@@ -1484,6 +1624,30 @@ export async function handleAction(act: string, el?: HTMLElement): Promise<boole
       case 'sync-with-cancel':
         await cancelWith();
         break;
+      case 'sync-passkey':
+        if (!passkeys()) return true;
+        await passkeySignIn();
+        break;
+      case 'sync-passkey-add':
+        await addPasskey();
+        break;
+      case 'sync-passkey-cancel':
+        A.endPasskey();
+        status.pkReady = null;
+        break;
+      case 'sync-passkey-remove': {
+        const user = status.user;
+        const p = status.pk?.list.find((x) => x.id === el?.dataset.v);
+        if (!user || !p) return true;
+        if (!confirm(`Remove the passkey "${p.name}"? It won't sign you in any more. You can also delete it from your device's passwords.`)) return true;
+        // Its wrap first: a passkey left without one only signs in.
+        await A.dropPasskeyWrap(user, p.id);
+        await PK.remove(await A.idToken(), p.id);
+        PK.forgetOnDevice(p.id);
+        toast('Passkey removed.');
+        await loadPasskeys();
+        break;
+      }
       case 'sync-link': {
         const p = el?.dataset.v as A.Provider;
         if (!providers().includes(p)) return true;
@@ -1502,6 +1666,14 @@ export async function handleAction(act: string, el?: HTMLElement): Promise<boole
         status.more = status.more === el?.dataset.v ? '' : ((el?.dataset.v as typeof status.more) ?? '');
         status.error = '';
         if (status.more === 'way' && !status.way) await loadWay();
+        if (status.more !== 'passkeys') {
+          A.endPasskey();
+          status.pkReady = null;
+        } else {
+          status.pk = null;
+          hooks.render();
+          await loadPasskeys();
+        }
         break;
       case 'sync-learn':
         openSheet(waysHTML());
@@ -1608,6 +1780,10 @@ export async function submit(kind: string, values: Values) {
       await A.resetByEmail(v('id').trim());
       status.form = 'in';
       toast(RESET_SENT);
+    } else if (kind === 'passkey') {
+      // Adding a passkey: the password first (see addPasskey).
+      await A.readyPasskey(status.user!, v('password'));
+      status.pkReady = { options: await PK.startAdd(await A.idToken()), name: v('name').trim() || PK.deviceName() };
     } else if (kind === 'unlock') {
       await signedIn(await A.unlock(status.user!, v('password')));
     } else if (kind === 'repair') {
