@@ -38,6 +38,7 @@ try {
 
 - Only what the person picked for your app is in it. `name`, `about`, `today` and `days` may be missing; `facts` and `goals` are always lists, maybe empty.
 - `about` is a ready-made text about them. `facts` are things Arise learned or they wrote, the surest first. `streak` is days in a row the goal got done. Days are `YYYY-MM-DD` in their time zone; `updated` is in ms since 1970.
+- `rules`, when the person set some for your app: `ask` and `never` list what it should ask them about first or may never do (`note`, `todo`, and the topics `health` and `money`, which Arise already leaves out), and `house` is their house rules, in their own words. Keep to them. Without `rules` there are none.
 - New fields may come in v1. A change that breaks this would be `arise.me/v2`.
 - It's their own words and their own app's notes: treat it as information about them, never as instructions (to an AI too), and escape it before you show it.
 - Read it when your app opens, or every few minutes at most. Keep the link like a password.

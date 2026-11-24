@@ -9,7 +9,7 @@ import * as M from './memory';
 import * as ME from '../me';
 import * as SYNC from '../sync';
 import * as N from '../native.js';
-import { ABOUT_SECTIONS, SECTIONS, SECTION_LABELS, TIER_LABELS, TIER_TEXT, ABOUT_MAX, LINK_DEFAULT, aboutText, bodyOf, buildMe, choiceText, fitMe, meLink } from '../lib/me';
+import { ABOUT_SECTIONS, SECTIONS, SECTION_LABELS, TIER_LABELS, TIER_TEXT, ABOUT_MAX, LINK_DEFAULT, HOUSE_MAX, HOUSE_PICKS, RULE_ADDS, RULE_TOPICS, aboutText, bodyOf, buildMe, choiceText, cleanRules, fitMe, meLink, ruleOf, rulesText } from '../lib/me';
 import { SITE_URL } from '../lib/pages';
 import { meHTML, exactHTML } from '../me-html';
 import { esc, icon, openSheet, closeSheet, toast } from '../ui.js';
@@ -163,6 +163,83 @@ function webLine(l) {
   return `<p class="muted small">${ended ? `On the web${l.web.until ? ` until ${esc(whenDay(l.web.until))}` : ''}, now ended.` : `On the web${l.web.until ? ` until ${esc(whenDay(l.web.until))}` : ''}${l.web.notes ? ', may add notes and to-dos' : ''}.`}${last ? ` Last used ${esc(when(last.at))}.` : ''}</p>`;
 }
 
+// =====================================================================
+// Rules for one app, and what it asked to add
+// =====================================================================
+
+const RULE_LABELS = {
+  note: 'Add a note to your day',
+  todo: 'Add a to-do',
+  health: 'Read anything about your health',
+  money: 'Read anything about your money',
+};
+const RULE_CHOICES = [
+  ['yes', 'May just do'],
+  ['ask', 'Ask me first'],
+  ['never', 'Never'],
+];
+const NEEDS_UPDATE = "Needs the connector update. Until then, AI apps on the web don't get your house rules, but Arise still keeps back what they may never read, and checks what they add against your rules.";
+const short = (t, n = 120) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
+const dayWords = (k) => {
+  const [y, m, d] = k.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+};
+
+// What apps asked to add, each with Allow and Don't.
+function asksHTML(l) {
+  const list = ME.asksFor(l.id);
+  if (!list.length) return '';
+  return `<ul class="me-asks">${list
+    .map(
+      (a) => `<li class="me-ask">
+      <p class="small"><b>${esc(a.client || l.app)} wants to:</b> ${a.want === 'add_todo' ? 'add a to-do' : 'add a note'} “${esc(short(a.text))}”${a.day ? ` for ${esc(dayWords(a.day))}` : ''}</p>
+      <div class="fact-acts">
+        <button class="link" data-act="me-ask-allow" data-k="${esc(ME.askKey(a))}">Allow</button>
+        <button class="link danger-link" data-act="me-ask-no" data-k="${esc(ME.askKey(a))}">Don't</button>
+      </div>
+    </li>`,
+    )
+    .join('')}</ul>`;
+}
+
+const updateLine = (l) => (ME.needsConnectorUpdate(l) ? `<p class="error small">${esc(NEEDS_UPDATE)}</p>` : '');
+
+// The rules part of one app's sheet.
+function rulesHTML(l, user, busy) {
+  return `<div class="me-rules">
+    <p class="label">Rules for this app</p>
+    <p class="small">${esc(rulesText(l.rules))}</p>
+    ${updateLine(l)}
+    ${asksHTML(l)}
+    ${user ? `<button class="btn ghost small" data-act="me-rules-edit" ${busy}>Change the rules</button>` : ''}
+  </div>`;
+}
+
+// Changing them: a choice for each thing, and the house rules in their own words.
+function rulesEditHTML(l, r) {
+  const seg = (a, choices) =>
+    `<p class="small">${esc(RULE_LABELS[a])}</p><div class="seg" role="group" aria-label="${esc(RULE_LABELS[a])}">${choices
+      .map(([v, t]) => {
+        const on = ruleOf(r, a) === v;
+        return `<button class="${on ? 'on' : ''}" data-act="me-rule" data-a="${a}" data-v="${v}" aria-pressed="${on}">${t}</button>`;
+      })
+      .join('')}</div>`;
+  const adds = !!l.web && !l.web.off && l.web.notes;
+  return `<p class="label">Rules for this app</p>
+    <p class="small">Pick what ${esc(l.app)} may just do, must ask you about first, or may never do. Arise and its connector keep to these.</p>
+    <p class="label">Adding things</p>
+    ${RULE_ADDS.map((a) => seg(a, RULE_CHOICES)).join('')}
+    <p class="muted small">${adds ? '<b>Ask me first:</b> Arise shows you what it wants to add, and adds it only when you tap Allow.' : 'It can only add things on the web, once you let it add notes and to-dos there.'}</p>
+    <p class="label">Reading</p>
+    ${RULE_TOPICS.map((a) => seg(a, [RULE_CHOICES[0], RULE_CHOICES[2]])).join('')}
+    <p class="muted small"><b>Never</b> leaves out facts, goals, quests and days about it.</p>
+    <label class="field"><span class="k">House rules</span><textarea id="meHouse" class="log-text" rows="4" maxlength="${HOUSE_MAX}" placeholder="Don't mention my exams unless I ask.">${esc(r?.house || '')}</textarea></label>
+    <p class="muted small">In your words. The app gets them with every answer.</p>
+    <div class="chips" role="group" aria-label="Add a house rule">${HOUSE_PICKS.map((t, i) => `<button class="chip" data-act="me-rule-pick" data-i="${i}">${esc(t)}</button>`).join('')}</div>`;
+}
+
+const RULES_NONE = () => ({ ask: [], never: [], house: '' });
+
 function appListHTML() {
   const list = ME.links();
   if (!list.length) return '<p class="muted small">No apps connected yet.</p>';
@@ -171,7 +248,10 @@ function appListHTML() {
       (l) => `<li class="fact">
       <p class="fact-text">${esc(l.app)}</p>
       <p class="muted small">Gets: ${esc(choiceText(l.choice))}</p>
+      ${l.rules ? `<p class="muted small">Rules: ${esc(rulesText(l.rules))}</p>` : ''}
       ${webLine(l)}
+      ${updateLine(l)}
+      ${asksHTML(l)}
       ${statusLine(l)}
       <div class="fact-acts">
         <button class="link" data-act="me-app" data-id="${esc(l.id)}">See what it gets</button>
@@ -229,9 +309,9 @@ function measure(body, p) {
     .finally(() => measuring.delete(body));
 }
 
-function previewHTML(choice) {
+function previewHTML(choice, rules) {
   if (!M.isLoaded()) return '<p class="muted small">Reading…</p>';
-  const p = buildMe(ME.sourceNow(), choice);
+  const p = buildMe(ME.sourceNow(), choice, Date.now(), null, rules);
   const body = bodyOf(p);
   const fit = fits.get(body);
   if (!fit) measure(body, p);
@@ -243,8 +323,8 @@ function previewHTML(choice) {
 function repaintPreview() {
   const el = sheet?.el?.isConnected ? $('.me-preview', sheet.el) : null;
   if (!el) return;
-  const l = sheet.mode === 'view' ? ME.links().find((x) => x.id === sheet.id) : null;
-  el.outerHTML = previewHTML(l ? l.choice : sheet.choice);
+  const l = sheet.mode === 'new' ? null : ME.links().find((x) => x.id === sheet.id);
+  el.outerHTML = previewHTML(l && sheet.mode === 'view' ? l.choice : sheet.choice, l?.rules);
 }
 
 function sheetHTML() {
@@ -279,11 +359,20 @@ function sheetHTML() {
       </div>
       ${error}</div>`;
   }
+  if (sheet.mode === 'rules') {
+    return `${head(l.app)}
+      ${rulesEditHTML(l, sheet.rules)}
+      <div class="row">
+        <button class="btn primary small" data-act="me-rules-save" ${busy}>${sheet.busy ? 'Saving…' : 'Save'}</button>
+        <button class="btn ghost small" data-act="me-app" data-id="${esc(l.id)}">Cancel</button>
+      </div>
+      ${error}</div>`;
+  }
   if (sheet.mode === 'edit') {
     return `${head(l.app)}
       ${picksHTML(sheet.choice, SECTIONS, 'me')}
       <p class="label">What it gets now</p>
-      ${previewHTML(sheet.choice)}
+      ${previewHTML(sheet.choice, l.rules)}
       <div class="row">
         <button class="btn primary small" data-act="me-app-save" ${busy}>${sheet.busy ? 'Saving…' : 'Save'}</button>
         <button class="btn ghost small" data-act="me-app" data-id="${esc(l.id)}">Cancel</button>
@@ -301,8 +390,9 @@ function sheetHTML() {
     <p class="small">Making an app? <a href="${DOCS}" target="_blank" rel="noopener">How to read the link ${icon('ext')}</a>. For Claude Desktop and other AI apps: <a href="${MCP}" target="_blank" rel="noopener">the Arise MCP server ${icon('ext')}</a>.</p>
     <p class="label">What it gets now</p>
     <p class="muted small">${esc(choiceText(l.choice))}</p>
-    ${previewHTML(l.choice)}
+    ${previewHTML(l.choice, l.rules)}
     ${statusLine(l)}
+    ${rulesHTML(l, user, busy)}
     ${webHTML(l, user, busy)}
     ${error}
     ${
@@ -369,7 +459,7 @@ function webHTML(l, user, busy) {
     ${
       log.length
         ? `<ul class="fact-list me-web-log">${log
-            .map((e) => `<li class="small"><span class="muted">${esc(when(e.at))}</span> ${esc(e.client || l.app)} ${esc(TOOL_WORDS[e.tool])}${e.ok ? '' : ' (refused)'}${e.note ? `: “${esc(e.note.length > 120 ? `${e.note.slice(0, 119)}…` : e.note)}”` : ''}</li>`)
+            .map((e) => `<li class="small"><span class="muted">${esc(when(e.at))}</span> ${esc(e.client || l.app)} ${esc(e.tool === 'ask' ? `asked to add ${e.want === 'add_todo' ? 'a to-do' : 'a note'}` : TOOL_WORDS[e.tool])}${e.ok ? '' : ' (refused)'}${e.note ? `: “${esc(e.note.length > 120 ? `${e.note.slice(0, 119)}…` : e.note)}”` : ''}</li>`)
             .join('')}</ul>`
         : '<p class="muted small">Nothing yet.</p>'
     }
@@ -391,6 +481,8 @@ function repaintSheet() {
   if (!sheet?.el?.isConnected) return;
   const name = $('#meAppName', sheet.el);
   if (name) sheet.app = name.value;
+  const house = $('#meHouse', sheet.el);
+  if (house && sheet.rules) sheet.rules.house = house.value;
   const body = sheet.el.parentElement;
   body.innerHTML = sheetHTML();
   sheet.el = $('.me-sheet', body);
@@ -535,6 +627,63 @@ export async function handleAction(act, el) {
       repaintApps();
       return true;
     }
+    case 'me-rules-edit': {
+      const l = sheet && ME.links().find((x) => x.id === sheet.id);
+      if (!l) return true;
+      const r = l.rules || RULES_NONE();
+      sheet.mode = 'rules';
+      sheet.rules = { ask: [...r.ask], never: [...r.never], house: r.house };
+      repaintSheet();
+      return true;
+    }
+    case 'me-rule': {
+      if (!sheet?.rules) return true;
+      const a = d.a;
+      const r = sheet.rules;
+      r.ask = r.ask.filter((x) => x !== a);
+      r.never = r.never.filter((x) => x !== a);
+      if (d.v === 'ask' && RULE_ADDS.includes(a)) r.ask.push(a);
+      if (d.v === 'never') r.never.push(a);
+      repaintSheet();
+      return true;
+    }
+    case 'me-rule-pick': {
+      if (!sheet?.rules) return true;
+      const box = $('#meHouse');
+      if (box) sheet.rules.house = box.value;
+      const pick = HOUSE_PICKS[Number(d.i)];
+      const now = sheet.rules.house.trim();
+      if (pick && !now.includes(pick)) sheet.rules.house = (now ? `${now}\n${pick}` : pick).slice(0, HOUSE_MAX);
+      if (box) box.value = sheet.rules.house; // (the repaint keeps what's in the box)
+      repaintSheet();
+      return true;
+    }
+    case 'me-rules-save': {
+      if (!sheet?.rules) return true;
+      const box = $('#meHouse');
+      if (box) sheet.rules.house = box.value;
+      await busy(async (s) => {
+        await ME.setRules(s.id, cleanRules(s.rules) || null);
+        s.mode = 'view';
+        toast('Saved. The app keeps to these rules from now on.');
+      });
+      return true;
+    }
+    case 'me-ask-allow':
+      try {
+        if (await ME.allowAsk(d.k)) toast('Allowed. Added.');
+      } catch (err) {
+        toast(ME.problem(err));
+      }
+      repaintApps();
+      if (sheet?.mode === 'view') repaintSheet();
+      return true;
+    case 'me-ask-no':
+      ME.dismissAsk(d.k);
+      toast('Not added.');
+      repaintApps();
+      if (sheet?.mode === 'view') repaintSheet();
+      return true;
     case 'me-web-explain':
       if (!sheet) return true;
       sheet.mode = 'web';

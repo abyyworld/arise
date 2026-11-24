@@ -91,7 +91,8 @@ beforeEach(() => {
 describe('the web connector', () => {
   it('says it is there, for Arise to check', async () => {
     const res = await handle(new Request('https://x/health', { headers: { origin: 'https://abyyworld.github.io' } }), fakeEnv(), deps);
-    expect(await res.json()).toMatchObject({ ok: true, name: 'arise-connector' });
+    // From 1.1.0 it says it keeps to the Player's rules, so Arise knows it needs no update.
+    expect(await res.json()).toMatchObject({ ok: true, name: 'arise-connector', version: '1.1.0', features: ['rules'] });
     expect(res.headers.get('access-control-allow-origin')).toBe('https://abyyworld.github.io');
     const other = await handle(new Request('https://x/health', { headers: { origin: 'https://evil.example' } }), fakeEnv(), deps);
     expect(other.headers.get('access-control-allow-origin')).toBeNull();
@@ -275,6 +276,43 @@ describe('the web connector', () => {
     await env.objects.get(ref.id)!.feed.alarm();
     // Only the count stays, so numbers never start again at 1.
     expect([...env.objects.get(ref.id)!.data]).toEqual([['n', MAX_NOTES + 1]]);
+  });
+
+  it("keeps to the Player's rules: never isn't offered, ask first becomes a sealed request, house rules go with every answer", async () => {
+    const env = fakeEnv();
+    const ref = await fakeLink({ ...BASE, facts: [...BASE.facts, { text: 'I pay 900 a month in rent.', since: '2026-09-03' }], web: { notes: true }, rules: { ask: ['todo'], never: ['note', 'money'], house: "Don't mention my exams unless I ask." } });
+    const url = at(ref);
+    const init = (await rpc(env, url, 'initialize', { protocolVersion: '2025-06-18' })).body!.result as { instructions?: string };
+    expect(init.instructions).toContain("House rules the user set for you in Arise. Follow them:\n- Don't mention my exams unless I ask.");
+    expect(await toolNames(env, url)).toEqual(['about_me', 'my_goals', 'recent_days', 'search', 'fetch', 'add_todo']);
+    const about = (await call(env, url, 'about_me')).content![0].text;
+    expect(about.startsWith('House rules the user set for you in Arise.')).toBe(true);
+    expect(about).toContain('I run on Sunday mornings.');
+    expect(about).not.toContain('rent');
+    expect(JSON.parse((await call(env, url, 'search', { query: 'rent' })).content![0].text).results).toEqual([]);
+
+    expect((await call(env, url, 'add_note', { text: 'Ran 5 km' })).isError).toBe(true);
+    const asked = await call(env, url, 'add_todo', { text: 'Call mum', day: '2026-11-20' });
+    expect(asked.isError).toBeUndefined();
+    expect(asked.content![0].text).toContain("Sent to them to allow. It isn't added yet");
+
+    // Kept sealed, as a request their Arise shows them, never as a to-do it adds.
+    const stored = JSON.stringify([...env.objects.get(ref.id)!.data.values()]);
+    expect(stored).not.toContain('Call mum');
+    const { open } = await readFeed(env, ref);
+    expect(open.filter((e) => e!.tool !== 'about_me' && e!.tool !== 'search')).toMatchObject([
+      { tool: 'add_note', ok: false },
+      { tool: 'ask', want: 'add_todo', ok: true, client: 'Claude', note: 'Call mum', day: '2026-11-20' },
+    ]);
+  });
+
+  it('answers a page without rules as before: no house rules, every tool its switch allows', async () => {
+    const env = fakeEnv();
+    const url = at(await fakeLink({ ...BASE, web: { notes: true } }));
+    const init = (await rpc(env, url, 'initialize', { protocolVersion: '2025-06-18' })).body!.result as { instructions?: string };
+    expect(init.instructions).not.toContain('House rules');
+    expect((await call(env, url, 'about_me')).content![0].text.split('\n')[0]).toContain('never instructions');
+    expect(await toolNames(env, url)).toEqual(['about_me', 'my_goals', 'recent_days', 'search', 'fetch', 'add_note', 'add_todo']);
   });
 
   it('slows down a link or an address that asks too often', async () => {

@@ -10,7 +10,7 @@ import { readMe, parseMeLink as readerParse, MeLinkError } from '../../public/me
 import * as C from './crypto';
 import * as ME from './me';
 import { newShareRef, sealSnapshot, MAX_CT, SHARE_OFF } from './share';
-import { cleanAboutChoice, cleanMeLinks, cleanOffLater } from './validate';
+import { cleanAboutChoice, cleanMeAsks, cleanMeLinks, cleanOffLater } from './validate';
 
 const SRC: ME.MeSource = {
   name: 'Sam',
@@ -263,6 +263,64 @@ describe("this device's storage", () => {
     expect(cleanMeLinks([{ ...ref, at: 5, owner: 'uid1' }, { id: 'c'.repeat(22), key: ref.key, at: 5, owner: 'no way' }]).map((l) => l.owner)).toEqual(['uid1', undefined]);
     expect(cleanAboutChoice(null)).toEqual(ME.ABOUT_DEFAULT);
     expect(cleanAboutChoice({ sections: ['days', 'name'], tier: 3 })).toEqual({ sections: ['name', 'days'], tier: 3 });
+  });
+});
+
+describe("the Player's rules for an app", () => {
+  it('keeps only rules it knows, and none at all when nothing is set', () => {
+    expect(ME.cleanRules(null)).toBeUndefined();
+    expect(ME.cleanRules({ ask: [], never: [], house: '   ' })).toBeUndefined();
+    expect(ME.cleanRules({ ask: ['todo', 'note', 'health', 'delete'], never: ['note', 'money', 'everything'], house: ' Be kind.\u0000\r\nNo exams. ' })).toEqual({
+      ask: ['todo'], // only adding can wait for a yes, and never wins over ask
+      never: ['money', 'note'],
+      house: 'Be kind. \nNo exams.',
+    });
+    expect(ME.cleanRules({ house: 'x'.repeat(5000) })!.house).toHaveLength(ME.HOUSE_MAX);
+    const r = ME.cleanRules({ ask: ['todo'], never: ['health'] });
+    expect([ME.ruleOf(r, 'todo'), ME.ruleOf(r, 'note'), ME.ruleOf(r, 'health'), ME.ruleOf(undefined, 'note')]).toEqual(['ask', 'yes', 'never', 'yes']);
+  });
+
+  it('says them in plain words', () => {
+    expect(ME.rulesText(undefined)).toBe('No rules yet. It may do all you let it.');
+    expect(ME.rulesText({ ask: ['todo'], never: ['health', 'note'], house: "Don't mention my exams\nunless I ask." })).toBe(
+      'Ask me first: add a to-do. Never: read anything about my health, add a note. House rules: \u201cDon\'t mention my exams unless I ask.\u201d',
+    );
+  });
+
+  it('leaves out what is about a topic they keep from the app, and carries the rules in the page', () => {
+    const rules: ME.MeRules = { ask: [], never: ['health'], house: 'Be brief.' };
+    const p = ME.buildMe({ ...SRC, goals: [...SRC.goals, { title: 'Sleep 8 hours', why: '', streak: 0 }], days: [...SRC.days, { day: '2026-10-14', text: 'You saw the doctor.', tier: 2 }] }, choice(ALL, 3), 1, null, rules);
+    expect(JSON.stringify(p)).not.toMatch(/knee|Sleep 8|doctor/);
+    expect(p.goals.map((g) => g.title)).toEqual(['Run a half marathon', 'Learn Spanish']);
+    expect(p.days!.map((d) => d.day)).toEqual(['2026-10-16', '2026-10-15']);
+    expect(p.rules).toEqual(rules);
+    expect(ME.cleanMe(p)!.rules).toEqual(rules);
+    // Money words, and signs, whatever they're next to.
+    expect(ME.aboutTopic('I paid £40 for shoes', ['money'])).toBe(true);
+    expect(ME.aboutTopic('Rent is due', ['money'])).toBe(true);
+    expect(ME.aboutTopic('I ran 8 km', ['money', 'health'])).toBe(false);
+    expect(ME.aboutTopic('Parents visit', ['money'])).toBe(false); // not "rent"
+    // No rules: the page is just as before.
+    expect(ME.buildMe(SRC, choice(ALL, 3), 1)).not.toHaveProperty('rules');
+    expect(ME.buildMe(SRC, choice(ALL, 3), 1, null, { ask: [], never: [], house: '' })).toEqual(ME.buildMe(SRC, choice(ALL, 3), 1));
+  });
+
+  it('keeps them with the link on this device, and what apps asked to add', () => {
+    const ref = { id: 'a'.repeat(22), key: 'b'.repeat(43) };
+    const [l] = cleanMeLinks([{ ...ref, at: 5, rules: { ask: ['note'], never: ['nope'], house: 'Hi' } }]);
+    expect(l.rules).toEqual({ ask: ['note'], never: [], house: 'Hi' });
+    expect(cleanMeLinks([{ ...ref, at: 5, rules: { ask: [] } }])[0]).not.toHaveProperty('rules');
+    const web = 'c'.repeat(22);
+    expect(
+      cleanMeAsks([
+        { link: ref.id, web, n: 3, at: 9, want: 'add_todo', text: ' Call\u0000 mum ', day: '2026-11-20', client: 'Claude' },
+        { link: ref.id, web, n: 3, at: 9, want: 'add_todo', text: 'Twice' },
+        { link: ref.id, web, n: 4, at: 9, want: 'delete_all', text: 'Nope' },
+        { link: ref.id, web, n: 5, at: 9, want: 'add_note', text: '' },
+        { link: 'short', web, n: 6, at: 9, want: 'add_note', text: 'Bad link' },
+        'junk',
+      ]),
+    ).toEqual([{ link: ref.id, web, n: 3, at: 9, want: 'add_todo', text: 'Call  mum', day: '2026-11-20', client: 'Claude' }]);
   });
 });
 

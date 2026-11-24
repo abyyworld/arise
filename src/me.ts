@@ -22,18 +22,19 @@ import * as M from './life/memory';
 import { firstName, goalStreak, problem } from './share';
 import * as LS from './lib/share';
 import * as ME from './lib/me';
-import { cleanAboutChoice, cleanFeedLog, cleanMeLinks, cleanOffLater, MAX_FEED_SHOWN, MAX_ME_LINKS, type FeedLog, type LinkWeb, type MeLink, type OffLater } from './lib/validate';
+import { cleanAboutChoice, cleanFeedLog, cleanMeAsks, cleanMeLinks, cleanOffLater, MAX_FEED_SHOWN, MAX_ME_LINKS, type FeedLog, type LinkWeb, type MeAsk, type MeLink, type OffLater } from './lib/validate';
 import { feedKey, newFeedToken, openEntry, tokenHash, type FeedEntry, type SealedEntry } from './lib/feed';
 import { CONNECTOR } from './connector-config';
 import { lifeStore, hasLifeStore } from './life/store-port';
 import type { LifeEvent } from './life/types';
 
-export type { MeLink };
+export type { MeLink, MeAsk };
 export { problem };
 
 const LINKS = 'arise-me-links';
 const FEED = 'arise-me-feed';
 const OFF_LATER = 'arise-me-off';
+const ASKS = 'arise-me-asks';
 const ABOUT = 'arise-about-me';
 const DELAY = 10_000; // after a change, once things are quiet
 const AFTER_SYNC = 1500;
@@ -61,6 +62,7 @@ const offLater = () => cleanOffLater(read(OFF_LATER));
 const putOff = (list: OffLater[]) => write(OFF_LATER, cleanOffLater([...offLater(), ...list]));
 const forget = (id: string) => {
   notes.delete(id);
+  saveAsks(asks().filter((a) => a.link !== id));
   saveLinks(links().filter((l) => l.id !== id));
   const log = feedLog();
   delete log[id];
@@ -102,12 +104,15 @@ export async function source(): Promise<ME.MeSource> {
 }
 
 // Exactly what an app with this choice gets now (before any trimming to fit a page).
-export const payloadFor = async (c: ME.MeChoice, now = Date.now(), web: ME.MeWeb | null = null) => ME.buildMe(await source(), c, now, web);
+export const payloadFor = async (c: ME.MeChoice, now = Date.now(), web: ME.MeWeb | null = null, rules?: ME.MeRules) => ME.buildMe(await source(), c, now, web, rules);
 
 // What an app's web page says about the web, while it's on: nothing once it's off or its end date
 // has passed (Arise then empties the page, and still says when it ended).
-export const webNow = (l: Pick<MeLink, 'web'>, now = Date.now()): ME.MeWeb | null =>
-  l.web && !l.web.off && !(l.web.until && now > l.web.until) ? { notes: l.web.notes, ...(l.web.until ? { until: l.web.until } : {}), feed: l.web.fh } : null;
+// (A link whose rules say never to both notes and to-dos says it takes neither, so even a
+// connector from before rules offers the app no way to add anything.)
+export const webNow = (l: Pick<MeLink, 'web' | 'rules'>, now = Date.now()): ME.MeWeb | null =>
+  l.web && !l.web.off && !(l.web.until && now > l.web.until) ? { notes: l.web.notes && !addsNever(l.rules), ...(l.web.until ? { until: l.web.until } : {}), feed: l.web.fh } : null;
+const addsNever = (r: ME.MeRules | undefined) => ME.ruleOf(r, 'note') === 'never' && ME.ruleOf(r, 'todo') === 'never';
 
 // Only while it's still the same web page.
 function patchWeb(id: string, webId: string, patch: Partial<LinkWeb>) {
@@ -189,7 +194,7 @@ export async function newLink(id: string): Promise<MeLink | null> {
   const old = links().find((l) => l.id === id);
   if (!old) return null;
   const ref = await LS.newShareRef();
-  const { doc, sig } = await page(ref, await payloadFor(old.choice), user.uid);
+  const { doc, sig } = await page(ref, await payloadFor(old.choice, Date.now(), null, old.rules), user.uid);
   const { fb, db } = A.firebase();
   const batch = fb.writeBatch(db);
   batch.set(pageRef(ref.id), doc);
@@ -277,7 +282,7 @@ export async function setWeb(id: string, web: { notes: boolean; until?: number }
     const ref = await LS.newShareRef();
     const tok = newFeedToken();
     const fh = await tokenHash(tok);
-    const full = await payloadFor(l.choice, Date.now(), { notes: web.notes === true, ...(until ? { until } : {}), feed: fh });
+    const full = await payloadFor(l.choice, Date.now(), webNow({ web: { notes: web.notes === true, ...(until ? { until } : {}), id: ref.id, key: ref.key, tok, fh }, rules: l.rules }), l.rules);
     const { doc, sig } = await page(ref, full, user.uid);
     const { fb } = A.firebase();
     await fb.setDoc(pageRef(ref.id), doc);
@@ -287,6 +292,20 @@ export async function setWeb(id: string, web: { notes: boolean; until?: number }
   await refresh();
   if (note(id)) throw new A.AccountError('me-update', note(id));
   return links().some((x) => x.id === id && !!x.web);
+}
+
+// The Player's rules for one app (lib/me.ts MeRules): what it may just do, must ask about first,
+// or may never do, and their house rules. Both its pages carry them. True once the pages say so;
+// throws if they couldn't be updated (the rules stay, and the pages follow with a later update).
+export async function setRules(id: string, rules: ME.MeRules | null): Promise<boolean> {
+  signedIn();
+  const l = links().find((x) => x.id === id);
+  if (!l) return false;
+  const clean = ME.cleanRules(rules);
+  saveLinks(links().map((x) => (x.id === l.id && x.key === l.key ? { ...x, rules: clean, sig: undefined, ...(x.web ? { web: { ...x.web, sig: undefined } } : {}) } : x)));
+  await refresh();
+  if (note(id)) throw new A.AccountError('me-update', note(id));
+  return links().some((x) => x.id === id);
 }
 
 const waiting = (l: MeLink): OffLater => ({ id: l.id, owner: l.owner || '' });
@@ -321,6 +340,7 @@ function forgetHere() {
   saveLinks([]);
   write(ABOUT, null);
   write(FEED, null);
+  write(ASKS, null);
   notes.clear();
 }
 
@@ -390,7 +410,7 @@ async function turnOffLeftOver(uid: string) {
 async function update(l: MeLink, uid: string) {
   try {
     if (l.web) await updateWeb(l, uid);
-    const full = ME.buildMe(sourceNow(), l.choice);
+    const full = ME.buildMe(sourceNow(), l.choice, Date.now(), null, l.rules);
     const sig = sigOf(full);
     if (l.sig === sig) {
       notes.delete(l.id);
@@ -426,7 +446,7 @@ async function updateWeb(l: MeLink, uid: string) {
     patchWeb(l.id, w.id, { off: true });
     return;
   }
-  const full = ME.buildMe(sourceNow(), l.choice, Date.now(), web);
+  const full = ME.buildMe(sourceNow(), l.choice, Date.now(), web, l.rules);
   const sig = sigOf(full);
   if (w.sig === sig) return;
   const { doc } = await page(w, full, uid);
@@ -446,13 +466,22 @@ export const connectorReady = () => !!CONNECTOR.server;
 export const connectorAddress = (l: Pick<MeLink, 'web'>) => (l.web ? `${CONNECTOR.server.replace(/\/+$/, '')}/mcp/${l.web.id}.${l.web.key}` : '');
 
 // Whether the connector answers (it's deployed by the owner): true, false, or null while unknown.
+// And whether it keeps to the Player's rules (its /health says `rules`, from 1.1.0): one from
+// before doesn't, until the owner deploys it again.
 let reachable: boolean | null = null;
+let keepsRules: boolean | null = null;
 let checking: Promise<boolean> | null = null;
 export const connectorReachable = () => reachable;
+export const connectorKeepsRules = () => keepsRules;
 export function checkConnector(): Promise<boolean> {
   if (!CONNECTOR.server) return Promise.resolve((reachable = false));
   checking ||= fetch(`${CONNECTOR.server.replace(/\/+$/, '')}/health`, { cache: 'no-store', credentials: 'omit' })
-    .then(async (r) => r.ok && ((await r.json()) as { name?: string }).name === 'arise-connector')
+    .then(async (r) => {
+      const h = r.ok ? ((await r.json()) as { name?: string; features?: unknown }) : null;
+      if (h?.name !== 'arise-connector') return false;
+      keepsRules = Array.isArray(h.features) && h.features.includes('rules');
+      return true;
+    })
     .catch(() => false)
     .then((ok) => {
       reachable = ok;
@@ -460,6 +489,40 @@ export function checkConnector(): Promise<boolean> {
       return ok;
     });
   return checking;
+}
+// An app on the web with rules, while the connector doesn't keep to them yet. (Arise still holds
+// back what they keep from it, and checks what it adds against them.)
+export const needsConnectorUpdate = (l: Pick<MeLink, 'web' | 'rules'>) => !!l.web && !l.web.off && !!l.rules && keepsRules === false;
+
+// ---------- what apps asked to add: waiting for the Player's yes
+
+export const asks = (): MeAsk[] => cleanMeAsks(read(ASKS));
+const saveAsks = (list: MeAsk[]) => write(ASKS, cleanMeAsks(list));
+export const asksFor = (id: string) => asks().filter((a) => a.link === id);
+export const askKey = (a: Pick<MeAsk, 'web' | 'n' | 'at'>) => `${a.web}/${a.n}/${a.at}`;
+
+// The Player said yes: Arise adds it, marked with the app's name, as if the app had added it.
+// False when it's no longer waiting (or the link is gone, and it's let go).
+export async function allowAsk(key: string): Promise<boolean> {
+  const a = asks().find((x) => askKey(x) === key);
+  if (!a) return false;
+  const l = links().find((x) => x.id === a.link);
+  if (l) {
+    if (a.want === 'add_todo') S.addTodo({ id: `ai-${a.web}-${a.n}-${a.at}`, title: a.text, ...(a.day ? { day: a.day } : {}), from: l.app });
+    else {
+      if (!hasLifeStore()) throw new Error("This copy of Arise can't add notes to your day.");
+      await (await lifeStore()).addEvents([noteEvent({ app: l.app, web: { id: a.web } }, a.n, { at: a.at, tool: 'add_note', ok: true, note: a.text, ...(a.client ? { client: a.client } : {}) })]);
+    }
+  }
+  saveAsks(asks().filter((x) => askKey(x) !== key));
+  feedListeners.forEach((cb) => cb());
+  return !!l;
+}
+
+// The Player said no: it's let go, and nothing is added.
+export function dismissAsk(key: string) {
+  saveAsks(asks().filter((x) => askKey(x) !== key));
+  feedListeners.forEach((cb) => cb());
 }
 
 export const feedLog = (): FeedLog => cleanFeedLog(read(FEED));
@@ -530,8 +593,19 @@ async function pullOne(l: MeLink): Promise<number> {
     if (e) got.push({ n: s.n, e });
   }
   got.sort((a, b) => a.n - b.n);
-  const isNote = (x: { e: FeedEntry }) => x.e.tool === 'add_note' && x.e.ok && !!x.e.note;
-  const isTodo = (x: { e: FeedEntry }) => x.e.tool === 'add_todo' && x.e.ok && !!x.e.note;
+  // What each entry adds, by the Player's rules as they are here: an older connector doesn't keep
+  // to them, so a note or to-do they say never to is let go, and one they say to ask about first
+  // waits for their yes, as a request does.
+  const wantOf = (e: FeedEntry) => (!e.ok || !e.note ? null : e.tool === 'ask' ? e.want! : e.tool === 'add_note' || e.tool === 'add_todo' ? e.tool : null);
+  const ruleFor = (e: FeedEntry) => {
+    const want = wantOf(e);
+    if (!want) return null;
+    const rule = ME.ruleOf(l.rules, want === 'add_note' ? 'note' : 'todo');
+    return rule === 'never' ? null : e.tool === 'ask' ? 'ask' : rule;
+  };
+  const isNote = (x: { e: FeedEntry }) => x.e.tool === 'add_note' && ruleFor(x.e) === 'yes';
+  const isTodo = (x: { e: FeedEntry }) => x.e.tool === 'add_todo' && ruleFor(x.e) === 'yes';
+  const isAsk = (x: { e: FeedEntry }) => ruleFor(x.e) === 'ask';
   // Without a life log here, notes stay with the connector (for a device that has one), and so
   // does everything after the first of them.
   if (!hasLifeStore()) {
@@ -549,6 +623,8 @@ async function pullOne(l: MeLink): Promise<number> {
   const upTo = got.at(-1)!.n;
   // Only while it's still this web page here (it may have been turned off meanwhile).
   if (links().some((x) => x.id === l.id && x.web?.id === w.id)) {
+    const asked = fresh.filter(isAsk).map((x) => ({ link: l.id, web: w.id, n: x.n, at: x.e.at, want: wantOf(x.e)!, text: x.e.note!, ...(x.e.day ? { day: x.e.day } : {}), ...(x.e.client ? { client: x.e.client } : {}) }));
+    if (asked.length) saveAsks([...asks(), ...asked]);
     if (fresh.length) {
       const log = feedLog();
       log[l.id] = [...(log[l.id] || []), ...fresh.map((x) => x.e)].slice(-MAX_FEED_SHOWN);

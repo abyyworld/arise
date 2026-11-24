@@ -32,13 +32,14 @@ for (const target of [document, window]) {
   }) as typeof target.addEventListener;
 }
 
-async function boot({ links = [] as object[], facts = FACTS } = {}) {
+async function boot({ links = [] as object[], facts = FACTS, asks = [] as object[] } = {}) {
   for (const [target, type, fn, opts] of added.splice(0)) target.removeEventListener(type, fn, opts as EventListenerOptions);
   vi.resetModules();
   globalThis.indexedDB = new IDBFactory();
   localStorage.clear();
   localStorage.setItem('pit-data-v1', JSON.stringify({ sessions: [], profile: { onboarded: true, skipped: true }, settings: { name: 'Sam Lee' }, goals: [GOAL] }));
   if (links.length) localStorage.setItem('arise-me-links', JSON.stringify(links));
+  if (asks.length) localStorage.setItem('arise-me-asks', JSON.stringify(asks));
   document.body.innerHTML = '<nav id="tabs"></nav><main id="app"></main><div id="restbar" hidden></div><div id="sheet" hidden><div class="sheet-panel"><button class="sheet-close"></button><div class="sheet-body"></div></div></div><div id="toast"></div><input type="file" id="importFile" hidden>';
   history.replaceState(null, '', '#knows');
   const db = await (await import('./db')).open();
@@ -229,6 +230,72 @@ describe('Connected apps', () => {
     await vi.waitFor(() => expect(text('.sheet-body .me-web')).toContain("The connector isn't answering right now"));
     expect(text('#meApps .fact')).toContain('On the web until');
     vi.unstubAllGlobals();
+  });
+
+  it("shows each app's rules and what it asked to add, which goes in only on Allow", { timeout: 30_000 }, async () => {
+    // A connector from before rules: it answers, but doesn't say it keeps to them.
+    vi.stubGlobal('fetch', async (u: string) => (String(u).endsWith('/health') ? new Response(JSON.stringify({ ok: true, name: 'arise-connector', version: '1.0.0' })) : new Response('{}', { status: 404 })));
+    const web = { notes: true, id: 'c'.repeat(22), key: 'd'.repeat(43), tok: 'e'.repeat(43), fh: '0'.repeat(64) };
+    const rules = { ask: ['todo'], never: ['health'], house: "Don't mention my exams unless I ask." };
+    const { ME } = await boot({
+      links: [{ ...LINK, app: 'Claude', web, rules }],
+      asks: [
+        { link: LINK.id, web: web.id, n: 1, at: 1000, want: 'add_todo', text: 'Call mum', day: '2026-10-20', client: 'Claude' },
+        { link: LINK.id, web: web.id, n: 2, at: 2000, want: 'add_note', text: 'Ran 5 km.', client: 'Claude' },
+      ],
+    });
+    const S = await import('../store');
+    expect(text('#meApps .fact')).toContain("Rules: Ask me first: add a to-do. Never: read anything about my health. House rules: \u201cDon't mention my exams unless I ask.\u201d");
+    const tue = new Date(2026, 9, 20).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+    expect([...document.querySelectorAll('#meApps .me-ask p')].map((x) => x.textContent!.replace(/\s+/g, ' ').trim())).toEqual([`Claude wants to: add a to-do \u201cCall mum\u201d for ${tue}`, 'Claude wants to: add a note \u201cRan 5 km.\u201d']);
+
+    click('#meApps .me-ask:last-child [data-act="me-ask-no"]');
+    await vi.waitFor(() => expect(ME.asks()).toHaveLength(1));
+    expect(document.querySelectorAll('#meApps .me-ask')).toHaveLength(1);
+    click('#meApps [data-act="me-ask-allow"]');
+    await vi.waitFor(() => expect(ME.asks()).toEqual([]));
+    expect(Object.values(S.state.todos)).toMatchObject([{ title: 'Call mum', day: '2026-10-20', from: 'Claude' }]);
+    expect(document.querySelectorAll('#meApps .me-ask')).toHaveLength(0);
+
+    // The sheet has them too, and says the connector needs its update.
+    click('#meApps [data-act="me-app"]');
+    expect(text('.sheet-body .me-rules')).toContain('Rules for this app Ask me first: add a to-do.');
+    await vi.waitFor(() => expect(text('.sheet-body .me-rules')).toContain('Needs the connector update.'));
+    expect(document.querySelector('.sheet-body [data-act="me-rules-edit"]')).toBeNull(); // signed out
+    // What it gets carries the rules, and nothing about their health.
+    await vi.waitFor(() => expect(document.querySelector('.sheet-body .me-json')).not.toBeNull());
+    const exact = JSON.parse(document.querySelector('.sheet-body .me-json')!.textContent!);
+    expect(exact.rules).toEqual(rules);
+    vi.unstubAllGlobals();
+  });
+
+  it('lets the Player pick and write the rules for an app', { timeout: 30_000 }, async () => {
+    const { SYNC, ME } = await boot();
+    await SYNC.submit('up', { email: 'rules@example.com', password: 'correct horse battery', password2: 'correct horse battery' });
+    expect(SYNC.status.error).toBe('');
+    click('#tabs [data-v="today"]');
+    click('#tabs [data-v="days"]');
+    click('[data-act="nav"][data-v="knows"]');
+    click('[data-act="me-connect"]');
+    (document.getElementById('meAppName') as HTMLInputElement).value = 'Claude';
+    click('.sheet-body [data-act="me-make"]');
+    await vi.waitFor(() => expect(document.getElementById('meLinkIn')).not.toBeNull(), { timeout: 5000 });
+    expect(text('.sheet-body .me-rules')).toContain('No rules yet. It may do all you let it.');
+    click('.sheet-body [data-act="me-rules-edit"]');
+    expect(text('.sheet-body')).toContain('Pick what Claude may just do, must ask you about first, or may never do.');
+    expect([...document.querySelectorAll('.sheet-body [data-act="me-rule"][aria-pressed="true"]')].map((b) => b.textContent)).toEqual(['May just do', 'May just do', 'May just do', 'May just do']);
+    click('.sheet-body [data-act="me-rule"][data-a="todo"][data-v="ask"]');
+    click('.sheet-body [data-act="me-rule"][data-a="note"][data-v="never"]');
+    click('.sheet-body [data-act="me-rule"][data-a="health"][data-v="never"]');
+    (document.getElementById('meHouse') as HTMLTextAreaElement).value = 'Keep it short.';
+    click('.sheet-body [data-act="me-rule-pick"][data-i="0"]');
+    expect((document.getElementById('meHouse') as HTMLTextAreaElement).value).toBe("Keep it short.\nDon't mention my exams unless I ask.");
+    expect(document.querySelector('.sheet-body [data-act="me-rule"][data-a="todo"][data-v="ask"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(ME.links()[0].rules).toBeUndefined(); // nothing changes until Save
+    click('.sheet-body [data-act="me-rules-save"]');
+    await vi.waitFor(() => expect(ME.links()[0].rules).toEqual({ ask: ['todo'], never: ['health', 'note'], house: "Keep it short.\nDon't mention my exams unless I ask." }), { timeout: 5000 });
+    await vi.waitFor(() => expect(text('.sheet-body .me-rules')).toContain('Ask me first: add a to-do. Never: read anything about my health, add a note.'));
+    expect(text('#meApps .fact')).toContain('Rules: Ask me first: add a to-do.');
   });
 
   it("says so when a link's page is another account's, which only that account can turn off", { timeout: 30_000 }, async () => {
