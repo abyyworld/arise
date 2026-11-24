@@ -23,6 +23,7 @@ import { cleanDebts, cleanGroceries, type Debts, type Groceries } from './everyd
 import { cleanEvents, type CalEvents } from './events';
 import { cleanDecisions, cleanDismissed, type Decisions, type Dismissed } from './decisions';
 import { cleanOwnStorage, type OwnStorage } from './own-storage';
+import { cleanPlaceNames, type PlaceNames } from './place-names';
 
 export { DATE, isDate } from './clean';
 const ID = /^[a-z0-9]{1,32}$/i;
@@ -484,6 +485,7 @@ export interface State {
   decisions: Decisions; // choices asked about, and how they went (lib/decisions.ts)
   dismissed: Dismissed; // early warnings put away (lib/ahead.ts)
   storage: OwnStorage | null; // the Player's own storage for photos and files (lib/own-storage.ts)
+  placeNames: PlaceNames; // their names for places, by a rounded spot (lib/place-names.ts)
   stamps: Stamps;
   updatedAt?: number;
 }
@@ -527,6 +529,7 @@ export function cleanState(raw: unknown, defaults: Settings): State {
     decisions: cleanDecisions(d.decisions),
     dismissed: cleanDismissed(d.dismissed),
     storage: cleanOwnStorage(d.storage),
+    placeNames: cleanPlaceNames(d.placeNames),
     stamps: cleanStamps(d.stamps),
   };
   if (time(d.updatedAt)) state.updatedAt = time(d.updatedAt);

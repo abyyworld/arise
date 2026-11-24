@@ -58,6 +58,8 @@ import * as FILES from './files-folder.js';
 import * as GHB from './github-backup';
 import * as GHB_UI from './github-backup-ui.js';
 import { initInsight } from './life/insight';
+import * as PLACES from './life/map-ui.js';
+import * as WORLD from './life/world-ui.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const app = $('#app');
@@ -143,6 +145,8 @@ const VIEWS = {
   quiz: () => STUDY.renderQuiz(app),
   [HUB.VIEW]: () => HUB.renderConnect(app),
   [CAL.VIEW]: () => CAL.renderCalendar(app),
+  [PLACES.VIEW]: () => PLACES.renderPlaces(app),
+  [WORLD.VIEW]: () => WORLD.renderWorld(app),
   [IMPORT.VIEW]: () => IMPORT.renderImport(app, { store: loadLifeStore, back: importBack }),
 };
 
@@ -170,7 +174,7 @@ function render() {
   if (applyLook()) buildNav();
   document.body.dataset.view = view;
   // Screens without a tab of their own light up the one they open from.
-  const tab = view === 'plan' || view === 'training' ? 'goals' : view === 'knows' || view === HUB.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
+  const tab = view === 'plan' || view === 'training' ? 'goals' : view === WORLD.VIEW ? 'progress' : view === 'knows' || view === HUB.VIEW || view === PLACES.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
   for (const b of document.querySelectorAll('#tabs [data-v]')) {
     b.classList.toggle('on', b.dataset.v === tab);
     if (b.dataset.v === tab) b.setAttribute('aria-current', 'page');
@@ -1355,6 +1359,7 @@ function renderProgress() {
         ${YOU.weekPanel()}
         ${S.workoutsOn() || S.state.sessions.length ? trainingCard() : ''}
         ${GOALS.goalsProgress()}
+        ${WORLD.entryCard()}
         ${sys ? '' : gameLine()}
       </div>
     </div>`;
@@ -2356,6 +2361,8 @@ document.addEventListener('click', async (e) => {
       if (EVERYDAY.handleAction(d.act, el)) break;
       if (AHEAD.handleAction(d.act, el)) break;
       if (CAL.handleAction(d.act, el)) break;
+      if (PLACES.handleAction(d.act, el)) break;
+      if (WORLD.handleAction(d.act, el)) break;
       if (YOU.handleAction(d.act, el)) break;
       if (await LIFE.handleAction(d.act, el)) break;
       if (PAUSEUI.handleAction(d.act, el)) break;

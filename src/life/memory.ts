@@ -32,6 +32,8 @@ import { addDays, dayEnd, dayKey, dayStart, mondayOf, parseDay, parseWhen, witho
 import { LIFE_KINDS, shareTier, SOURCE_NAMES } from './tiers';
 import type { LifeEvent, LifeTier } from './types';
 import { strongBy } from './strength';
+import { namedTitle, withPlaceNames } from '../lib/place-names';
+import { placeNames } from '../store';
 import { byMeaning } from './embed/index';
 import { PARTS, buildJournal, parseText, toText, type Built, type JournalDoc, type Own, type Part, type Voice } from './diary';
 
@@ -262,7 +264,8 @@ export function eventLine(e: LifeEvent, { date = false } = {}): string {
   const when = `${date ? `${dateText(dayKey(e.at))} ` : ''}${timeText(e.at)}`;
   const value = e.value != null && e.unit && !e.title.includes(String(e.value)) ? ` [${e.value} ${e.unit}]` : '';
   const detail = e.detail ? `: ${clip(oneLine(e.detail), 200)}` : '';
-  return `${when}, ${SOURCE_NAMES[e.source]}: ${e.title}${value}${detail}`;
+  // (A place with a name the Player gave it says so: "At Home for 2 h".)
+  return `${when}, ${SOURCE_NAMES[e.source]}: ${namedTitle(e, placeNames())}${value}${detail}`;
 }
 
 // A day's events within `budget` characters: all of them in time order when they fit, otherwise
@@ -737,7 +740,8 @@ async function journalDay(k: string): Promise<{ events: LifeEvent[]; whole: bool
   const from = dayStart(k);
   const most = JOURNAL_READ.most;
   const [night, day] = await Promise.all([L.eventsBetween(from - 18 * 3600e3, from, { kinds: ['sleep'], limit: 50 }), L.eventsBetween(from, dayEnd(k), { kinds: JOURNAL_KINDS, limit: most })]);
-  return { events: [...night.filter((e) => (e.end || 0) > from), ...day], whole: day.length < most };
+  // (Places with a name the Player gave them are written with it: "At Home for 2 h".)
+  return { events: withPlaceNames([...night.filter((e) => (e.end || 0) > from), ...day], placeNames()), whole: day.length < most };
 }
 export const journalEvents = async (k: string): Promise<LifeEvent[]> => (await journalDay(k)).events;
 
