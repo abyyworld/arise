@@ -11,6 +11,8 @@ export const CHANGES: { version: string; notes: string[] }[] = [
       'Groceries: a shopping list on Today. Write "buy milk and eggs" in the box, tick things off as you buy them.',
       'What matters, and when: the next 14 days in four boxes, from Do now to Can wait. Tap What matters on your plan. Mark a to-do as Matters a lot to move it up.',
       'Write it my way: on Coach, turn rough notes into a message, email, post or comment that sounds like you. Only those words go to the AI.',
+      'Bring in notes from Obsidian, Notion, Apple Notes and Google Keep, plus Word files, PDFs and Fitbit, in Your history.',
+      'Take your whole life log out as notes for Obsidian, one file for each day.',
     ],
   },
   {
