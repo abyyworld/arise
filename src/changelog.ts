@@ -4,6 +4,12 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.33.0',
+    notes: [
+      'Your own storage: keep photos and files in your own free Cloudflare storage, up to 10 GB and 200 MB a file, instead of 250 MB. They are still encrypted on your device first, so Cloudflare cannot open them. In Photos and files.',
+    ],
+  },
+  {
     version: '1.32.0',
     notes: [
       'Sign in with Google on the web, if you like. You still make an Arise password: it locks your data, so Google can\'t read it. Marked less private, because Google learns you use Arise. Already have an account? Turn it on in Settings, Account, More.',

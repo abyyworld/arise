@@ -78,3 +78,53 @@ describe('one file', () => {
     expect(document.querySelectorAll('.sheet-body .file-tile').length).toBe(1);
   });
 });
+
+describe('your own storage', () => {
+  const ACC = '0123456789abcdef0123456789abcdef';
+  const fill = (v: Record<string, string>) => {
+    for (const [id, val] of Object.entries(v)) (document.querySelector(`#${id}`) as HTMLInputElement).value = val;
+  };
+  it('sets up with steps and the CORS policy to paste, checks the bucket before saving, and can be removed', async () => {
+    const { UI } = await load();
+    const S = await import('../store');
+    document.body.insertAdjacentHTML('beforeend', `<div id="host">${UI.ownPart()}</div>`);
+    expect(document.querySelector('#ownStorage')?.textContent).toContain('10 GB free');
+    await UI.handleAction('myfiles-own-edit', document.createElement('button'));
+    const text = document.querySelector('#ownStorage')?.textContent || '';
+    expect(text).toContain('Create bucket');
+    expect(text).toContain('https://abyyworld.github.io');
+    expect(text).toContain('Object Read & Write');
+
+    // A bucket that says no: nothing is saved.
+    const calls: string[] = [];
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      calls.push(`${init.method} ${url}`);
+      return new Response(null, { status: 403 });
+    }) as unknown as typeof fetch;
+    fill({ ownAccount: ACC, ownBucket: 'arise-files', ownKeyId: 'abcdef0123456789abcd', ownSecret: 'Zy/x+0123456789abcdefghijklmnop' });
+    await UI.handleAction('myfiles-own-save', null);
+    expect(document.querySelector('#toast')?.textContent).toContain('Your own storage said no.');
+    expect(S.ownStorage()).toBeNull();
+    expect(calls[0]).toMatch(new RegExp(`^PUT https://${ACC}\\.r2\\.cloudflarestorage\\.com/arise-files/arise/check-`));
+
+    // One that works: written, read back and deleted, then saved.
+    const objects = new Map<string, string>();
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      if (init.method === 'PUT') objects.set(url, new TextDecoder().decode(init.body as Uint8Array));
+      if (init.method === 'GET') return objects.has(url) ? new Response(objects.get(url)) : new Response(null, { status: 404 });
+      if (init.method === 'DELETE') objects.delete(url);
+      return new Response(null, { status: init.method === 'DELETE' ? 204 : 200 });
+    }) as unknown as typeof fetch;
+    await UI.handleAction('myfiles-own-save', null);
+    expect(S.ownStorage()).toMatchObject({ account: ACC, bucket: 'arise-files' });
+    expect(objects.size).toBe(0);
+    expect(document.querySelector('#ownStorage')?.textContent).toContain('On: new photos and files go to the bucket arise-files');
+    // Never in a backup file.
+    expect(JSON.stringify(S.exportData())).not.toContain('Zy/x');
+
+    globalThis.confirm = () => true;
+    await UI.handleAction('myfiles-own-remove', null);
+    expect(S.ownStorage()).toBeNull();
+    expect(S.state.storage?.off).toBe(true);
+  });
+});
