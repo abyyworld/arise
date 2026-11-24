@@ -784,6 +784,67 @@ export function cleanLifeTombs(raw: unknown, max = 200000): Record<string, numbe
   return out;
 }
 
+// A correction the Player made ("Not quite? Fix it", "This isn't right"), kept so it wins: over an
+// importer bringing the same thing in again, over another device's older copy, and over the memory
+// learning it again (life/fixes.ts). Synced in the memory's pack.
+export interface LifeFix {
+  id: string; // an event's id; 'fact:' and a fact's id; or 'area:' and a part of life
+  at: number; // when they made it
+  gone?: true; // an event: deleted for good. Something Arise knew: not true at all.
+  title?: string; // an event's new title
+  kind?: LifeKind; // its new kind
+  start?: number; // its new time
+  wrong?: string; // something Arise knew: the words that weren't right
+  right?: string; // and what's true, in their words
+  tier?: LifeTier; // how private those words are (for which AI may read them)
+}
+
+const FIX_ID = /^(fact:f[a-z0-9]{1,24}|area:[a-z]{2,20}|[a-z]{2,12}:[\x21-\x7e]{1,240})$/;
+
+export function cleanLifeFix(raw: unknown): LifeFix | null {
+  const f = obj(raw);
+  const at = time(f.at);
+  if (typeof f.id !== 'string' || !FIX_ID.test(f.id) || !at) return null;
+  const event = !/^(fact|area):/.test(f.id);
+  if (!event && !/^(fact:f[a-z0-9]{1,24}|area:[a-z]{2,20})$/.test(f.id)) return null;
+  if (event && !LIFE_SOURCES.includes(f.id.slice(0, f.id.indexOf(':')) as LifeSource)) return null;
+  const out: LifeFix = { id: f.id, at };
+  if (f.gone === true) out.gone = true;
+  if (event) {
+    const title = oneLine(f.title, 300);
+    if (title) out.title = title;
+    if (LIFE_KINDS.includes(f.kind as LifeKind)) out.kind = f.kind as LifeKind;
+    if (lifeTime(f.start)) out.start = lifeTime(f.start);
+    return out.gone || out.title || out.kind || out.start ? out : null;
+  }
+  const wrong = oneLine(f.wrong, 600);
+  const right = oneLine(f.right, FACT_MAX);
+  if (wrong) out.wrong = wrong;
+  if (right) out.right = right;
+  if (isTier(f.tier)) out.tier = f.tier;
+  return out.wrong || out.right ? out : null;
+}
+
+// What Arise knew about the Player on one day: its facts then, the best first (life/knew.ts).
+// Synced in the memory's pack, thinned to one a month once they're old.
+export interface LifeKnew {
+  day: string;
+  at: number;
+  facts: { id: string; text: string }[];
+}
+
+export function cleanLifeKnew(raw: unknown): LifeKnew | null {
+  const k = obj(raw);
+  if (!isDate(k.day)) return null;
+  const facts: LifeKnew['facts'] = [];
+  for (const x of arr(k.facts).slice(0, 200)) {
+    const f = obj(x);
+    const text = oneLine(f.text, FACT_MAX);
+    if (typeof f.id === 'string' && FACT_ID.test(f.id) && text) facts.push({ id: f.id, text });
+  }
+  return { day: k.day, at: time(k.at), facts };
+}
+
 // ---------- Arise as "me" for other apps (me.ts, lib/me.ts). On this device only, like the
 // memory they're made from.
 
