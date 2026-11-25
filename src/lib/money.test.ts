@@ -202,7 +202,7 @@ describe('the summary', () => {
     // The heading tells the coach not to suggest investing or interest; the lines are only sums.
     expect(t.text.split('\n')[0]).toContain('no advice on investing or interest');
     expect(t.text.split('\n').slice(1).join('\n')).not.toMatch(/invest|interest|save more|savings/i);
-    expect(t.text).not.toMatch(/—/);
+    expect(t.text).not.toMatch(/\u2014/);
     const small = MN.moneyText(s, 3, true).text;
     expect(small).not.toContain('September');
     expect(MN.moneyText(null, 3).text).toBe('');
