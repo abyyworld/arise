@@ -122,15 +122,17 @@ async function sha256(b: ArrayBuffer): Promise<string> {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', b))].map((x) => x.toString(16).padStart(2, '0')).join('');
 }
 
-async function fetchOne(src: Source, onBytes: (n: number) => void, signal?: AbortSignal, fetcher: typeof fetch = fetch): Promise<ArrayBuffer> {
+// One pinned file, checked against its size and SHA-256 before it's handed back. Voice notes
+// (src/voice/model.ts) download theirs with this too, so `what` names the model in what it says.
+export async function fetchOne(src: Pick<Source, 'url' | 'size' | 'sha256'>, onBytes: (n: number) => void, signal?: AbortSignal, fetcher: typeof fetch = fetch, what = 'search model'): Promise<ArrayBuffer> {
   let res: Response;
   try {
     res = await fetcher(src.url, { signal, cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer' });
   } catch (err) {
     if (signal?.aborted) throw new MeaningError('stopped', 'Stopped.');
-    throw new MeaningError('network', `The search model couldn't be downloaded. Check you're online and try again. (${(err as Error)?.message || 'no answer'})`);
+    throw new MeaningError('network', `The ${what} couldn't be downloaded. Check you're online and try again. (${(err as Error)?.message || 'no answer'})`);
   }
-  if (!res.ok) throw new MeaningError('network', `The search model couldn't be downloaded (the server said ${res.status}). Try again later.`);
+  if (!res.ok) throw new MeaningError('network', `The ${what} couldn't be downloaded (the server said ${res.status}). Try again later.`);
   const parts: Uint8Array[] = [];
   let n = 0;
   const reader = res.body?.getReader();
@@ -140,7 +142,7 @@ async function fetchOne(src: Source, onBytes: (n: number) => void, signal?: Abor
       if (done) break;
       parts.push(value);
       n += value.length;
-      if (n > src.size) throw new MeaningError('bad-file', "The search model that came isn't the right one, so it wasn't kept.");
+      if (n > src.size) throw new MeaningError('bad-file', `The ${what} that came isn't the right one, so it wasn't kept.`);
       onBytes(value.length);
     }
   } else {
@@ -155,7 +157,7 @@ async function fetchOne(src: Source, onBytes: (n: number) => void, signal?: Abor
     all.set(p, at);
     at += p.length;
   }
-  if (n !== src.size || (await sha256(all.buffer)) !== src.sha256) throw new MeaningError('bad-file', "The search model that came isn't the right one, so it wasn't kept.");
+  if (n !== src.size || (await sha256(all.buffer)) !== src.sha256) throw new MeaningError('bad-file', `The ${what} that came isn't the right one, so it wasn't kept.`);
   return all.buffer;
 }
 

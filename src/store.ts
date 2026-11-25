@@ -15,6 +15,8 @@ import * as EV from './lib/events';
 import * as DC from './lib/decisions';
 import * as OS from './lib/own-storage';
 import * as PN from './lib/place-names';
+import { mergePeople } from './lib/people';
+import * as MN from './lib/money';
 import * as CH from './lib/chats';
 
 export type { Goal, Quest };
@@ -1342,6 +1344,8 @@ export function importData(raw: unknown): number {
   state.debts = EV2.mergeDebts(state.debts, data.debts);
   state.groceries = EV2.mergeGroceries(state.groceries, data.groceries);
   state.placeNames = PN.mergePlaceNames(state.placeNames, data.placeNames);
+  state.people = mergePeople(state.people, data.people);
+  state.moneyCats = MN.mergeMoneyCats(state.moneyCats, data.moneyCats);
   state.events = EV.mergeEvents(state.events, data.events);
   state.decisions = DC.mergeDecisions(state.decisions, data.decisions);
   state.dismissed = DC.mergeDismissed(state.dismissed, data.dismissed);
@@ -1450,6 +1454,20 @@ export function namePlace(key: string, name: string): boolean {
   if (!next) return false;
   if (next === state.placeNames) return true;
   state.placeNames = next;
+  save();
+  return true;
+}
+
+// ---------- their own categories on the Money screen (lib/money.ts), synced with the rest
+
+export const moneyCats = () => state.moneyCats;
+
+// Puts a merchant in a category (null: back to Arise's own guess). False if either isn't one.
+export function setMoneyCat(key: string, cat: MN.Cat | null): boolean {
+  const next = MN.setMoneyCat(state.moneyCats, key, cat);
+  if (!next) return false;
+  if (next === state.moneyCats) return true;
+  state.moneyCats = next;
   save();
   return true;
 }

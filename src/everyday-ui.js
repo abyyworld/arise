@@ -8,11 +8,13 @@ import { classify, asKind } from './lib/capture';
 import { questions, threeThings } from './lib/questions';
 import { looseEnds } from './lib/loose';
 import * as BRIEF from './brief';
+import * as REVIEW from './review';
 import { balanceText, money, totals } from './lib/everyday';
 import { noteWithFile } from './life/quick-note';
 import { hasLifeStore, lifeStore } from './life/store-port';
 import { esc, icon, openSheet, closeSheet, toast } from './ui.js';
 import { todoCard, dayText } from './todos-ui.js';
+import * as VOICE from './voice/voice-ui.js';
 import './styles/everyday.css';
 
 const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
@@ -47,6 +49,7 @@ export function captureCard() {
       <p class="capture-what muted small" id="captureWhat" aria-live="polite"></p>
       <div class="capture-kinds chips" id="captureKinds" hidden role="group" aria-label="Save it as">${KINDS.map(([k, label]) => `<button type="button" class="chip" data-act="capture-kind" data-v="${k}" aria-pressed="false">${label}</button>`).join('')}</div>
       <div class="row capture-row">
+        ${VOICE.micButton('captureIn', 'captureFile')}
         <label class="btn ghost small capture-file">${icon('note')} <span id="captureFileName">Add a file</span><input id="captureFile" type="file" hidden></label>
         <button class="btn primary small" type="submit" id="captureGo">Save</button>
       </div>
@@ -342,6 +345,29 @@ export function briefCard(now = new Date()) {
   </section>`;
 }
 
+// ---------- your week in review (review.ts): Sunday afternoon and Monday morning
+
+export function reviewCard(now = new Date()) {
+  const monday = REVIEW.on() ? REVIEW.weekNow(now) : null;
+  if (!monday || S.state.dismissed[`review:${monday}`] != null) return '<div id="reviewCard"></div>';
+  let r;
+  try {
+    r = REVIEW.reviewOf(monday);
+  } catch {
+    return '<div id="reviewCard"></div>';
+  }
+  const list = (xs) => `<ul class="brief-list">${xs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
+  return `<div id="reviewCard"><section class="panel review" data-week="${esc(monday)}">
+    <div class="panel-title">${icon('progress')}<span>Your week</span></div>
+    <p class="label">What went well</p>${list(r.wins)}
+    ${r.numbers.length ? `<p class="label">In numbers</p>${list(r.numbers)}` : ''}
+    <p class="label">One thing to try</p><p>${esc(r.try)}</p>
+    <p class="label">Next week</p>${list(r.ahead)}
+    <div class="row"><button class="btn small primary" data-act="review-done">Got it</button></div>
+    <p class="muted small">Worked out on this device from your to-dos, quests, check-ins and what Arise saw.</p>
+  </section></div>`;
+}
+
 // ---------- A quick one: short questions from your coach (lib/questions.ts)
 
 function questionInput(now = new Date()) {
@@ -578,6 +604,7 @@ async function writeGo() {
 
 // True when it was one of these.
 export function handleAction(act, el) {
+  if (act?.startsWith('voice-')) return VOICE.handleAction(act, el);
   const v = el?.dataset?.v;
   const id = el?.dataset?.id;
   switch (act) {
@@ -594,6 +621,14 @@ export function handleAction(act, el) {
     case 'q-goal-pause':
     case 'q-best':
       return answer(act, v);
+    case 'review-done': {
+      const w = $('#reviewCard [data-week]')?.dataset.week;
+      if (w) S.dismissWarning(`review:${w}`);
+      const el = $('#reviewCard');
+      if (el) el.outerHTML = reviewCard();
+      toast('Have a good week.');
+      return true;
+    }
     case 'write-open':
       writeSheet();
       return true;

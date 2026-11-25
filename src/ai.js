@@ -1641,9 +1641,48 @@ function aheadFor(e, most = 3) {
   }
 }
 
+// The people they keep in touch with and their dates coming up (src/people.ts registers itself
+// here): `people(cap, compact)` gives names and dates only, and nothing unless that AI may read
+// people (tier 3), as { text, tier }.
+let peopleSource = null;
+export function usePeople(fn) {
+  peopleSource = fn;
+}
+function peopleFor(e, compact = false, most = 3) {
+  try {
+    const r = peopleSource?.(Math.min(memoryCap(e), most), compact);
+    return { text: r?.text || '', tier: r?.tier || 1 };
+  } catch {
+    return { text: '', tier: 1 };
+  }
+}
+
+// More sections worked out on this device, each registered by its own id (habits that learn:
+// src/life/habits.ts; the money summary: src/life/money.ts): `fn(cap, compact)` gives only what
+// that AI may read, as { text, tier }.
+const more = new Map();
+export function useMore(id, fn) {
+  if (fn) more.set(id, fn);
+  else more.delete(id);
+}
+function moreFor(e, compact, most = 3) {
+  const texts = [];
+  let tier = 1;
+  for (const fn of more.values()) {
+    try {
+      const r = fn(Math.min(memoryCap(e), most), compact);
+      if (r?.text) {
+        texts.push(r.text);
+        tier = Math.max(tier, r.tier || 1);
+      }
+    } catch {}
+  }
+  return { text: texts.join('\n\n'), tier };
+}
+
 // The highest tier in what buildContext gives this AI from the life log besides the notes: the
 // profile, what Arise saw and the patterns. A reply made from them carries it.
-const contextTier = (e, compact) => Math.max(memoryProfileTier(e, compact), signalsFor(e, compact).tier, insightFor(e, compact).tier, aheadFor(e).tier);
+const contextTier = (e, compact) => Math.max(memoryProfileTier(e, compact), signalsFor(e, compact).tier, insightFor(e, compact).tier, aheadFor(e).tier, peopleFor(e, compact).tier, moreFor(e, compact).tier);
 
 // Everything the coach knows, as compact text. Recent weeks in detail; older history by month.
 // `recalled`: what the life log holds for the question being asked (see chat). `e`: the engine it's
@@ -1671,6 +1710,8 @@ export function buildContext({ full = false, compact = false, recalled = '', e =
   if (seen) out.push('', seen);
   const patterns = saw ? insightFor(e, compact, most).text : '';
   if (patterns) out.push('', patterns);
+  const extra = saw ? moreFor(e, compact, most).text : '';
+  if (extra) out.push('', extra);
   out.push('', ...LC.lifeLines(st.profile, st.logs, k, { compact }));
   out.push('', "## Today's quests");
   if (wk) {
@@ -1721,6 +1762,9 @@ export function buildContext({ full = false, compact = false, recalled = '', e =
   if (saw) {
     const a = aheadFor(e, most);
     if (a.text) out.push('', a.text);
+    // Close people and their dates coming up (src/people.ts), names and dates only.
+    const pp = peopleFor(e, compact, most);
+    if (pp.text) out.push('', pp.text);
   }
   const past = DC.decisionsText(st.decisions, compact ? 3 : 8, Math.min(memoryCap(e), most));
   if (past) out.push('', past);

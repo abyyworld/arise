@@ -52,3 +52,10 @@
 
 /* The morning brief (src/everyday-ui.js briefCard). */
 .brief-list { margin: 4px 0 0; padding-left: 1.1em; display: grid; gap: 4px; }
+
+/* Focus (src/focus-ui.js): the bar on Today while a block runs. */
+.focus-row { display: grid; grid-template-columns: auto 1fr auto auto; gap: 10px; align-items: center; }
+.focus-clock { font-variant-numeric: tabular-nums; font-size: 1.6rem; font-weight: 700; }
+.focus-what { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.ahead-start { justify-self: start; margin-top: 2px; }
+@media (max-width: 420px) { .focus-row { grid-template-columns: auto 1fr; } }

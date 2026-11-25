@@ -90,7 +90,8 @@ export function ownAndroidCode(root) {
 // ios/App/App) isn't a plugin, so it can't be found like one. Raise this number whenever that code
 // changes in a way the web app relies on (a new method it calls, a new permission it asks for).
 // 2: location on a timer, places never to note, Pause everything, photos taken.
-export const IOS_OWN = 'arise-ios@2';
+// 3: the microphone, for voice notes (NSMicrophoneUsageDescription in Info.plist).
+export const IOS_OWN = 'arise-ios@3';
 
 export function nativeKeys(root) {
   const own = ownAndroidCode(root);

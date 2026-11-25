@@ -24,6 +24,8 @@ import { cleanEvents, type CalEvents } from './events';
 import { cleanDecisions, cleanDismissed, type Decisions, type Dismissed } from './decisions';
 import { cleanOwnStorage, type OwnStorage } from './own-storage';
 import { cleanPlaceNames, type PlaceNames } from './place-names';
+import { cleanPeople, type People } from './people';
+import { cleanMoneyCats, type MoneyCats } from './money';
 import { CHAT_MAX, FIRST, cleanChatNames, isChatId, type ChatMsg } from './chats';
 
 export { DATE, isDate } from './clean';
@@ -488,6 +490,8 @@ export interface State {
   dismissed: Dismissed; // early warnings put away (lib/ahead.ts)
   storage: OwnStorage | null; // the Player's own storage for photos and files (lib/own-storage.ts)
   placeNames: PlaceNames; // their names for places, by a rounded spot (lib/place-names.ts)
+  people: People; // who to keep in touch with, their dates, who to hide (lib/people.ts)
+  moneyCats: MoneyCats; // their own categories for merchants on the Money screen (lib/money.ts)
   stamps: Stamps;
   updatedAt?: number;
 }
@@ -532,6 +536,8 @@ export function cleanState(raw: unknown, defaults: Settings): State {
     dismissed: cleanDismissed(d.dismissed),
     storage: cleanOwnStorage(d.storage),
     placeNames: cleanPlaceNames(d.placeNames),
+    people: cleanPeople(d.people),
+    moneyCats: cleanMoneyCats(d.moneyCats),
     stamps: cleanStamps(d.stamps),
   };
   if (time(d.updatedAt)) state.updatedAt = time(d.updatedAt);
@@ -1148,6 +1154,21 @@ export interface MeaningPrefs {
 export function cleanMeaningPrefs(raw: unknown): MeaningPrefs {
   const d = obj(raw);
   return { on: d.on === true, at: time(d.at) };
+}
+
+// Voice notes with the model on this device (voice/model.ts): on, when it was downloaded, the
+// language to listen for ('auto' or a code like 'uz'), and whether a recording is kept with its
+// note (off unless the person turns it on). Kept on this device only.
+export interface VoicePrefs {
+  on: boolean;
+  at: number;
+  lang: string;
+  keep: boolean;
+}
+export function cleanVoicePrefs(raw: unknown): VoicePrefs {
+  const d = obj(raw);
+  const lang = typeof d.lang === 'string' && /^(auto|[a-z]{2,3})$/.test(d.lang) ? d.lang : 'auto';
+  return { on: d.on === true, at: time(d.at), lang, keep: d.keep === true };
 }
 
 // ---------- Arise reads it for you (life/reads.ts)

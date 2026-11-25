@@ -164,7 +164,8 @@ export function gather(now = Date.now(), { cap = 3 }: { cap?: number } = {}): A.
     wake: cap < 3 ? undefined : usual('wake'),
     bed: cap < 3 ? undefined : usual('bedtime'),
     best: st.settings.bestTime,
-    people: cap < 3 ? [] : people,
+    // People marked close have their own nudge (People), so no early warning for them too.
+    people: cap < 3 ? [] : people.filter((p) => !st.people?.[p.who]?.close),
     dismissed: st.dismissed,
   };
 }

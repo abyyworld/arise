@@ -36,6 +36,8 @@
 	<string>Arise notes the places you spend time at, and where you are every so often if you choose that. Only if you turn on Places. It stays on this iPhone and in your encrypted sync.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Arise notes when you took photos, and where if the photo says so, if you turn on Photos taken. Never the photos themselves. It stays on this iPhone and in your encrypted sync.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Arise listens only while you record a voice note, and turns it into words on this iPhone. The sound never leaves it.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Arise notes when you walk, run, cycle or drive to log your days. It stays on this iPhone and in your encrypted sync.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
