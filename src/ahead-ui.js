@@ -62,12 +62,12 @@ export function planCard(now = Date.now()) {
     .map(
       (b) => `<li class="ahead-row ${b.kind}">
         <span class="ahead-time">${hm(b.start)}</span>
-        <span class="ahead-what"><span class="ahead-title">${esc(b.title)}</span><span class="ahead-why">${esc(b.kind === 'fixed' ? 'Fixed' : b.kind === 'hard' ? `Needs focus · ${b.why}` : b.why)}</span></span>
+        <span class="ahead-what"><span class="ahead-title">${esc(b.title)}</span><span class="ahead-why">${esc(b.kind === 'fixed' ? 'Fixed' : b.kind === 'hard' ? `Needs focus · ${b.why}` : b.why)}</span>${b.kind === 'fixed' ? '' : `<button class="link small ahead-start" data-act="focus-start" data-title="${esc(b.title)}" data-min="${Math.round((b.end - b.start) / 60000)}" data-task="${esc(b.id || '')}">${icon('play')} Start</button>`}</span>
         <span class="ahead-len">${esc(hours((b.end - b.start) / 60000))}</span>
       </li>`,
     );
   return `<section class="panel ahead" id="aheadPlan">
-    <div class="panel-title">${icon('plan')}<span>Your plan</span><span class="ahead-week"><button class="link small" data-act="ahead-matters">What matters</button> · <button class="link small" data-act="ahead-week">This week</button></span></div>
+    <div class="panel-title">${icon('plan')}<span>Your plan</span><span class="ahead-week"><button class="link small" data-act="focus-new">Focus</button> · <button class="link small" data-act="ahead-matters">What matters</button> · <button class="link small" data-act="ahead-week">This week</button></span></div>
     ${changed.length ? `<div class="ahead-changed" role="status"><p><b>Your day changed, so the plan did too.</b></p><ul>${changed.map((c) => `<li>${esc(c)}</li>`).join('')}</ul><button class="btn small ghost" data-act="ahead-seen">Got it</button></div>` : ''}
     ${rows.length ? `<ul class="ahead-list">${rows.join('')}</ul>` : '<p class="muted small">Nothing left to plan today.</p>'}
     ${plan.left.length ? `<p class="muted small">Didn't fit: ${esc(plan.left.map((x) => x.title).join(', '))}.</p>` : ''}
