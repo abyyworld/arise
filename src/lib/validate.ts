@@ -24,6 +24,7 @@ import { cleanEvents, type CalEvents } from './events';
 import { cleanDecisions, cleanDismissed, type Decisions, type Dismissed } from './decisions';
 import { cleanOwnStorage, type OwnStorage } from './own-storage';
 import { cleanPlaceNames, type PlaceNames } from './place-names';
+import { cleanPeople, type People } from './people';
 import { CHAT_MAX, FIRST, cleanChatNames, isChatId, type ChatMsg } from './chats';
 
 export { DATE, isDate } from './clean';
@@ -488,6 +489,7 @@ export interface State {
   dismissed: Dismissed; // early warnings put away (lib/ahead.ts)
   storage: OwnStorage | null; // the Player's own storage for photos and files (lib/own-storage.ts)
   placeNames: PlaceNames; // their names for places, by a rounded spot (lib/place-names.ts)
+  people: People; // who to keep in touch with, their dates, who to hide (lib/people.ts)
   stamps: Stamps;
   updatedAt?: number;
 }
@@ -532,6 +534,7 @@ export function cleanState(raw: unknown, defaults: Settings): State {
     dismissed: cleanDismissed(d.dismissed),
     storage: cleanOwnStorage(d.storage),
     placeNames: cleanPlaceNames(d.placeNames),
+    people: cleanPeople(d.people),
     stamps: cleanStamps(d.stamps),
   };
   if (time(d.updatedAt)) state.updatedAt = time(d.updatedAt);

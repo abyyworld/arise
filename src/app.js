@@ -62,6 +62,8 @@ import { initInsight } from './life/insight';
 import * as PLACES from './life/map-ui.js';
 import * as LINKS from './life/links-ui.js';
 import * as WORLD from './life/world-ui.js';
+import * as PEOPLE from './people-ui.js';
+import { initPeople, nudges as peopleNudges } from './people';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const app = $('#app');
@@ -150,6 +152,7 @@ const VIEWS = {
   [PLACES.VIEW]: () => PLACES.renderPlaces(app),
   [LINKS.VIEW]: () => LINKS.renderLinks(app),
   [WORLD.VIEW]: () => WORLD.renderWorld(app),
+  [PEOPLE.VIEW]: () => PEOPLE.renderPeople(app),
   [IMPORT.VIEW]: () => IMPORT.renderImport(app, { store: loadLifeStore, back: importBack }),
 };
 
@@ -177,7 +180,7 @@ function render() {
   if (applyLook()) buildNav();
   document.body.dataset.view = view;
   // Screens without a tab of their own light up the one they open from.
-  const tab = (view === 'plan' || view === 'training' || view === 'goals') && !TABS.isShown('goals') ? 'progress' : view === 'coach' && !TABS.isShown('coach') ? 'progress' : view === 'plan' || view === 'training' ? 'goals' : view === WORLD.VIEW ? 'progress' : view === 'knows' || view === HUB.VIEW || view === PLACES.VIEW || view === LINKS.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
+  const tab = (view === 'plan' || view === 'training' || view === 'goals') && !TABS.isShown('goals') ? 'progress' : view === 'coach' && !TABS.isShown('coach') ? 'progress' : view === 'plan' || view === 'training' ? 'goals' : view === WORLD.VIEW || view === PEOPLE.VIEW ? 'progress' : view === 'knows' || view === HUB.VIEW || view === PLACES.VIEW || view === LINKS.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
   for (const b of document.querySelectorAll('#tabs [data-v]')) {
     b.classList.toggle('on', b.dataset.v === tab);
     if (b.dataset.v === tab) b.setAttribute('aria-current', 'page');
@@ -197,7 +200,7 @@ function render() {
 // Training, with the rest of it.
 function renderToday() {
   const k = S.todayKey();
-  const main = [PAUSEUI.todayCard(), EVERYDAY.captureCard(), dayCard(k), ...(isSystem() ? [] : [lookHint()]), resumeBanner(), LIFE.recapSlot(), SYS.systemMessageCard(), EVERYDAY.briefCard(), ...AHEAD.todayCards(), EVERYDAY.questionCard(), STUDY.todayCard(), `<div id="todo">${todo(k)}</div>`, TODOS.todoCard(k), EVERYDAY.everydayCard(), journalNotifyCard(), installBanner()];
+  const main = [PAUSEUI.todayCard(), EVERYDAY.captureCard(), dayCard(k), ...(isSystem() ? [] : [lookHint()]), resumeBanner(), LIFE.recapSlot(), SYS.systemMessageCard(), EVERYDAY.briefCard(), ...AHEAD.todayCards(), PEOPLE.todayCard(), EVERYDAY.questionCard(), STUDY.todayCard(), `<div id="todo">${todo(k)}</div>`, TODOS.todoCard(k), EVERYDAY.everydayCard(), journalNotifyCard(), installBanner()];
   const life = S.state.profile?.life;
   const side = isSystem() ? [statusWindow(), quoteCard(k)] : [SIDE.todaySide(), TOP.slot(), SIDE.gameLine(), life && (life.values?.length || life.hope) ? mattersCard(life) : quoteCard(k)];
 
@@ -1362,6 +1365,7 @@ function renderProgress() {
         ${YOU.weekPanel()}
         ${S.workoutsOn() || S.state.sessions.length ? trainingCard() : ''}
         ${GOALS.goalsProgress()}
+        ${PEOPLE.entryCard()}
         ${WORLD.entryCard()}
         ${TABS.moreCard()}
         ${sys ? '' : gameLine()}
@@ -2369,6 +2373,7 @@ document.addEventListener('click', async (e) => {
       if (PLACES.handleAction(d.act, el)) break;
       if (LINKS.handleAction(d.act, el)) break;
       if (WORLD.handleAction(d.act, el)) break;
+      if (PEOPLE.handleAction(d.act, el)) break;
       if (YOU.handleAction(d.act, el)) break;
       if (await LIFE.handleAction(d.act, el)) break;
       if (PAUSEUI.handleAction(d.act, el)) break;
@@ -2704,14 +2709,16 @@ initIngest();
 initMemory();
 initInsight();
 initAhead();
+// People: when they were last in touch, from the life log, read a few seconds after opening.
+initPeople();
 // The box on Today sends a question to the coach.
 EVERYDAY.initEveryday({ ask: (text) => SYS.askCoach(text) });
 // Loose ends in their notes, for A quick one: read a few seconds after opening.
 setTimeout(() => void EVERYDAY.refreshLoose(), 4000);
 // The plan's cards follow the life log (calendars, sleep, people) as it's read.
 // Next-step messages: planned on the phone in the phone apps, shown while open on the web.
-N.useNudges((now) => [...aheadNudges(now), ...BRIEF.nudges(now)]);
-ALERTS.useNudges((now) => [...aheadNudges(now, 2), ...BRIEF.nudges(now, 2)]);
+N.useNudges((now) => [...peopleNudges(now), ...aheadNudges(now), ...BRIEF.nudges(now)]);
+ALERTS.useNudges((now) => [...peopleNudges(now, 2), ...aheadNudges(now, 2), ...BRIEF.nudges(now, 2)]);
 onAheadChange(() => {
   AHEAD.repaintCards();
   if (N.isNative) void N.syncNotifications();

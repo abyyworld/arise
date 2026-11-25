@@ -1641,9 +1641,25 @@ function aheadFor(e, most = 3) {
   }
 }
 
+// The people they keep in touch with and their dates coming up (src/people.ts registers itself
+// here): `people(cap, compact)` gives names and dates only, and nothing unless that AI may read
+// people (tier 3), as { text, tier }.
+let peopleSource = null;
+export function usePeople(fn) {
+  peopleSource = fn;
+}
+function peopleFor(e, compact = false, most = 3) {
+  try {
+    const r = peopleSource?.(Math.min(memoryCap(e), most), compact);
+    return { text: r?.text || '', tier: r?.tier || 1 };
+  } catch {
+    return { text: '', tier: 1 };
+  }
+}
+
 // The highest tier in what buildContext gives this AI from the life log besides the notes: the
 // profile, what Arise saw and the patterns. A reply made from them carries it.
-const contextTier = (e, compact) => Math.max(memoryProfileTier(e, compact), signalsFor(e, compact).tier, insightFor(e, compact).tier, aheadFor(e).tier);
+const contextTier = (e, compact) => Math.max(memoryProfileTier(e, compact), signalsFor(e, compact).tier, insightFor(e, compact).tier, aheadFor(e).tier, peopleFor(e, compact).tier);
 
 // Everything the coach knows, as compact text. Recent weeks in detail; older history by month.
 // `recalled`: what the life log holds for the question being asked (see chat). `e`: the engine it's
@@ -1721,6 +1737,9 @@ export function buildContext({ full = false, compact = false, recalled = '', e =
   if (saw) {
     const a = aheadFor(e, most);
     if (a.text) out.push('', a.text);
+    // Close people and their dates coming up (src/people.ts), names and dates only.
+    const pp = peopleFor(e, compact, most);
+    if (pp.text) out.push('', pp.text);
   }
   const past = DC.decisionsText(st.decisions, compact ? 3 : 8, Math.min(memoryCap(e), most));
   if (past) out.push('', past);
