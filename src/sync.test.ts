@@ -262,6 +262,87 @@ describe('goals on two devices', () => {
   }
 });
 
+describe("the coach's chats on two devices", () => {
+  const wait = () => new Promise((r) => setTimeout(r, 5));
+  const say = async (S: Store, text: string, c?: string) => {
+    await wait(); // each at its own time
+    S.state.ai.chat.push({ role: 'user', text, at: Date.now(), ...(c ? { c } : {}) });
+    S.save();
+  };
+  // (A goal too: a device with only chats counts as one nobody used yet, see S.isEmpty, and takes
+  // the account's copy as it is.)
+  const phone = async () => {
+    const a = await device('phone');
+    a.S.saveGoal({ id: 'g1', title: 'Sleep better', category: 'health' });
+    return a;
+  };
+
+  it('keeps each chat and its name, and forgets every chat everywhere, even on a device that was offline', async () => {
+    const a = await phone();
+    await say(a.S, 'From the one long chat');
+    await say(a.S, 'My knee hurts', 'k1');
+    await say(a.S, 'Saving money', 'm1');
+    a.S.renameChat('m1', 'Money');
+    await a.SYNC.submit('up', { email: 'me@example.com', password: PW, password2: PW });
+    const b = await device('laptop');
+    await b.SYNC.submit('in', { id: 'me@example.com', password: PW });
+    const CH = await import('./lib/chats');
+    expect(CH.listChats(b.S.state.ai.chat, b.S.state.ai.chatNames).map((c) => [c.id, c.title])).toEqual([
+      ['m1', 'Money'],
+      ['k1', 'My knee hurts'],
+      ['first', 'From the one long chat'],
+    ]);
+    expect(cloudText()).not.toContain('Money');
+    await wait();
+
+    // The laptop goes offline. The phone forgets every chat, then starts a new one.
+    await on(a, async () => {
+      a.S.forgetChats();
+      await say(a.S, 'A fresh start', 'n1');
+      await a.SYNC.syncNow();
+    });
+    // The laptop, still offline and not knowing, writes in an old chat.
+    await on(b, async () => {
+      await say(b.S, 'Written on the laptop after', 'k1');
+      expect(b.S.state.ai.chat).toHaveLength(4);
+      await b.SYNC.syncNow();
+      expect(b.S.state.ai.chat.map((m) => m.text)).toEqual(['A fresh start', 'Written on the laptop after']);
+      expect(b.S.state.ai.chatNames).toEqual({});
+    });
+    await on(a, async () => {
+      await a.SYNC.syncNow();
+      expect(a.S.state.ai.chat.map((m) => [m.text, m.c])).toEqual([
+        ['A fresh start', 'n1'],
+        ['Written on the laptop after', 'k1'],
+      ]);
+    });
+  });
+
+  it("deletes one chat everywhere, and a device that was offline doesn't bring it back", async () => {
+    const a = await phone();
+    await say(a.S, 'My knee hurts', 'k1');
+    await say(a.S, 'Saving money', 'm1');
+    await a.SYNC.submit('up', { email: 'me@example.com', password: PW, password2: PW });
+    const b = await device('laptop');
+    await b.SYNC.submit('in', { id: 'me@example.com', password: PW });
+    await wait();
+    await on(a, async () => {
+      a.S.deleteChat('k1');
+      await a.SYNC.syncNow();
+    });
+    await on(b, async () => {
+      await say(b.S, 'More on money', 'm1');
+      await b.SYNC.syncNow();
+      expect(b.S.state.ai.chat.map((m) => m.text)).toEqual(['Saving money', 'More on money']);
+    });
+    await on(a, async () => {
+      await a.SYNC.syncNow();
+      expect(a.S.state.ai.chat.map((m) => m.text)).toEqual(['Saving money', 'More on money']);
+      expect(a.S.state.stamps.chat.k1).toBeLessThan(0);
+    });
+  });
+});
+
 describe('forgotten password', () => {
   it('sets a new password with the recovery code, and the data is still there', async () => {
     const a = await device('phone');

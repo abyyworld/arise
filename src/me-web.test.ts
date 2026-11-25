@@ -134,6 +134,24 @@ describe('an app on the web', () => {
     expect(a.ME.links()[0].web!.id).not.toBe(w.id);
   });
 
+  it('turns off by itself after 60 days without use, and says so', async () => {
+    const c = connector();
+    const a = await device();
+    const l = await a.ME.connect('Claude', LINK_DEFAULT);
+    await a.ME.setWeb(l.id, { notes: false });
+    const t0 = Date.now();
+    expect(await a.ME.offWhenIdle(t0)).toEqual([]); // first seen now
+    // Used on day 30: counted from then.
+    await c.ask(a.ME.connectorAddress(a.ME.links()[0]), 'my_goals');
+    await a.ME.pullFeeds({ force: true });
+    const used = a.ME.feedOf(l.id).at(-1)!.at;
+    expect(await a.ME.offWhenIdle(used + 59 * DAY)).toEqual([]);
+    expect(a.ME.links()[0].web).toBeTruthy();
+    expect(await a.ME.offWhenIdle(used + 61 * DAY)).toEqual(['Claude']);
+    expect(a.ME.links()[0]).not.toHaveProperty('web');
+    expect(a.ME.lastIdleOff()).toMatchObject({ apps: ['Claude'] });
+  });
+
   it('stops by itself on the date the Player picked', async () => {
     connector();
     const a = await device();

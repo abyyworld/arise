@@ -143,6 +143,10 @@ export function appsPanel() {
   return `<section class="panel" id="meApps">
     <div class="panel-title">${icon('share')}<span>Connected apps</span></div>
     <p class="small">Give an app its own private link to you, like a buddy app or an AI assistant. It always has your latest, and only what you pick. You can turn it off any time.</p>
+    ${(() => {
+      const idle = ME.lastIdleOff();
+      return idle ? `<p class="small notice">Turned off on the web after ${ME.IDLE_DAYS} days without use: ${esc(idle.apps.join(', '))}. Turn it on again any time.</p>` : '';
+    })()}
     <div id="meAppList">${appListHTML()}</div>
     <button class="btn primary block" data-act="me-connect">${icon('share')} Connect an app</button>
     <p class="muted small life-note">${esc(KEEPS)}</p>
@@ -434,7 +438,7 @@ function webHTML(l, user, busy) {
     if (!ready || !user) return '';
     return `<div class="me-web">
       <p class="label">Use it on the web ${LESS}</p>
-      <p class="small">Let Claude, ChatGPT or Gemini on the web read what this app gets, through Arise's connector. Off until you turn it on.</p>
+      <p class="small">Let Claude, ChatGPT or Gemini on the web read what this app gets, through Arise's connector. Off until you turn it on, and off again by itself after 60 days without use.</p>
       <button class="btn ghost small" data-act="me-web-explain" ${busy}>Use it on the web…</button>
     </div>`;
   }

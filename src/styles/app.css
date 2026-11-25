@@ -967,6 +967,17 @@ body.onboarding .update-chip { display: none; }
 .chat-input .send { background: linear-gradient(180deg, #2a8dff, #155fd6); color: #fff; border-color: #86d6ff; }
 .chat-input .send:disabled { opacity: 0.4; }
 .chat-input .stop { color: var(--danger); border-color: rgba(255, 100, 121, 0.5); }
+.head-btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+.chat-name { margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--line); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-empty .btn { margin-top: 10px; }
+.chat-list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 8px; }
+.chat-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); }
+.chat-item.on { border-color: var(--sys); }
+.chat-item form { flex: 1 1 100%; }
+.chat-open { flex: 1 1 200px; min-width: 0; display: grid; gap: 2px; text-align: left; background: none; border: 0; padding: 0; color: var(--text); cursor: pointer; font: inherit; }
+.chat-open b { overflow-wrap: anywhere; }
+.chat-open small { color: var(--muted); }
+.chat-btns { display: flex; gap: 6px; }
 .quick { display: grid; gap: 8px; }
 .quick-btn {
   display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 14px; text-align: left; cursor: pointer;

@@ -6,6 +6,8 @@ import { POPUP_NS, type PopupRequest, type PopupState } from './lib/recorder';
 
 const main = document.getElementById('main')!;
 const inWindow = new URLSearchParams(location.search).has('pair');
+// The small window that opens when a reminder is due (background.ts openBanner).
+const inBanner = new URLSearchParams(location.search).has('remind');
 
 type Child = Node | string | null | false;
 function h(tag: string, attrs: Record<string, string> = {}, ...children: Child[]): HTMLElement {
@@ -55,7 +57,37 @@ function skipBox(s: PopupState, note: string): HTMLElement {
 const ALWAYS = 'Always skipped: banks, health portals, adult sites, password managers and sign-in pages, and private windows.';
 const BEFORE = 'Add them before linking: linking also reads the last 90 days of history.';
 
+const clock = (t: number) => {
+  const d = new Date(t);
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+};
+
+function reminderList(s: PopupState): Node[] {
+  return s.unread.map((r) => h('div', { class: 'remind' }, h('b', {}, r.title), h('span', { class: 'small muted' }, `${clock(r.at)}${r.body ? `. ${r.body}` : ''}`)));
+}
+
+// The reminders' window: what's due, and nothing else.
+function bannerView(s: PopupState): Node[] {
+  if (!s.unread.length) return [h('p', { class: 'muted' }, 'Nothing due right now.'), button('close', 'Close', 'block')];
+  return [h('p', { class: 'ok' }, s.unread.length === 1 ? 'A reminder from Arise' : `${s.unread.length} reminders from Arise`), ...reminderList(s), h('div', { class: 'row' }, button('read', 'Got it', 'primary'), button('open', 'Open Arise'))];
+}
+
+// The switch, and what's coming. Only the plain words Arise sent; nothing leaves this browser.
+function remindBox(s: PopupState): HTMLElement {
+  return h(
+    'div',
+    { class: 'box' },
+    h('div', { class: 'row between' }, h('b', {}, 'Reminders here'), button('remind', s.remind ? 'On' : 'Off', s.remind ? 'primary small-btn' : 'small-btn', { on: s.remind ? '' : '1' })),
+    s.remind
+      ? h('p', { class: 'small muted', style: 'margin:8px 0 0' }, s.next ? `Next: ${s.next.title}, ${clock(s.next.at)}.` : 'Nothing coming up yet. Arise sends them when it is open in this browser.')
+      : h('p', { class: 'small muted', style: 'margin:8px 0 0' }, 'Your to-dos with a time, your events and the morning brief, as a notification while this browser is open, even with Arise closed. Kept only in this browser.'),
+    ...(s.remind && s.unread.length ? [...reminderList(s), button('read', 'Got it', 'block')] : []),
+  );
+}
+
 function view(s: PopupState): Node[] {
+  if (inBanner) return bannerView(s);
   if (s.pairing) {
     const link = { link: s.pairing.link };
     return [
@@ -82,6 +114,8 @@ function view(s: PopupState): Node[] {
   }
   return [
     h('p', { class: 'ok' }, 'Linked to Arise'),
+    button('save', 'Save this page to Arise', 'block primary'),
+    h('p', { class: 'small muted', id: 'savedPage', hidden: '' }, 'Saved. It goes to Your links in Arise.'),
     h(
       'p',
       { class: 'small' },
@@ -93,6 +127,7 @@ function view(s: PopupState): Node[] {
     h('p', { class: 'small muted' }, "Arise collects them when it's open in this browser."),
     s.paused ? button('resume', 'Resume', 'block primary') : button('pause', 'Pause', 'block'),
     button('forget', 'Forget the last hour', 'block'),
+    remindBox(s),
     skipBox(s, ALWAYS),
     button('unlink', 'Unlink this browser', 'block danger'),
   ];
@@ -150,8 +185,30 @@ main.addEventListener('click', async (e) => {
       if (s && inWindow) return window.close();
       break;
     case 'open':
-      await api.tabs.create({ url: `${ARISE[0]}#connect` });
+      if (inBanner) await ask({ t: 'read' });
+      await api.tabs.create({ url: `${ARISE[0]}${inBanner ? '#today' : '#connect'}` });
       return window.close();
+    case 'close':
+      return window.close();
+    case 'save': {
+      // The page in front of the browser window this menu belongs to.
+      const [tab] = await api.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+      s = tab?.url && !tab.incognito ? await ask({ t: 'save', url: tab.url, title: tab.title }) : null;
+      if (!tab?.url) main.prepend(h('p', { class: 'warn' }, 'No page to save here.'));
+      if (s) {
+        render(s, { force: true });
+        document.getElementById('savedPage')?.removeAttribute('hidden');
+        return;
+      }
+      break;
+    }
+    case 'remind':
+      s = await ask({ t: 'remind', on: el.dataset.on === '1' });
+      break;
+    case 'read':
+      s = await ask({ t: 'read' });
+      if (s && inBanner) return window.close();
+      break;
     case 'pause':
     case 'resume':
       s = await ask({ t: act });

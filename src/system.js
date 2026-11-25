@@ -15,7 +15,8 @@ import * as GOALS from './goals-ui.js';
 import * as PLAN from './plan';
 import { handlePlanAction, planRowHTML, upgradeFor } from './plan-ui.js';
 import * as LOCAL from './local-ai-ui.js'; // "Your computer's AI" in Settings, AI coach
-import { esc, icon, md, toast, openSheet, setBackgroundInert } from './ui.js';
+import { esc, icon, md, toast, openSheet, closeSheet, setBackgroundInert } from './ui.js';
+import * as CH from './lib/chats';
 import { isNative } from './native.js';
 import { configured as syncConfigured } from './sync';
 import { w, isSystem } from './words';
@@ -876,7 +877,45 @@ const QUICK = [
   },
 ];
 
-let chatState = { busy: false, controller: null, text: '' };
+// "Ask how I'm doing": a new chat where the coach gently asks how the Player really is, from what
+// Arise saw this week (as far as this AI may read it).
+const HOW = {
+  recall: 'the last 7 days',
+  text: "Ask me how I'm really doing this week.\nLook at what Arise saw in my week, as far as you may read it: my sleep, movement and focus, the people I was in touch with, my screens and my life log. Say in one or two short sentences what you noticed, kindly and without judging. Then ask me one gentle, open question about how I really am, not about my goals. No advice yet and no pep talk: just ask, and listen to my answer.",
+};
+
+// `chat`: the chat the answer on its way is for.
+let chatState = { busy: false, controller: null, text: '', chat: '' };
+// The chat open on the Coach screen (lib/chats.ts): on this device only. Until one is picked, the
+// one used last, or a new one when there are none.
+let openChat = '';
+function currentChat() {
+  if (!openChat) openChat = CH.lastChat(S.state.ai.chat) || CH.newChatId();
+  return openChat;
+}
+const chatInfo = (id) => CH.listChats(S.state.ai.chat, S.state.ai.chatNames).find((c) => c.id === id);
+
+// The list of chats, in a sheet. `renaming`: the chat whose name is being changed.
+function chatsSheet(renaming = '') {
+  const list = CH.listChats(S.state.ai.chat, S.state.ai.chatNames);
+  const cap = AI.lifeCap();
+  const row = (c) =>
+    c.id === renaming
+      ? `<li class="chat-item"><form data-form="chat-rename" data-id="${esc(c.id)}">
+          <label class="field"><span class="k">Name</span><input id="chatName" type="text" maxlength="80" value="${esc(c.named ? c.title : '')}" placeholder="${esc(CH.titleFrom(CH.messagesOf(S.state.ai.chat, c.id).find((m) => m.role === 'user')?.text || '') || 'A chat')}" autocomplete="off"></label>
+          <div class="row"><button class="btn primary small" type="submit">Save</button><button class="btn ghost small" type="button" data-act="ai-chats">Cancel</button></div>
+        </form></li>`
+      : `<li class="chat-item${c.id === openChat ? ' on' : ''}">
+          <button class="chat-open" data-act="ai-open" data-id="${esc(c.id)}"><b>${esc(c.title)}</b><small>Last used ${esc(CH.usedLabel(c.at))} · ${c.count} ${c.count === 1 ? 'message' : 'messages'}${c.tier > cap ? '. Parts of it are kept from the AI you use now.' : ''}</small></button>
+          <span class="chat-btns"><button class="btn small ghost" data-act="ai-rename" data-id="${esc(c.id)}">Rename</button><button class="btn small ghost danger" data-act="ai-del" data-id="${esc(c.id)}">Delete</button></span>
+        </li>`;
+  return `<div class="chats-sheet">
+    <p class="kicker">${w('Coach')}</p><h2 class="display sheet-title">Your chats</h2>
+    <button class="btn primary small" data-act="ai-new">${icon('chat')} New chat</button>
+    ${list.length ? `<ul class="chat-list">${list.map(row).join('')}</ul>` : '<p class="muted">No chats yet.</p>'}
+    ${list.length ? `<p class="muted small">Each chat has its own history. Deleting a chat, or forgetting them all, does it on all your devices.</p><button class="btn ghost small danger" data-act="ai-forget">Forget every chat</button>` : ''}
+  </div>`;
+}
 
 // `last`: the newest message, which offers Arise Private when it says today's free private
 // questions are used up.
@@ -888,25 +927,33 @@ function bubble(m, last) {
 export function renderCoach(root) {
   const hasKey = AI.ready();
   const prov = AI.provider();
-  const log = S.state.ai.chat;
+  const id = currentChat();
+  const log = CH.messagesOf(S.state.ai.chat, id);
+  const info = chatInfo(id);
+  const count = CH.listChats(S.state.ai.chat).length;
   const msgs = log.map((m, i) => bubble(m, i === log.length - 1)).join('');
-  const live = chatState.busy
+  const here = chatState.busy && chatState.chat === id;
+  const live = here
     ? `<div class="msg ai"><div class="bubble" id="streamBubble">${chatState.text ? md(chatState.text) : `<div class="thinking"><span class="dots"><i></i><i></i><i></i></span> ${isSystem() ? 'The System is thinking…' : 'Thinking…'}</div>`}</div></div>`
     : '';
-  const empty = !log.length && !chatState.busy;
+  const empty = !log.length && !here;
   root.innerHTML = `
     <header class="page-head">
       <div><p class="kicker">${hasKey ? `${esc(AI.isPrivate() ? 'Private' : AI.engine() === 'free' ? 'Free AI' : AI.keys().length > 1 ? 'Your AI keys' : prov?.id && prov.id !== 'custom' ? prov.name : 'Your AI')} · your AI coach` : 'Your AI coach'}</p><h1 class="display">${w('coachTitle')}</h1></div>
-      ${log.length && !chatState.busy ? `<button class="btn small ghost" data-act="ai-clear">New chat</button>` : ''}
+      <div class="head-btns">
+        ${count ? `<button class="btn small ghost" data-act="ai-chats">Chats (${count})</button>` : ''}
+        ${log.length ? `<button class="btn small ghost" data-act="ai-new">New chat</button>` : ''}
+      </div>
     </header>
     ${questBar()}
     <div class="cols coach-cols">
       <div class="col">
         <section class="panel chat glow">
+          ${info ? `<p class="chat-name">${esc(info.title)}</p>` : ''}
           <div class="chat-log" id="chatLog">
             ${
               empty
-                ? `<div class="chat-empty"><p class="sys-line">${w('coachTag')}</p><p>Ask me anything: your goals, your days or what's on your mind. I look at the whole picture: what Arise sees in your days (sleep, movement, focus, people), your goals, quests and workouts, and your life log as far as your privacy settings let this AI read it.</p>${hasKey ? '' : connectHint('The coach needs its AI turned on.')}</div>`
+                ? `<div class="chat-empty"><p class="sys-line">${w('coachTag')}</p><p>Ask me anything: your goals, your days or what's on your mind. I look at the whole picture: what Arise sees in your days (sleep, movement, focus, people), your goals, quests and workouts, and your life log as far as your privacy settings let this AI read it.</p>${hasKey ? `<button class="btn small ghost" data-act="ai-how" ${chatState.busy ? 'disabled' : ''}>${icon('chat')} Ask how I'm doing</button>` : connectHint('The coach needs its AI turned on.')}</div>`
                 : msgs + live
             }
           </div>
@@ -923,7 +970,7 @@ export function renderCoach(root) {
       <div class="col">
         <section class="panel">
           <div class="panel-title"><span>Quick actions</span></div>
-          <div class="quick">${QUICK.map((q, i) => `<button class="quick-btn" data-act="ai-quick" data-i="${i}" ${hasKey && !chatState.busy ? '' : 'disabled'}>${esc(q.label)}${q.full ? ' <span class="tag">all data</span>' : ''}</button>`).join('')}
+          <div class="quick"><button class="quick-btn how" data-act="ai-how" ${hasKey && !chatState.busy ? '' : 'disabled'}>Ask how I'm doing <span class="tag">new chat</span></button>${QUICK.map((q, i) => `<button class="quick-btn" data-act="ai-quick" data-i="${i}" ${hasKey && !chatState.busy ? '' : 'disabled'}>${esc(q.label)}${q.full ? ' <span class="tag">all data</span>' : ''}</button>`).join('')}
             ${S.workoutsOn() ? '<button class="quick-btn" data-act="nav" data-v="plan">Personalise my workout plan →</button>' : ''}
           </div>
         </section>
@@ -1000,6 +1047,7 @@ export function askCoach(text, { recallAs = '', about = 1 } = {}) {
     toast(`${isSystem() ? 'The System is' : 'Your coach is'} still answering. Try again in a moment.`);
     return false;
   }
+  openChat = CH.newChatId(); // a chat of its own
   app.go('coach');
   sendChat(text, { recallAs, about });
   return true;
@@ -1008,10 +1056,12 @@ export function askCoach(text, { recallAs = '', about = 1 } = {}) {
 async function sendChat(text, { full = false, recallAs = '', about = 1 } = {}) {
   text = text.trim();
   if (!text || chatState.busy) return;
-  chatState = { busy: true, controller: new AbortController(), text: '' };
+  const chat = currentChat();
+  chatState = { busy: true, controller: new AbortController(), text: '', chat };
   if (app.view() === 'coach') app.render();
   try {
     await AI.chat(text, {
+      chat,
       full,
       ...(recallAs ? { recallAs } : {}),
       ...(about > 1 ? { about } : {}),
@@ -1024,8 +1074,15 @@ async function sendChat(text, { full = false, recallAs = '', about = 1 } = {}) {
   } catch (err) {
     if (err.code !== 'aborted') toast(err.message);
   }
-  chatState = { busy: false, controller: null, text: '' };
+  chatState = { busy: false, controller: null, text: '', chat: '' };
   if (app.view() === 'coach') app.render();
+}
+
+// Back to the list of chats, if it's open, after a change.
+function chatsChanged() {
+  if (!$('#sheet .chats-sheet')) return;
+  if (CH.listChats(S.state.ai.chat).length) openSheet(chatsSheet());
+  else closeSheet();
 }
 
 // =====================================================================
@@ -1601,11 +1658,49 @@ export async function handleAction(act, el) {
     case 'ai-stop':
       chatState.controller?.abort();
       return true;
-    case 'ai-clear':
-      if (confirm('Start a new chat? The current conversation will be deleted.')) {
-        AI.clearChat();
-        app.render();
-      }
+    case 'ai-new':
+      openChat = CH.newChatId();
+      closeSheet();
+      app.render();
+      $('#chatText')?.focus();
+      return true;
+    case 'ai-how':
+      if (chatState.busy) return true;
+      openChat = CH.newChatId();
+      closeSheet();
+      sendChat(HOW.text, { recallAs: HOW.recall });
+      return true;
+    case 'ai-chats':
+      openSheet(chatsSheet());
+      return true;
+    case 'ai-open':
+      if (CH.isChatId(el.dataset.id)) openChat = el.dataset.id;
+      closeSheet();
+      app.render();
+      return true;
+    case 'ai-rename':
+      openSheet(chatsSheet(el.dataset.id));
+      $('#chatName')?.focus();
+      return true;
+    case 'ai-del': {
+      const id = el.dataset.id;
+      const c = chatInfo(id);
+      if (!c || !confirm(`Delete "${c.title}"? It goes from all your devices, and this can't be undone.`)) return true;
+      if (chatState.busy && chatState.chat === id) chatState.controller?.abort();
+      S.deleteChat(id);
+      if (openChat === id) openChat = '';
+      chatsChanged();
+      app.render();
+      return true;
+    }
+    case 'ai-forget':
+      if (!confirm("Forget every chat? They go from all your devices, and this can't be undone. The questions you asked stay in your life log until you delete them there.")) return true;
+      chatState.controller?.abort();
+      AI.clearChat();
+      openChat = '';
+      closeSheet();
+      app.render();
+      toast('Every chat is forgotten.');
       return true;
     case 'ai-plan':
       designPlan();
@@ -1811,6 +1906,15 @@ document.addEventListener('change', (e) => {
     S.save();
     app.render();
   }
+});
+
+// A chat's new name (an empty one goes back to the name from its first question).
+document.addEventListener('submit', (e) => {
+  if (e.target.dataset?.form !== 'chat-rename') return;
+  e.preventDefault();
+  S.renameChat(e.target.dataset.id, $('#chatName')?.value || '');
+  openSheet(chatsSheet());
+  if (app.view() === 'coach') app.render();
 });
 
 // Chat form: Enter sends on a keyboard, Shift+Enter makes a new line.

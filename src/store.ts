@@ -15,6 +15,7 @@ import * as EV from './lib/events';
 import * as DC from './lib/decisions';
 import * as OS from './lib/own-storage';
 import * as PN from './lib/place-names';
+import * as CH from './lib/chats';
 
 export type { Goal, Quest };
 
@@ -162,6 +163,32 @@ export function adoptState(data: object, { keep = {} }: { keep?: Partial<State> 
 export function stamp(collection: string, key: string, present: boolean) {
   const m = (state.stamps[collection] ||= {});
   m[key] = present ? Date.now() : -Date.now();
+}
+
+// ---------- the coach's chats (lib/chats.ts)
+
+// A name the Player gave a chat. An empty one goes back to the name made from its first question.
+export function renameChat(id: string, title: string) {
+  if (!CH.isChatId(id)) return;
+  state.ai.chatNames[id] = { title: title.replace(/\s+/g, ' ').trim().slice(0, 80), at: Date.now() };
+  save();
+}
+
+// One chat goes, on every device: its stamp keeps another device's copy from bringing it back.
+export function deleteChat(id: string) {
+  if (!CH.isChatId(id)) return;
+  stamp('chat', id, false);
+  state.ai.chat = state.ai.chat.filter((m) => !CH.gone(state.stamps, m));
+  delete state.ai.chatNames[id];
+  save();
+}
+
+// "Forget every chat": every chat goes, on every device (as "New chat" did before chats).
+export function forgetChats() {
+  state.ai.chat = [];
+  state.ai.chatNames = {};
+  stamp('chat', 'cleared', true);
+  save();
 }
 
 // ---------- dates (all local time, keys look like 2026-09-29)
@@ -1319,11 +1346,13 @@ export function importData(raw: unknown): number {
   state.decisions = DC.mergeDecisions(state.decisions, data.decisions);
   state.dismissed = DC.mergeDismissed(state.dismissed, data.dismissed);
   // The coach, as sync combines it (lib/merge.ts): every chat message from both, minus anything
-  // from before the last "clear"; each day's System message and the nudges, the later ones; and
+  // deleted (lib/chats.ts); each day's System message and the nudges, the later ones; and
   // the easy week snoozed as long as either says.
-  const cleared = Math.max(state.stamps.chat?.cleared || 0, data.stamps.chat?.cleared || 0);
-  if (cleared > 0) (state.stamps.chat ||= {}).cleared = cleared;
+  // A chat deleted in either goes, as does everything from before a "Forget every chat".
+  const marks = (state.stamps.chat ||= {});
+  for (const [k, v] of Object.entries(data.stamps.chat || {})) if (k === 'cleared' ? v > (marks.cleared || 0) : Math.abs(v) > Math.abs(marks[k] || 0)) marks[k] = v;
   state.ai.chat = mergeChat(data.ai.chat, state.ai.chat, state.stamps);
+  state.ai.chatNames = CH.mergeChatNames(state.ai.chatNames, data.ai.chatNames, state.stamps);
   state.ai.daily = mergeDaily(data.ai.daily, state.ai.daily);
   if (data.ai.nudges && (!state.ai.nudges || data.ai.nudges.at > state.ai.nudges.at)) state.ai.nudges = data.ai.nudges;
   if (data.easySnooze && (!state.easySnooze || data.easySnooze > state.easySnooze)) state.easySnooze = data.easySnooze;

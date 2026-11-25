@@ -10,6 +10,7 @@ import { REMINDERS } from './reminders-config';
 import { CALENDAR } from './calendar-config';
 import { isNative } from './native.js';
 import { checkOwnStorage } from './life/files-sync';
+import { status as readsStatus, statusText as readsText } from './life/reads-core';
 import { esc, icon } from './ui.js';
 
 const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
@@ -58,6 +59,15 @@ export function probes() {
         if (!cfg) return { state: 'off', text: 'Not set up: photos and files are kept in Arise, up to 250 MB.' };
         await checkOwnStorage(cfg);
         return { state: 'ok', text: 'Your bucket answers, and Arise can write to it.' };
+      },
+    },
+    {
+      id: 'reads',
+      name: 'Arise reads it for you',
+      run: async () => {
+        const s = readsStatus;
+        if (s.state === 'off') return { state: 'off', text: 'Off. Turn it on in Settings, Your life log.' };
+        return { state: s.state === 'no-ai' || s.failed ? 'bad' : 'ok', text: readsText(s) };
       },
     },
     {

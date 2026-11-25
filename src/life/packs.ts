@@ -7,6 +7,7 @@
 //              pack whatever its time zone)
 //   s:2026     the summaries of one year's days, weeks and months
 //   mem        the facts, "Stop learning", and what the Player deleted in one go (wipes)
+//   r:0 to r:f what an AI wrote about notes and files (reads.ts), in 16 packs by a hash of each id
 //
 // Two copies of a pack come together item by item. Each item has a time it last changed (an
 // event's `m`, a fact's or a summary's `at`), and each item deleted one by one leaves a tombstone
@@ -24,8 +25,9 @@ import { cleanLifeEvent, cleanLifeFact, cleanLifePrefs, cleanLifeSummary, cleanL
 import type { LifeEvent } from './types';
 import { applyFix, cleanFixes, cleanKnew, fixMap, mergeFixes, mergeKnew } from './fixes';
 import type { LifeFix, LifeKnew } from '../lib/validate';
+import { cleanLifeRead, type LifeRead } from '../lib/validate';
 
-export const LIFE_SCHEMA = 4; // bump when a pack's shape changes in a way an older app would lose (2: the chat app sources; 3: the AI app sources; 4: corrections and what Arise knew, in mem)
+export const LIFE_SCHEMA = 5; // bump when a pack's shape changes in a way an older app would lose (2: the chat app sources; 3: the AI app sources; 4: corrections and what Arise knew, in mem; 5: the r: packs, what an AI wrote about notes and files)
 export const MEM = 'mem';
 export const TOMB_KEEP = 400 * 864e5;
 const MAX_WIPES = 500;
@@ -35,13 +37,22 @@ const MAX_WIPES = 500;
 export const monthOf = (at: number) => new Date(at).toISOString().slice(0, 7);
 export const eventPack = (e: { at: number }) => `e:${monthOf(e.at)}`;
 export const summaryPack = (id: string) => `s:${id.slice(2, 6)}`;
-export const isPackKey = (k: unknown): k is string => typeof k === 'string' && (k === MEM || /^e:\d{4}-(0[1-9]|1[0-2])$/.test(k) || /^s:\d{4}$/.test(k));
+// Reads are kept in the log's 'kv' store, one row each, under this and their id (reads.ts).
+export const READ_KV = 'read:';
+export const READ_RANGE = (): IDBKeyRange => IDBKeyRange.bound(READ_KV, `${READ_KV}\uffff`);
+// A read's pack: the same on every device, from its id alone (FNV-1a, its last 4 bits).
+export function readPack(id: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193);
+  return `r:${((h >>> 0) & 15).toString(16)}`;
+}
+export const isPackKey = (k: unknown): k is string => typeof k === 'string' && (k === MEM || /^e:\d{4}-(0[1-9]|1[0-2])$/.test(k) || /^s:\d{4}$/.test(k) || /^r:[0-9a-f]$/.test(k));
 // The span of a month's pack, [from, to) in ms.
 export function monthSpan(key: string): [number, number] {
   const [y, m] = key.slice(2).split('-').map(Number);
   return [Date.UTC(y, m - 1, 1), Date.UTC(y, m, 1)];
 }
-export const packKind = (key: string): 'e' | 's' | 'mem' => (key === MEM ? 'mem' : (key[0] as 'e' | 's'));
+export const packKind = (key: string): 'e' | 's' | 'r' | 'mem' => (key === MEM ? 'mem' : (key[0] as 'e' | 's' | 'r'));
 
 // Arise's own events are made again on each device from the app's data, which syncs on its own
 // (ingest.ts). Only the questions asked to the coach are kept for good, so they sync.
@@ -67,10 +78,11 @@ export interface Content {
   wipes: LifeWipe[]; // mem
   fixes: LifeFix[]; // mem: the Player's corrections
   knew: LifeKnew[]; // mem: what Arise knew, day by day
+  reads: LifeRead[]; // r: packs: what an AI wrote about notes and files
 }
 
-export const emptyContent = (): Content => ({ events: [], sums: [], facts: [], tombs: {}, prefs: { paused: false, at: 0 }, wipes: [], fixes: [], knew: [] });
-export const isEmpty = (c: Content) => !c.events.length && !c.sums.length && !c.facts.length && !Object.keys(c.tombs).length && !c.prefs.at && !c.wipes.length && !c.fixes.length && !c.knew.length;
+export const emptyContent = (): Content => ({ events: [], sums: [], facts: [], tombs: {}, prefs: { paused: false, at: 0 }, wipes: [], fixes: [], knew: [], reads: [] });
+export const isEmpty = (c: Content) => !c.events.length && !c.sums.length && !c.facts.length && !Object.keys(c.tombs).length && !c.prefs.at && !c.wipes.length && !c.fixes.length && !c.knew.length && !c.reads.length;
 
 const clock = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 8.64e15 ? v : 0);
 
@@ -89,6 +101,7 @@ export function cleanContent(key: string, raw: unknown): Content {
   const kind = packKind(key);
   if (kind === 'e') c.events = list(r.events).map(cleanEvent).filter((e): e is SyncedEvent => !!e && eventPack(e) === key);
   else if (kind === 's') c.sums = list(r.sums).map(cleanLifeSummary).filter((s): s is LifeSummary => !!s && summaryPack(s.id) === key);
+  else if (kind === 'r') c.reads = list(r.reads).map(cleanLifeRead).filter((x): x is LifeRead => !!x && readPack(x.id) === key);
   else {
     c.facts = list(r.facts).map(cleanLifeFact).filter((f): f is LifeFact => !!f);
     const p = (r.prefs && typeof r.prefs === 'object' ? r.prefs : {}) as Record<string, unknown>;
@@ -109,6 +122,7 @@ export function canonical(key: string, c: Content): string {
   const body: Record<string, unknown> = { v: 1, k: key, tombs };
   if (kind === 'e') body.events = byId(c.events);
   else if (kind === 's') body.sums = byId(c.sums);
+  else if (kind === 'r') body.reads = byId(c.reads);
   else {
     body.facts = byId(c.facts);
     body.prefs = c.prefs;
@@ -140,6 +154,14 @@ export function wipesEvent(w: LifeWipe, e: SyncedEvent) {
   return (!w.source || w.source === e.source) && (w.from === undefined || e.at >= w.from) && (w.to === undefined || e.at < w.to);
 }
 const wipesMemory = (w: LifeWipe, at: number) => (w.what === 'all' || w.what === 'memory') && w.at >= at;
+// Whether a wipe covers a read: everything, what Arise learned, or the notes it's about (one
+// source, a span of time, or the whole log; never a file's).
+export function wipesRead(w: LifeWipe, x: LifeRead) {
+  if (w.at < x.at) return false;
+  if (w.what !== 'events') return true;
+  if (!x.id.startsWith('e:')) return false;
+  return (!w.source || w.source === x.source) && (w.from === undefined || (x.rat ?? 0) >= w.from) && (w.to === undefined || (x.rat ?? Infinity) < w.to);
+}
 
 // ---------- two copies of one pack
 
@@ -151,6 +173,7 @@ interface Rules<T> {
   clock(x: T): number;
   player?(x: T): boolean; // the Player's own: beats the AI's version, and only a newer deletion beats it
   dead?(x: T): boolean; // covered by a wipe
+  byTime?: boolean; // a deletion beats only what's not newer than it, the Player's or not (reads)
 }
 
 // Determines the winner the same way on every device: the newer, or for two of the same time,
@@ -182,7 +205,7 @@ function mergeSide<T extends { id: string }>(here: Side<T>, there: Side<T>, r: R
     let t: number | undefined = ta === undefined ? tb : tb === undefined ? ta : Math.max(ta, tb);
     if (v && t !== undefined) {
       // A deletion wins over anything not newer than it, and (for facts) over any of the AI's.
-      const gone = t >= r.clock(v) || (!!r.player && !r.player(v));
+      const gone = t >= r.clock(v) || (!!r.player && !r.byTime && !r.player(v));
       if (gone) v = undefined;
       else t = undefined;
     }
@@ -218,6 +241,12 @@ export function mergeContent(key: string, here: Content, there: Content, { now, 
   } else if (kind === 's') {
     const s = mergeSide({ items: here.sums, tombs: here.tombs }, { items: there.sums, tombs: there.tombs }, { clock: (x) => x.at, dead: (x) => wipes.some((w) => wipesMemory(w, x.at)) }, now, staleBefore);
     out.sums = s.items;
+    out.tombs = s.tombs;
+  } else if (kind === 'r') {
+    // As facts, the Player's own words beat an AI's. A deletion beats only what's not newer than
+    // it, so a record described again after one was deleted keeps its new description.
+    const s = mergeSide({ items: here.reads, tombs: here.tombs }, { items: there.reads, tombs: there.tombs }, { clock: (x) => x.at, player: (x) => x.from === 'you', byTime: true, dead: (x) => wipes.some((w) => wipesRead(w, x)) }, now, staleBefore);
+    out.reads = s.items;
     out.tombs = s.tombs;
   } else {
     out.wipes = mergeWipes(here.wipes, there.wipes, now);

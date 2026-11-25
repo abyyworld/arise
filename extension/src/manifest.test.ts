@@ -13,7 +13,7 @@ describe('the manifest', () => {
     for (const t of TARGETS) {
       const m = manifestFor(base, t);
       expect(m.manifest_version).toBe(3);
-      expect([...m.permissions].sort()).toEqual(['alarms', 'history', 'idle', 'storage', 'tabs', 'unlimitedStorage']);
+      expect([...m.permissions].sort()).toEqual(['alarms', 'contextMenus', 'history', 'idle', 'notifications', 'storage', 'tabs', 'unlimitedStorage']);
       expect(m.host_permissions).toBeUndefined();
       expect(m.optional_permissions).toBeUndefined();
       expect(m.web_accessible_resources).toBeUndefined();

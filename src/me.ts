@@ -637,6 +637,38 @@ async function pullOne(l: MeLink): Promise<number> {
   return added;
 }
 
+// An AI app on the web that hasn't been used for 60 days is turned off by itself, like Eternal's
+// connected apps. "Used": anything in its access log; before any, from when this device first saw
+// it on. Says which apps it turned off.
+const IDLE = 'arise-me-idle';
+export const IDLE_DAYS = 60;
+export async function offWhenIdle(now = Date.now()): Promise<string[]> {
+  const raw = read(IDLE);
+  const seen: Record<string, number> = raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...(raw as Record<string, number>) } : {};
+  const off: string[] = [];
+  const live = new Set<string>();
+  for (const l of links()) {
+    const w = l.web;
+    if (!w || w.off) continue;
+    live.add(w.id);
+    if (!(typeof seen[w.id] === 'number' && seen[w.id] > 0)) seen[w.id] = now;
+    const last = Math.max(seen[w.id], ...feedOf(l.id).map((e) => e.at));
+    if (now - last <= IDLE_DAYS * 86_400_000) continue;
+    try {
+      await setWeb(l.id, null);
+      off.push(l.app);
+      live.delete(w.id);
+    } catch {}
+  }
+  for (const id of Object.keys(seen)) if (!live.has(id)) delete seen[id];
+  write(IDLE, seen);
+  if (off.length) idleOff = { apps: off, at: now };
+  return off;
+}
+// The apps turned off last time, for the AI apps screen to say so.
+let idleOff: { apps: string[]; at: number } | null = null;
+export const lastIdleOff = () => idleOff;
+
 export function initMe() {
   S.onSave(() => soon());
   M.onMemoryChange(() => soon());
@@ -651,7 +683,10 @@ export function initMe() {
       void pullFeeds();
     }
   });
-  void pullFeeds();
+  void pullFeeds()
+    .catch(() => 0)
+    .then(() => offWhenIdle())
+    .catch(() => []);
   // Today's quests and the last 7 days move on by themselves.
   soon();
 }

@@ -60,6 +60,7 @@ import * as GHB from './github-backup';
 import * as GHB_UI from './github-backup-ui.js';
 import { initInsight } from './life/insight';
 import * as PLACES from './life/map-ui.js';
+import * as LINKS from './life/links-ui.js';
 import * as WORLD from './life/world-ui.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -147,6 +148,7 @@ const VIEWS = {
   [HUB.VIEW]: () => HUB.renderConnect(app),
   [CAL.VIEW]: () => CAL.renderCalendar(app),
   [PLACES.VIEW]: () => PLACES.renderPlaces(app),
+  [LINKS.VIEW]: () => LINKS.renderLinks(app),
   [WORLD.VIEW]: () => WORLD.renderWorld(app),
   [IMPORT.VIEW]: () => IMPORT.renderImport(app, { store: loadLifeStore, back: importBack }),
 };
@@ -175,7 +177,7 @@ function render() {
   if (applyLook()) buildNav();
   document.body.dataset.view = view;
   // Screens without a tab of their own light up the one they open from.
-  const tab = (view === 'plan' || view === 'training' || view === 'goals') && !TABS.isShown('goals') ? 'progress' : view === 'coach' && !TABS.isShown('coach') ? 'progress' : view === 'plan' || view === 'training' ? 'goals' : view === WORLD.VIEW ? 'progress' : view === 'knows' || view === HUB.VIEW || view === PLACES.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
+  const tab = (view === 'plan' || view === 'training' || view === 'goals') && !TABS.isShown('goals') ? 'progress' : view === 'coach' && !TABS.isShown('coach') ? 'progress' : view === 'plan' || view === 'training' ? 'goals' : view === WORLD.VIEW ? 'progress' : view === 'knows' || view === HUB.VIEW || view === PLACES.VIEW || view === LINKS.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
   for (const b of document.querySelectorAll('#tabs [data-v]')) {
     b.classList.toggle('on', b.dataset.v === tab);
     if (b.dataset.v === tab) b.setAttribute('aria-current', 'page');
@@ -2365,6 +2367,7 @@ document.addEventListener('click', async (e) => {
       if (AHEAD.handleAction(d.act, el)) break;
       if (CAL.handleAction(d.act, el)) break;
       if (PLACES.handleAction(d.act, el)) break;
+      if (LINKS.handleAction(d.act, el)) break;
       if (WORLD.handleAction(d.act, el)) break;
       if (YOU.handleAction(d.act, el)) break;
       if (await LIFE.handleAction(d.act, el)) break;
@@ -2703,6 +2706,8 @@ initInsight();
 initAhead();
 // The box on Today sends a question to the coach.
 EVERYDAY.initEveryday({ ask: (text) => SYS.askCoach(text) });
+// Loose ends in their notes, for A quick one: read a few seconds after opening.
+setTimeout(() => void EVERYDAY.refreshLoose(), 4000);
 // The plan's cards follow the life log (calendars, sleep, people) as it's read.
 // Next-step messages: planned on the phone in the phone apps, shown while open on the web.
 N.useNudges((now) => [...aheadNudges(now), ...BRIEF.nudges(now)]);
@@ -2734,6 +2739,8 @@ if (!N.isNative) {
       const panel = document.getElementById('browserPanel');
       if (panel) panel.outerHTML = BROWSER.browserPanel(panel.dataset.title);
     },
+    // Reminders in the browser (life/browser-remind.ts) include the morning brief, if it's on.
+    brief: (now) => BRIEF.nudges(now, 3),
   });
 }
 // The private AI is for signed-in players; the account proves it to the AI proxy.

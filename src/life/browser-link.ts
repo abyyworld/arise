@@ -184,7 +184,27 @@ async function refresh() {
     try {
       hooks.render();
     } catch {} // (a redraw that can't happen, say the page is gone, doesn't stop the refresh)
+    for (const fn of [...changes]) {
+      try {
+        fn();
+      } catch {}
+    }
   }
+}
+
+// Told when what's linked here changes (browser-remind.ts sends its list again).
+const changes = new Set<() => void>();
+export function onLinkChange(fn: () => void): () => void {
+  changes.add(fn);
+  return () => changes.delete(fn);
+}
+
+// The link this browser's extension has with this Arise, and a way to ask it (browser-remind.ts),
+// or null when there's none here.
+export function here(): { id: string; ask: Transport['ask'] } | null {
+  const id = status.hello?.linked;
+  const t = transport;
+  return t && id && status.links.some((r) => r.id === id && r.state === 'linked') ? { id, ask: (m, timeout) => t.ask(m, timeout) } : null;
 }
 
 // The screen is being drawn: whether the account's key is here may have changed (signed in or
@@ -327,7 +347,8 @@ export async function forgetAll() {
 
 // ---------- what arrives
 
-const KINDS = new Set(['visit', 'search', 'app']);
+// A note only as a page the person saved ("Save this page to Arise": meta.saved).
+const KINDS = new Set(['visit', 'search', 'app', 'note']);
 const str = (s: unknown, max: number) => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 const num = (n: unknown) => typeof n === 'number' && Number.isFinite(n);
 
@@ -369,6 +390,7 @@ export function cleanEvent(x: unknown, now = Date.now()): LifeEvent | null {
     }
     if (Object.keys(meta).length) out.meta = meta;
   }
+  if (out.kind === 'note' && (out.meta?.saved !== true || !out.url)) return null;
   return out;
 }
 

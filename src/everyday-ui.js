@@ -6,6 +6,7 @@ import * as S from './store';
 import * as AI from './ai.js';
 import { classify, asKind } from './lib/capture';
 import { questions, threeThings } from './lib/questions';
+import { looseEnds } from './lib/loose';
 import * as BRIEF from './brief';
 import { balanceText, money, totals } from './lib/everyday';
 import { noteWithFile } from './life/quick-note';
@@ -137,6 +138,7 @@ async function capture() {
     if (file || c.kind === 'note') {
       if (!(await saveNote(c?.text || '', file))) throw new Error("That couldn't be saved.");
       toast('Added to your day.');
+      void refreshLoose();
     } else if (c.kind === 'todo') {
       if (!S.addTodo({ title: c.title, day: c.day, time: c.time })) throw new Error("That couldn't be added.");
       repaintTodos();
@@ -369,7 +371,28 @@ function questionInput(now = new Date()) {
     bestTime: st.settings.bestTime,
     weekBig: Object.values(st.todos).filter((t) => !t.gone && !t.done && t.big && (!t.day || t.day <= sunday)).length,
     dismissed: st.dismissed,
+    loose: looseCache.filter((l) => st.dismissed[`q:loose:${l.id}`] == null),
+    now: now.getTime(),
   };
+}
+
+// Loose ends in the last 2 weeks of their own notes (lib/loose.ts), read from the life log now
+// and then: on opening, and after a note is added here.
+let looseCache = [];
+export async function refreshLoose(now = Date.now()) {
+  if (!hasLifeStore()) return [];
+  try {
+    const L = await import('./life/log');
+    const notes = (await L.eventsBetween(now - 14 * 86_400_000, now + 60_000, { sources: ['manual'] }))
+      .filter((e) => e.kind === 'note' && typeof e.detail === 'string')
+      .map((e) => ({ id: e.id, text: e.detail, at: e.at }));
+    looseCache = looseEnds(notes, Object.values(S.state.todos).filter((t) => !t.gone), S.state.dismissed);
+  } catch {
+    return looseCache;
+  }
+  const el = $('#askCard');
+  if (el) el.outerHTML = questionCard();
+  return looseCache;
 }
 
 export function questionCard() {
@@ -396,7 +419,26 @@ function repaintAll() {
 
 function answered() {
   const id = $('#askCard [data-q]')?.dataset.q;
-  if (id) S.dismissWarning(`q:${id}`);
+  if (!id) return;
+  S.dismissWarning(`q:${id}`);
+  // One getting-to-know-you question a day, answered or not.
+  if (id.startsWith('know:')) S.dismissWarning(`q:know-day:${S.todayKey()}`);
+}
+
+async function answerKnow() {
+  const text = ($('#askIn')?.value || '').trim();
+  const q = $('#askCard .ask-text')?.textContent || '';
+  if (!text) {
+    toast('Write a few words, or tap Not now.');
+    return;
+  }
+  if (!(await saveNote(text ? `${q}\n${text}` : '', null))) {
+    toast("That couldn't be saved.");
+    return;
+  }
+  answered();
+  repaintAll();
+  toast('Kept in your notes. Thank you.');
 }
 
 function answerWeek() {
@@ -418,6 +460,13 @@ function answerWeek() {
 function answer(act, v) {
   switch (act) {
     case 'q-skip':
+      break;
+    case 'q-loose-done':
+      toast('Nice. Put away.');
+      break;
+    case 'q-loose-todo':
+      S.addTodo({ title: v });
+      toast('Added to your to-dos.');
       break;
     case 'q-paid':
       S.settleDebt(v);
@@ -537,6 +586,8 @@ export function handleAction(act, el) {
       preview();
       return true;
     case 'q-skip':
+    case 'q-loose-done':
+    case 'q-loose-todo':
     case 'q-paid':
     case 'q-todo-day':
     case 'q-todo-drop':
@@ -642,7 +693,8 @@ globalThis.document?.addEventListener('submit', (e) => {
     saveDebt();
   } else if (form === 'q-write') {
     e.preventDefault();
-    answerWeek();
+    if (e.target.dataset.act === 'q-know') void answerKnow();
+    else answerWeek();
   } else if (form === 'write-go') {
     e.preventDefault();
     writeGo();

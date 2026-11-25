@@ -3,6 +3,7 @@
 // browser-link.ts.
 
 import * as BL from './browser-link';
+import * as BR from './browser-remind';
 import { EXTENSION_STORES, EXTENSION_UPDATES, EXTENSION_XPI, EXTENSION_ZIP } from './browser-config';
 import { esc, openSheet, closeSheet, toast } from '../ui.js';
 
@@ -14,9 +15,24 @@ const PHONE = /Android|iPhone|iPad|Mobile/.test(UA);
 let render = () => {};
 let xpiReady = null; // Firefox: whether the copy Mozilla signed is on the website (null: not checked)
 
-export function initBrowserUI({ accountKey, render: r }) {
+// `brief`: the morning brief's notifications (src/brief.ts nudges), for reminders in the browser.
+export function initBrowserUI({ accountKey, render: r, brief }) {
   render = r;
-  return BL.initBrowserLink({ accountKey, render: r });
+  const started = BL.initBrowserLink({ accountKey, render: r });
+  BR.initBrowserRemind(brief ? { brief } : {});
+  // Whether reminders are on there: asked once it's known what's linked here.
+  BL.onLinkChange(() => void BR.check().then(() => r()));
+  return started;
+}
+
+// The switch for reminders in this browser (the same switch as in the extension's menu).
+function remindRow() {
+  const on = BR.status.on;
+  return `<div class="bl-remind">
+    <div class="row between"><b>Reminders in this browser</b><button class="btn small ${on ? 'primary' : 'ghost'}" data-act="bl-remind" data-on="${on ? '' : '1'}" aria-pressed="${on}">${on ? 'On' : 'Off'}</button></div>
+    <p class="muted small">Your to-dos with a time, your events and the morning brief show here as a notification, even with Arise closed, with a count on the extension's button. ${on ? "Arise hands the extension the next 3 days each time it saves. They're kept only in this browser and" : 'They would be kept only in this browser and'} never sent anywhere. Plain words unless details in notifications are on, and nothing pops up in your quiet hours.</p>
+    ${BR.status.error ? `<p class="error small">${esc(BR.status.error)}</p>` : ''}
+  </div>`;
 }
 
 const day = (t) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
@@ -74,6 +90,7 @@ function linkRow(r) {
       ${here && !locked && BL.status.logReady ? '<button class="btn small ghost" data-act="bl-now">Get it now</button>' : ''}
       <button class="btn small ghost danger" data-act="bl-unlink" data-id="${esc(r.id)}">Unlink</button>
     </div>
+    ${here && BR.status.known ? remindRow() : ''}
   </div>`;
 }
 
@@ -109,7 +126,8 @@ export function browserPanel(name = '') {
     ${links.map(linkRow).join('')}
     ${
       links.length || s.hello
-        ? `<p class="muted small bl-note">Pause, "forget the last hour" and your own list of sites to skip are in the extension's menu (the Arise button in the toolbar). Never recorded: private windows, banks, health portals, adult sites, password managers and sign-in pages.</p>`
+        ? `<p class="muted small bl-note">To keep a page, press "Save this page to Arise" in the extension's menu, or right click the page. It lands in Your links, on Your days.</p>
+          <p class="muted small bl-note">Pause, "forget the last hour" and your own list of sites to skip are in the extension's menu (the Arise button in the toolbar). Never recorded: private windows, banks, health portals, adult sites, password managers and sign-in pages.</p>`
         : ''
     }
   </section>`;
@@ -147,6 +165,14 @@ export async function handleAction(act, el) {
       BL.status.busy = false;
       render();
       return true;
+    case 'bl-remind': {
+      el.disabled = true;
+      const on = el.dataset.on === '1';
+      const ok = await BR.setOn(on);
+      toast(!ok ? "The extension didn't answer. Reload this page and try again." : on ? 'Reminders on in this browser.' : 'Reminders off in this browser. What it kept is deleted.');
+      render();
+      return true;
+    }
     case 'bl-cancel':
       await BL.cancelLink();
       render();
