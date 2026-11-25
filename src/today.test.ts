@@ -42,6 +42,7 @@ async function boot(view: string, data: object | null, { events = [] as LifeEven
   if (!keep) {
     globalThis.indexedDB = new IDBFactory();
     localStorage.clear();
+    localStorage.setItem("arise-tabs-shown", JSON.stringify(["goals", "coach"])); // the full tab bar (tabs.js)
     localStorage.setItem('arise-look-hint', 'seen');
     if (data) localStorage.setItem('pit-data-v1', JSON.stringify(data));
   }
@@ -608,6 +609,7 @@ describe('quotes', () => {
   it('pick the morning reminder from the same lines', async () => {
     vi.resetModules();
     localStorage.clear();
+    localStorage.setItem("arise-tabs-shown", JSON.stringify(["goals", "coach"])); // the full tab bar (tabs.js)
     localStorage.setItem('pit-data-v1', JSON.stringify({ profile: { onboarded: true, tone: ['Calm and kind'] } }));
     const S = await import('./store');
     const R = await import('./reminders.js');

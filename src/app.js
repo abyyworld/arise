@@ -45,6 +45,7 @@ import * as HUB from './life/connect-hub.js';
 import * as TODOS from './todos-ui.js';
 import * as AHEAD from './ahead-ui.js';
 import * as EVERYDAY from './everyday-ui.js';
+import * as TABS from './tabs.js';
 import * as BRIEF from './brief';
 import { initAhead, onAheadChange, nudges as aheadNudges } from './ahead';
 import * as CAL from './calendar-ui.js';
@@ -174,7 +175,7 @@ function render() {
   if (applyLook()) buildNav();
   document.body.dataset.view = view;
   // Screens without a tab of their own light up the one they open from.
-  const tab = view === 'plan' || view === 'training' ? 'goals' : view === WORLD.VIEW ? 'progress' : view === 'knows' || view === HUB.VIEW || view === PLACES.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
+  const tab = (view === 'plan' || view === 'training' || view === 'goals') && !TABS.isShown('goals') ? 'progress' : view === 'coach' && !TABS.isShown('coach') ? 'progress' : view === 'plan' || view === 'training' ? 'goals' : view === WORLD.VIEW ? 'progress' : view === 'knows' || view === HUB.VIEW || view === PLACES.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
   for (const b of document.querySelectorAll('#tabs [data-v]')) {
     b.classList.toggle('on', b.dataset.v === tab);
     if (b.dataset.v === tab) b.setAttribute('aria-current', 'page');
@@ -1360,6 +1361,7 @@ function renderProgress() {
         ${S.workoutsOn() || S.state.sessions.length ? trainingCard() : ''}
         ${GOALS.goalsProgress()}
         ${WORLD.entryCard()}
+        ${TABS.moreCard()}
         ${sys ? '' : gameLine()}
       </div>
     </div>`;
@@ -1796,6 +1798,7 @@ function renderSettings() {
           <button class="btn ghost small" data-act="test-sound">Test sound</button>
         </section>` : ''}
         ${N.isNative ? notifyPanel() : calendarPanel()}
+        ${TABS.settingsHTML()}
         <section class="panel" id="aheadPanel"><div class="panel-title">${icon('plan')}<span>Your plan and next steps</span></div>${AHEAD.settingsHTML()}</section>
         ${S.workoutsOn() ? `<section class="panel">
           <div class="panel-title">${icon('moon')}<span>Easy week</span></div>
@@ -2471,6 +2474,12 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('change', async (e) => {
   const t = e.target;
+  if (t.dataset?.tabShown) {
+    TABS.setShown(t.dataset.tabShown, t.checked);
+    buildNav();
+    render();
+    return;
+  }
   if (t.id === 'exSel') {
     ui.progressEx = t.value;
     drawExercise();
@@ -2594,7 +2603,7 @@ function buildNav() {
     ['goals', 'Goals', 'target'],
     ['coach', w('coachTab'), isSystem() ? 'system' : 'chat'],
     ['settings', 'Settings', 'settings'],
-  ];
+  ].filter(([v]) => TABS.isShown(v));
   $('#tabs').innerHTML = `<div class="brand"><span class="brand-mark">${isSystem() ? '' : icon('arise')}Arise</span><span class="brand-sub">${w('brandSub')}</span></div>
     ${tabs.map(([v, label, ic]) => `<button data-act="nav" data-v="${v}">${icon(ic)}<span>${label}</span></button>`).join('')}`;
 }

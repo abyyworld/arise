@@ -4,6 +4,12 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.35.2',
+    notes: [
+      'A simpler tab bar: Coach and Goals are now under Me, in More of Arise. Want them back on the bar? Settings, Tabs.',
+    ],
+  },
+  {
     version: '1.35.1',
     notes: [
       'Google is here: link your Google Calendar, Gmail (who wrote, the subject and a short preview, never the whole email) and Drive files you pick, in Setup and connections. Google shows a warning first because it has not checked Arise yet: tap Advanced, then Go to Arise.',
