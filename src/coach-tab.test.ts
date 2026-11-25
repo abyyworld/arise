@@ -288,7 +288,7 @@ describe('chats on the Coach tab', () => {
     expect(question).toContain('as far as you may read it');
     expect(opts).toEqual(expect.objectContaining({ recallAs: 'the last 7 days' }));
     expect(['k1', 'm1', 'first']).not.toContain(opts!.chat);
-    expect(question).not.toMatch(/—/);
+    expect(question).not.toMatch(/\u2014/);
   });
 
   it('starts a chat of its own for a question from another screen', async () => {
