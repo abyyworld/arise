@@ -16,9 +16,10 @@
 
 import type { LifeEvent } from '../../../src/life/types';
 import { randomId } from './bytes';
-import { type Context, type Visit, recordable, searchKey, siteOf, siteTimeEvent, visitEvent, visitKey } from './events';
+import { type Context, type SavedPage, type Visit, recordable, savedEvent, searchKey, siteOf, siteTimeEvent, visitEvent, visitKey } from './events';
 import { type Note, type PageRequest, type Push, commitment, newNonce, pairCode } from './pairing';
 import { type BatchMeta, type SealedBatch, sealBatch } from './seal';
+import * as Rm from './remind';
 import { parseSkipList } from './skip';
 import { type Focus, HOUR, MINUTE, type Rollup, dropFrom, hourStart, step, takeHours } from './time';
 
@@ -55,6 +56,7 @@ export interface Env {
   allowed(origin: string): boolean; // the pages that may link and collect (Arise's)
   push(p: Push, origin: string): Promise<void>; // tells Arise's open tabs
   openConfirm(): Promise<void>; // shows the window with the 4 words
+  reminded?(): Promise<void>; // the reminders changed: plan their alarms and the count again
 }
 
 // ---------- what's kept
@@ -384,7 +386,10 @@ export type PopupRequest =
   | { t: 'resume' }
   | { t: 'forget' }
   | { t: 'skip'; text: string }
-  | { t: 'unlink' };
+  | { t: 'unlink' }
+  | { t: 'save'; url: string; title?: string; selection?: string } // Save this page to Arise
+  | { t: 'remind'; on: boolean } // reminders in this browser
+  | { t: 'read'; ids?: string[] }; // the reminders shown were looked at
 
 export interface PopupState {
   linked: boolean;
@@ -398,6 +403,9 @@ export interface PopupState {
   sent: { at: number; n: number };
   backfilling: boolean;
   pairing: { link: string; code: string[] } | null;
+  remind: boolean;
+  unread: Rm.RemindItem[];
+  next: Rm.RemindItem | null; // the next reminder to come
 }
 
 async function pairingNow(env: Env): Promise<Pairing | null> {
@@ -412,6 +420,8 @@ export async function popupState(env: Env): Promise<PopupState> {
   const index = await getIndex(env);
   const got = await env.local.get([L.sent, L.scan]);
   const p = await pairingNow(env);
+  const kept = await Rm.kept(env.local);
+  const now = env.now();
   return {
     linked: !!link,
     linkedAt: link?.at || 0,
@@ -424,6 +434,9 @@ export async function popupState(env: Env): Promise<PopupState> {
     sent: (got[L.sent] as { at: number; n: number }) || { at: 0, n: 0 },
     backfilling: !!(got[L.scan] as Scan | undefined)?.back,
     pairing: p?.code ? { link: p.link, code: p.code } : null,
+    remind: await Rm.isOn(env.local),
+    unread: kept.unread,
+    next: kept.pack?.items.find((r) => r.at > now) || null,
   };
 }
 
@@ -431,6 +444,8 @@ async function unlinkNow(env: Env): Promise<void> {
   const link = await getLink(env);
   const index = await getIndex(env);
   await env.local.remove([L.link, L.index, L.notes, L.scan, L.seen, L.parts, L.sent, ...index.map((m) => batchKey(m.id))]);
+  await Rm.forget(env.local); // reminders came from that Arise: they go with it
+  await env.reminded?.().catch(() => {});
   await env.session.set({ [S.open]: {}, [S.focus]: null });
   if (link) await env.push({ t: 'unlinked', link: link.id }, link.origin).catch(() => {});
 }
@@ -440,6 +455,19 @@ export function popupRequest(env: Env, req: PopupRequest): Promise<PopupState | 
   return serial(async () => {
     const now = env.now();
     switch (req.t) {
+      case 'save': {
+        const r = await savePageNow(env, { url: req.url, title: req.title, selection: req.selection, time: now });
+        if (!r.ok) return r;
+        break;
+      }
+      case 'remind':
+        await Rm.setOn(env.local, req.on);
+        await env.reminded?.().catch(() => {});
+        break;
+      case 'read':
+        await Rm.markRead(env.local, req.ids);
+        await env.reminded?.().catch(() => {});
+        break;
       case 'confirm': {
         const p = await pairingNow(env);
         if (!p?.code || p.link !== req.link) return { ok: false, error: 'That link request has expired. Start again in Arise.' };
@@ -518,6 +546,22 @@ async function forgetLastHour(env: Env): Promise<void> {
   if (link) await env.push({ t: 'ready', link: link.id }, link.origin).catch(() => {});
 }
 
+// ---------- a page the person saves
+
+async function savePageNow(env: Env, p: SavedPage): Promise<{ ok: true } | { ok: false; error: string }> {
+  const link = await getLink(env);
+  if (!link) return { ok: false, error: 'Link this browser to Arise first.' };
+  const e = await savedEvent(p, { arise: env.arise, browser: env.browser });
+  if (!e) return { ok: false, error: "This page can't be saved (only web pages, not Arise or pages on this computer)." };
+  await seal(env, link, [e]);
+  return { ok: true };
+}
+
+// From the menu on a page (right click): straight away, with the words picked, if any.
+export function savePage(env: Env, p: SavedPage): Promise<{ ok: true } | { ok: false; error: string }> {
+  return serial(() => savePageNow(env, p));
+}
+
 // ---------- Arise's page (through the content script)
 
 export async function pageRequest(env: Env, req: PageRequest, origin: string): Promise<unknown> {
@@ -553,7 +597,19 @@ async function answer(env: Env, req: PageRequest, origin: string): Promise<unkno
     }
     case 'status': {
       const settings = await getSettings(env);
-      return { ok: true, linked: mine, waiting: mine ? (await getIndex(env)).length : 0, paused: settings.paused };
+      const remind = mine && (await Rm.isOn(env.local));
+      return { ok: true, linked: mine, waiting: mine ? (await getIndex(env)).length : 0, paused: settings.paused, ...(mine ? { remind } : {}), ...(remind ? { rkey: await Rm.publicKey(env.local) } : {}) };
+    }
+    case 'remindOn':
+      if (!mine) return { ok: false, error: 'not-linked' };
+      await Rm.setOn(env.local, req.on);
+      await env.reminded?.().catch(() => {});
+      return { ok: true, remind: req.on, ...(req.on ? { rkey: await Rm.publicKey(env.local) } : {}) };
+    case 'remind': {
+      if (!mine) return { ok: false, error: 'not-linked' };
+      const r = await Rm.take(env.local, link!.id, req.box, now);
+      if (r.ok) await env.reminded?.().catch(() => {});
+      return r;
     }
     case 'pull': {
       if (!mine) return { ok: false, error: 'not-linked' };

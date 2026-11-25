@@ -1,0 +1,15 @@
+/* Your links (src/life/links-ui.js) and the reminders switch in the browser panel
+   (src/life/browser-ui.js). Colour tokens only, so both looks get them. */
+.lk-save { display: grid; gap: 8px; }
+.lk-save .label { margin-top: 0; }
+.lk-save input { width: 100%; }
+.lk-item { border-top: 1px solid var(--line); padding: 12px 0; }
+.lk-item:first-of-type { border-top: 0; }
+.lk-title { display: block; font-weight: 700; overflow-wrap: anywhere; color: var(--text); }
+.lk-where, .lk-note { margin: 4px 0 8px; overflow-wrap: anywhere; }
+.lk-item .row { align-items: center; }
+.lk-copy { max-height: 60vh; overflow-y: auto; margin: 8px 0 14px; padding-right: 4px; overflow-wrap: anywhere; }
+.lk-copy p { margin: 0 0 10px; line-height: 1.55; }
+.bl-remind { margin-top: 12px; }
+.bl-remind .row { justify-content: space-between; align-items: center; }
+.bl-remind p { margin: 6px 0 0; }

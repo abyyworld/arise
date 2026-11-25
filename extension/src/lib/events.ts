@@ -10,7 +10,7 @@ import { digest } from './bytes';
 import { findSearch } from './search';
 import { isSkipped } from './skip';
 import type { SiteHour } from './time';
-import { cleanUrl, isLocal, matchesPrefix } from './url';
+import { cleanUrl, isLocal, matchesPrefix, parse } from './url';
 
 export interface Visit {
   url: string;
@@ -100,6 +100,54 @@ export async function siteTimeEvent(h: SiteHour, install: string, part: number, 
     tier: 3,
     meta: { site: h.site, seconds: h.seconds, browser },
   };
+}
+
+// ---------- a page the person saves ("Save this page to Arise")
+
+export interface SavedPage {
+  url: string;
+  title?: string;
+  selection?: string; // the words picked on the page, if any
+  time: number;
+}
+
+const MAX_SELECTION = 280; // (Arise keeps 300 characters of a detail from a browser)
+// Ids that only track where a click came from: left out of a saved address.
+const TRACKING = /^(utm_[a-z]+|fbclid|gclid|dclid|msclkid|mc_eid|mc_cid|igshid|yclid|_hsenc|_hsmi|ref_src)$/i;
+
+// The address as the person saved it (unlike a visit, with its query: it's often what the page
+// is), without the part after # and the tracking ids. Only http and https.
+export function savedUrl(raw: string): string | null {
+  const u = parse(raw);
+  if (!u || !u.hostname || u.username || u.password) return null;
+  u.hash = '';
+  for (const k of [...u.searchParams.keys()]) if (TRACKING.test(k)) u.searchParams.delete(k);
+  const href = u.href.replace(/\?$/, '');
+  return href.length <= 2000 ? href : null;
+}
+
+// A saved page, as a note in the life log with its address. Sealed and sent like everything else,
+// even while recording is paused (saving is something the person did on purpose). Never one of
+// Arise's own pages or one on this computer.
+export async function savedEvent(p: SavedPage, ctx: Pick<Context, 'arise' | 'browser'>): Promise<LifeEvent | null> {
+  const url = savedUrl(p.url);
+  if (!url || !Number.isFinite(p.time) || matchesPrefix(url, ctx.arise)) return null;
+  const c = cleanUrl(url)!;
+  if (isLocal(c.host)) return null;
+  const at = Math.round(p.time);
+  const pick = tidy(p.selection, MAX_SELECTION);
+  const e: LifeEvent = {
+    id: `browser:${await digest(`saved|${at}|${url}`)}`,
+    source: 'browser',
+    kind: 'note',
+    at,
+    title: tidy(p.title, MAX_TITLE) || c.site,
+    url,
+    tier: 3,
+    meta: { site: c.site, browser: ctx.browser, saved: true },
+  };
+  if (pick) e.detail = `"${pick}"`;
+  return e;
 }
 
 // The browser's name for the list of linked browsers in Arise, e.g. "Edge on Windows".

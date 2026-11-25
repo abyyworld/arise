@@ -242,7 +242,7 @@ export function renderDays(root) {
   root.innerHTML = `
     <header class="page-head">
       <div><p class="kicker">Your life log</p><h1 class="display">Your days</h1></div>
-      <div class="row"><button class="btn small ghost" data-act="nav" data-v="places">${icon('pin')} Your places</button><button class="btn small ghost" data-act="nav" data-v="knows">${icon('system')} What Arise knows</button></div>
+      <div class="row"><button class="btn small ghost" data-act="nav" data-v="places">${icon('pin')} Your places</button><button class="btn small ghost" data-act="nav" data-v="links">${icon('globe')} Your links</button><button class="btn small ghost" data-act="nav" data-v="knows">${icon('system')} What Arise knows</button></div>
     </header>
     ${HUB.entryRow()}
     <div class="cols">
