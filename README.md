@@ -231,6 +231,11 @@ The original weekly split (four workouts over six fixed weekdays, Thursday off) 
 - Morning brief: your day in a few lines, on Today and as a notification at the time you pick.
 - Invite people to an event: add who's coming, then send the invite file yourself.
 - Rules for each AI app (Me, AI apps): may just do, ask me first, never, and house rules.
+- Loose ends: Arise notices "I'll..." and "need to..." in your notes and asks later whether it happened. On quiet days, one getting-to-know-you question.
+- Coach chats: separate chats you can rename, delete or forget all at once, and Ask how I'm doing.
+- Descriptions of your notes and files (Settings, Your life log, off until you turn it on): a one-line description, a tidy copy and tags, with the private AI.
+- Your links (Days): every link in your notes, with search, and Keep a copy to read a page later.
+- The browser extension can save the page you're on and show your reminders even with Arise closed.
 - Passkeys (Settings, Account, More): sign in with your face, fingerprint or screen lock, and where your device can, unlock your data with it too.
 - System health (Setup and connections): one check of sync, the AI, reminders, AI apps, calendars and storage.
 - One box on Today: write anything, and Arise works out on your device if it's a to-do (with its day and time), groceries, money owed, a question for your coach or a note for your day. It shows what it will save first, and you can pick another kind.

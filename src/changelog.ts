@@ -4,6 +4,18 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.36.0',
+    notes: [
+      'Loose ends: when your notes say "I\'ll email Eyal" or "need to book the dentist", Arise asks a day later whether it happened, and makes it a to-do if you like.',
+      'Getting to know you: on a quiet day, one short question about you. Your answer stays in your notes, so your coach learns it.',
+      'Your coach now keeps separate chats: start a new one, go back to an old one, rename or delete it, or forget every chat. New: Ask how I\'m doing.',
+      'Arise can read your new notes and files for you: a one-line description, a tidy copy of your note and a few tags, with the private AI. Turn it on in Settings, Your life log. Search finds them by these too.',
+      'Your links, on Days: every link in your notes, with search. Keep a copy of a page to read later, even if the site goes away.',
+      'With the Arise browser extension: save the page you are on in one press or a right click, and get your reminders in the browser even with Arise closed.',
+      'AI apps on the web turn off by themselves after 60 days without use.',
+    ],
+  },
+  {
     version: '1.35.2',
     notes: [
       'A simpler tab bar: Coach and Goals are now under Me, in More of Arise. Want them back on the bar? Settings, Tabs.',
