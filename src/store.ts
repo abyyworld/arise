@@ -15,6 +15,7 @@ import * as EV from './lib/events';
 import * as DC from './lib/decisions';
 import * as OS from './lib/own-storage';
 import * as PN from './lib/place-names';
+import { mergePeople } from './lib/people';
 import * as CH from './lib/chats';
 
 export type { Goal, Quest };
@@ -1342,6 +1343,7 @@ export function importData(raw: unknown): number {
   state.debts = EV2.mergeDebts(state.debts, data.debts);
   state.groceries = EV2.mergeGroceries(state.groceries, data.groceries);
   state.placeNames = PN.mergePlaceNames(state.placeNames, data.placeNames);
+  state.people = mergePeople(state.people, data.people);
   state.events = EV.mergeEvents(state.events, data.events);
   state.decisions = DC.mergeDecisions(state.decisions, data.decisions);
   state.dismissed = DC.mergeDismissed(state.dismissed, data.dismissed);
