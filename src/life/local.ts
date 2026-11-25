@@ -3,13 +3,13 @@
 // device's copy of a pack taken in. Each pack is read and written in one transaction, so a change
 // made here meanwhile is never lost.
 
-import { cleanLifeFact, cleanLifeSummary, cleanLifeSyncState, type LifeFact, type LifeFix, type LifeSummary, type LifeSyncState, type LifeWipe } from '../lib/validate';
+import { cleanLifeFact, cleanLifeRead, cleanLifeSummary, cleanLifeSyncState, type LifeFact, type LifeRead, type LifeFix, type LifeSummary, type LifeSyncState, type LifeWipe } from '../lib/validate';
 import { done, open, req, tellOtherTabs } from './db';
 import { beforeClear, changedAt, deletedAt, emit, fromRow, toRow } from './log';
 import { addTomb, cleanWipes, clearNotes, markDirty } from './journal';
 import { applyFix, changes, cleanFixes, cleanKnew, isEventFix } from './fixes';
 import { FIXES, KNEW } from './fix-store';
-import { askedCoach, canonical, emptyContent, eventPack, isPackKey, MEM, mergeContent, monthSpan, packKind, summaryPack, syncable, syncedPrefs, tidy, wipesEvent, type Content, type SyncedEvent } from './packs';
+import { askedCoach, canonical, emptyContent, eventPack, isPackKey, MEM, mergeContent, monthSpan, packKind, READ_KV, READ_RANGE, readPack, summaryPack, syncable, syncedPrefs, tidy, wipesEvent, type Content, type SyncedEvent } from './packs';
 import { prefs, takePaused } from './prefs';
 import { dayKey } from './dates';
 import type { LifeSource } from './types';
@@ -91,7 +91,7 @@ export async function sinceFor(uid: string): Promise<number> {
 export async function adopt(since: number): Promise<void> {
   if (!since) return;
   const db = await open();
-  const tx = db.transaction(['events', 'summaries', 'facts', 'sync', 'tomb'], 'readwrite');
+  const tx = db.transaction(['events', 'summaries', 'facts', 'sync', 'tomb', 'kv'], 'readwrite');
   const sync = tx.objectStore('sync');
   const w = sync.get('wipes');
   w.onsuccess = () => {
@@ -125,6 +125,15 @@ export async function adopt(since: number): Promise<void> {
       }
     });
   }
+  // What an AI wrote about notes and files (reads.ts), the same way.
+  const reads = tx.objectStore('kv').openCursor(READ_RANGE());
+  reads.onsuccess = () => {
+    const cur = reads.result;
+    if (!cur) return;
+    const x = cleanLifeRead((cur.value as { v?: unknown }).v);
+    if (x && x.at < since) cur.update({ k: cur.key, v: { ...x, at: since } });
+    cur.continue();
+  };
   await done(tx);
   if (memory) {
     emit({ type: 'sync', count: memory, days: [], sources: [], memory: true });
@@ -137,7 +146,7 @@ export async function adopt(since: number): Promise<void> {
 export async function localPacks(): Promise<string[]> {
   const db = await open();
   const out = new Set<string>([MEM]);
-  const tx = db.transaction(['events', 'summaries', 'tomb']);
+  const tx = db.transaction(['events', 'summaries', 'tomb', 'kv']);
   // (All asked at once: a transaction ends once nothing is waiting on it.)
   const walk = (c: IDBRequest<IDBCursor | null>, next: (cur: IDBCursor) => void) =>
     new Promise<void>((resolve, reject) => {
@@ -153,8 +162,9 @@ export async function localPacks(): Promise<string[]> {
     out.add(String(cur.key));
     cur.continue();
   });
-  const [sums] = await Promise.all([req(tx.objectStore('summaries').getAllKeys()), months, tombs]);
+  const [sums, reads] = await Promise.all([req(tx.objectStore('summaries').getAllKeys()), req(tx.objectStore('kv').getAllKeys(READ_RANGE())), months, tombs]);
   for (const id of sums) out.add(summaryPack(String(id)));
+  for (const k of reads) out.add(readPack(String(k).slice(READ_KV.length)));
   return [...out].filter(isPackKey);
 }
 
@@ -166,18 +176,23 @@ interface Local {
   fixes: LifeFix[]; // the Player's corrections (kv), which every month's events follow
 }
 
-const STORES = { e: ['events', 'tomb', 'sync', 'kv'], s: ['summaries', 'tomb', 'sync'], mem: ['facts', 'tomb', 'sync', 'kv'] } as const;
+const STORES = { e: ['events', 'tomb', 'sync', 'kv'], s: ['summaries', 'tomb', 'sync'], r: ['kv', 'tomb', 'sync'], mem: ['facts', 'tomb', 'sync', 'kv'] } as const;
 
 // Reads this device's copy of a pack in `tx`, then calls `then` while the transaction is still
 // open (so it can write in the same go).
 function readLocal(tx: IDBTransaction, key: string, then: (l: Local) => void) {
   const kind = packKind(key);
   const reqs: IDBRequest[] = [];
-  const items = kind === 'e' ? tx.objectStore('events').index('at').getAll(IDBKeyRange.bound(...monthSpan(key), false, true)) : tx.objectStore(kind === 's' ? 'summaries' : 'facts').getAll();
+  const items =
+    kind === 'e'
+      ? tx.objectStore('events').index('at').getAll(IDBKeyRange.bound(...monthSpan(key), false, true))
+      : kind === 'r'
+        ? tx.objectStore('kv').getAll(READ_RANGE())
+        : tx.objectStore(kind === 's' ? 'summaries' : 'facts').getAll();
   const tombs = tx.objectStore('tomb').index('pack').getAll(key);
   const wipes = tx.objectStore('sync').get('wipes');
   reqs.push(items, tombs, wipes);
-  const kv = kind === 's' ? null : tx.objectStore('kv');
+  const kv = kind === 's' || kind === 'r' ? null : tx.objectStore('kv');
   const fixes = kv?.get(FIXES);
   const knew = kind === 'mem' ? kv?.get(KNEW) : undefined;
   for (const r of [fixes, knew]) if (r) reqs.push(r);
@@ -199,6 +214,7 @@ function readLocal(tx: IDBTransaction, key: string, then: (l: Local) => void) {
             if (e && syncable(e)) c.events.push({ ...e, m: changedAt(row) });
           }
         } else if (kind === 's') c.sums = (items.result as unknown[]).map(cleanLifeSummary).filter((s): s is LifeSummary => !!s && summaryPack(s.id) === key);
+        else if (kind === 'r') c.reads = (items.result as { v?: unknown }[]).map((row) => cleanLifeRead(row?.v)).filter((x): x is LifeRead => !!x && readPack(x.id) === key);
         else {
           c.facts = (items.result as unknown[]).map(cleanLifeFact).filter((f): f is LifeFact => !!f);
           c.prefs = syncedPrefs(prefs());
@@ -312,6 +328,21 @@ export async function applyPack(key: string, remote: Content, { now = Date.now()
           const was = (g.result as { v?: unknown } | undefined)?.v;
           kv.put({ k: 'dropped', v: [...new Set([...(Array.isArray(was) ? was : []), ...asked])].slice(-5000) });
         };
+      }
+    } else if (kind === 'r') {
+      const store = tx.objectStore('kv');
+      const mine = new Map(here.reads.map((x) => [x.id, x]));
+      const keep = new Set<string>();
+      for (const x of merged.reads) {
+        keep.add(x.id);
+        if (same(mine.get(x.id), x)) continue;
+        store.put({ k: `${READ_KV}${x.id}`, v: x });
+        result.changed++;
+      }
+      for (const id of mine.keys()) {
+        if (keep.has(id)) continue;
+        store.delete(`${READ_KV}${id}`);
+        result.changed++;
       }
     } else {
       const store = tx.objectStore(kind === 's' ? 'summaries' : 'facts');

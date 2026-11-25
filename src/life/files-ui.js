@@ -7,6 +7,8 @@
 
 import '../styles/files.css';
 import { esc, icon, openSheet, closeSheet, toast } from '../ui.js';
+import * as READUI from './reads-ui.js';
+import { hasWords } from './reads';
 import * as N from '../native.js';
 import * as F from './files';
 import * as FS from './files-sync';
@@ -189,12 +191,14 @@ async function openFile(id) {
     ${preview}
     <p class="muted small">${esc(F.sizeText(f.size))}${f.w && f.h ? ` · ${f.w} × ${f.h}` : ''} · ${esc(stays || (f.up ? 'Synced, end-to-end encrypted.' : CLOUD.signedIn() ? 'Syncs soon, end-to-end encrypted.' : 'Syncs once you sign in.'))}</p>
     <p class="muted small" id="myfilesState">${f.here ? '' : 'Getting it from your other devices…'}</p>
+    ${hasWords(f) ? READUI.slot(`f:${f.id}`) : ''}
     <div class="row">
       <button class="btn ghost small" data-act="myfiles-save" data-id="${esc(f.id)}">${icon('share')} Save a copy</button>
       ${f.size <= F.SYNC_FILE_MAX ? `<button class="btn ghost small" data-act="myfiles-sync" data-id="${esc(f.id)}" data-on="${!f.sync}">${f.sync ? 'Keep only on this device' : 'Sync it'}</button>` : ''}
     </div>
     ${bin}
     <button class="link small" data-act="myfiles-open">Back to Photos and files</button>`);
+  if (hasWords(f)) void READUI.fillSlot();
   // The whole picture (or the bytes, for the Save button) once they're here.
   if (isImage(f) || !f.here) {
     const got = await F.getFile(id).catch(() => null);

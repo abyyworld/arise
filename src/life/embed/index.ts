@@ -73,12 +73,26 @@ export async function forgetVectors() {
 
 // ---------- reading the log
 
+// What an AI wrote about a note (life/reads.ts registers this): its description and tags, read
+// first, so a note is found by them too.
+let extraText: (id: string) => string = () => '';
+export function useExtraText(fn: (id: string) => string) {
+  extraText = fn;
+}
+function textFor(e: LifeEvent): string {
+  let extra = '';
+  try {
+    extra = extraText(e.id);
+  } catch {}
+  return extra ? `${extra}. ${textOf(e)}`.slice(0, 400) : textOf(e);
+}
+
 // Reads these events with the model where it hasn't yet (or their words changed). Says how many.
 export async function readEvents(events: readonly LifeEvent[], emb: Embedder): Promise<number> {
   const todo: { e: LifeEvent; text: string; h: number }[] = [];
   const have = await rowsFor(events.map((e) => e.id));
   for (const e of events) {
-    const text = textOf(e);
+    const text = textFor(e);
     if (!worthReading(text)) continue;
     const h = fingerprint(text);
     const r = have.get(e.id);
@@ -177,6 +191,14 @@ export function stop() {
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;
+function soon() {
+  if (!prefs().on) return;
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(() => {
+    timer = null;
+    void start();
+  }, 5000);
+}
 L.onChange((c) => {
   if (c.type === 'clear') {
     // (Only when there may be any: without the model, nothing was ever made.)
@@ -184,13 +206,14 @@ L.onChange((c) => {
     whole = true;
   } else for (const d of c.days) dirty.add(d);
   cache = null;
-  if (!prefs().on) return;
-  if (timer) clearTimeout(timer);
-  timer = setTimeout(() => {
-    timer = null;
-    void start();
-  }, 5000);
+  soon();
 });
+
+// What an AI wrote about notes on these days changed (life/reads.ts): they're read again.
+export function readDaysSoon(days: readonly string[]) {
+  for (const d of days) dirty.add(d);
+  soon();
+}
 
 // ---------- searching
 

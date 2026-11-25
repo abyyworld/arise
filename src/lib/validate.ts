@@ -724,7 +724,7 @@ export function cleanLifeWipe(raw: unknown): LifeWipe | null {
 }
 
 // A pack's name (src/life/packs.ts): a month of events, a year of summaries, or the memory.
-const LIFE_PACK = /^(mem|e:\d{4}-(0[1-9]|1[0-2])|s:\d{4})$/;
+const LIFE_PACK = /^(mem|e:\d{4}-(0[1-9]|1[0-2])|s:\d{4}|r:[0-9a-f])$/;
 const LIFE_REV = /^[A-Za-z0-9_-]{1,40}$/;
 const LIFE_MAX_PARTS = 12;
 
@@ -1146,4 +1146,103 @@ export interface MeaningPrefs {
 export function cleanMeaningPrefs(raw: unknown): MeaningPrefs {
   const d = obj(raw);
   return { on: d.on === true, at: time(d.at) };
+}
+
+// ---------- Arise reads it for you (life/reads.ts)
+
+// What an AI wrote about one note or file, or what the Player put right: a one-line description,
+// their own note tidied (never with anything added), and a few tags. Synced with the life log,
+// sealed, in its 'r:' packs (life/packs.ts).
+export interface LifeRead {
+  id: string; // 'e:' and a note's id in the life log, or 'f:' and a file's id
+  at: number; // when it last changed
+  tier: LifeTier; // the record's: only an AI that may read the record may read this
+  desc: string;
+  tidy?: string;
+  tags: string[];
+  src: string; // a fingerprint of the words it was made from, so it's made again when they change
+  by?: string; // which AI wrote it (life/strength.ts)
+  from: 'ai' | 'you'; // 'you': the Player put it right, and no AI writes over it
+  rat?: number; // when the record itself was (for deleting a span of time)
+  source?: LifeSource; // and where it came from (for deleting one source)
+}
+export const READ_ID = /^(e:[a-z]{2,12}:[\x21-\x7e]{1,240}|f:[A-Za-z0-9_-]{22})$/;
+export const READ_DESC_MAX = 200;
+export const READ_TIDY_MAX = 4000;
+export const READ_TAGS = 5;
+const READ_TAG_MAX = 32;
+const READ_SRC = /^[a-z0-9]{1,16}$/;
+
+// Tags: short, lower case, no '#', each once, at most READ_TAGS.
+export function cleanReadTags(v: unknown): string[] {
+  const out: string[] = [];
+  for (const x of arr(v)) {
+    const t = oneLine(x, 80).replace(/^#+/, '').toLowerCase().trim().slice(0, READ_TAG_MAX).trim();
+    if (t && !out.includes(t)) out.push(t);
+    if (out.length >= READ_TAGS) break;
+  }
+  return out;
+}
+
+export function cleanLifeRead(raw: unknown): LifeRead | null {
+  const d = obj(raw);
+  const at = time(d.at);
+  if (typeof d.id !== 'string' || !READ_ID.test(d.id) || !at || !isTier(d.tier)) return null;
+  const desc = oneLine(d.desc, READ_DESC_MAX);
+  if (!desc || typeof d.src !== 'string' || !READ_SRC.test(d.src)) return null;
+  const out: LifeRead = { id: d.id, at, tier: d.tier, desc, tags: cleanReadTags(d.tags), src: d.src, from: d.from === 'you' ? 'you' : 'ai' };
+  const tidy = manyLines(d.tidy, READ_TIDY_MAX);
+  if (tidy) out.tidy = tidy;
+  const by = cleanBy(d.by);
+  if (by) out.by = by;
+  if (lifeTime(d.rat)) out.rat = lifeTime(d.rat);
+  if (LIFE_SOURCES.includes(d.source as LifeSource)) out.source = d.source as LifeSource;
+  return out;
+}
+
+// The Player's choices for it, and its queue, kept on this device only (life/reads.ts).
+export interface ReadPrefs {
+  on: boolean; // "Describe new notes and files"
+  perDay: number; // at most this many a day
+  health: boolean; // and records that look like they're about health, money or ID papers
+  money: boolean;
+  id: boolean;
+  since: number; // when it was turned on
+}
+export const READ_PER_DAY = [5, 10, 20, 50];
+export function cleanReadPrefs(raw: unknown): ReadPrefs {
+  const d = obj(raw);
+  const n = typeof d.perDay === 'number' && READ_PER_DAY.includes(d.perDay) ? d.perDay : 20;
+  return { on: d.on === true, perDay: n, health: d.health === true, money: d.money === true, id: d.id === true, since: time(d.since) };
+}
+
+export interface ReadJob {
+  id: string; // a read's id (READ_ID)
+  added: number; // when it was noticed
+  n: number; // tries that failed
+  next: number; // not before then (0: now)
+  failed?: true; // gave up after too many tries, until "Describe again"
+  again?: true; // asked for again: written over even when the words didn't change
+}
+export interface ReadQueue {
+  jobs: ReadJob[];
+  day: string; // the day `done` counts
+  done: number; // asked of the AI that day
+}
+export const READ_QUEUE_MAX = 3000;
+export function cleanReadQueue(raw: unknown): ReadQueue {
+  const d = obj(raw);
+  const jobs: ReadJob[] = [];
+  const seen = new Set<string>();
+  for (const x of arr(d.jobs)) {
+    const j = obj(x);
+    if (typeof j.id !== 'string' || !READ_ID.test(j.id) || seen.has(j.id)) continue;
+    seen.add(j.id);
+    const job: ReadJob = { id: j.id, added: time(j.added) || 1, n: int(j.n, 0, 100, 0), next: time(j.next) };
+    if (j.failed === true) job.failed = true;
+    if (j.again === true) job.again = true;
+    jobs.push(job);
+    if (jobs.length >= READ_QUEUE_MAX) break;
+  }
+  return { jobs, day: isDate(d.day) ? (d.day as string) : '', done: int(d.done, 0, 100000, 0) };
 }
