@@ -62,7 +62,9 @@ const TIMEOUT = 45_000;
 // and 1.35's other additions, which 1.34 would drop.
 // 15: the coach's separate chats (a chat id on each message, ai.chatNames, deleted chats in
 // stamps.chat), which 1.35 would merge into one chat and could bring back.
-export const SCHEMA = 15;
+// 16: People (who to keep in touch with, their dates) and your own money categories (moneyCats),
+// which 1.36 would drop.
+export const SCHEMA = 16;
 
 interface Meta {
   uid?: string;

@@ -231,6 +231,10 @@ The original weekly split (four workouts over six fixed weekdays, Thursday off) 
 - Morning brief: your day in a few lines, on Today and as a notification at the time you pick.
 - Invite people to an event: add who's coming, then send the invite file yourself.
 - Rules for each AI app (Me, AI apps): may just do, ask me first, never, and house rules.
+- Your week (Today, Sunday afternoon and Monday morning) and Focus (Start on a block of your plan).
+- People (Me): who to reach out to, people you mark close, birthdays and dates with reminders.
+- Habits that learn (Me) and Money (Me): what came with your best days, and where your money went, from bank statements, on your device.
+- Talk instead of typing: voice notes turned into text on your device after a one-time download (about 54 MB, or 40 MB with search by meaning on).
 - Loose ends: Arise notices "I'll..." and "need to..." in your notes and asks later whether it happened. On quiet days, one getting-to-know-you question.
 - Coach chats: separate chats you can rename, delete or forget all at once, and Ask how I'm doing.
 - Descriptions of your notes and files (Settings, Your life log, off until you turn it on): a one-line description, a tidy copy and tags, with the private AI.

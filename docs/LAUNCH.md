@@ -129,6 +129,10 @@ Until then the passkey button stays hidden and the AI apps screen says "Needs th
 1. Run the one command in CLAUDE.md again. It redeploys the calendar helper (`worker/calendar`) with its new `POST /page` route for Keep a copy. Until then Keep a copy says it needs the helper.
 2. The browser extension is 1.1.0 (notifications, right-click save). People who loaded it by hand load the new copy once (Settings, Your life: browser, Download the extension); Chrome and Edge then ask once to allow notifications.
 
+## For 1.37: reinstall the phone apps once
+
+Voice notes need the microphone, so the iPhone app (NSMicrophoneUsageDescription, native key arise-ios@3) and the Android app (RECORD_AUDIO) changed. Install the new Arise.ipa and Arise.apk by hand once; until then the phone apps don't take further updates.
+
 ## Signing the Android app (once)
 
 GitHub builds Arise.apk on every push to `main` (`.github/workflows/android.yml`), but only publishes it once the repo has a signing key. Android only installs an update signed with the same key as the app on the phone, so make it once and keep a copy somewhere safe, like a password manager. If it's lost, everyone has to uninstall the app and install it again.

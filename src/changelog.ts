@@ -4,6 +4,17 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.37.0',
+    notes: [
+      'Your week: on Sunday afternoon and Monday morning, Today looks back at your week, with one thing to try next week.',
+      'Focus: start a block from your plan, or on its own. The timer keeps going if you leave, and ticks the quest when it ends.',
+      'People, on Me: who you are in touch with and who to reach out to. Mark someone close and Arise nudges you when it has been too long. Add birthdays, or pick them up from your calendar.',
+      'Habits that learn: Me shows what came with your best days, and suggests one small habit to try.',
+      'Money: where your money went each month, from your bank statements, with subscriptions found. All on your device.',
+      'Talk instead of typing: tap Talk and your words appear, turned into text on your device after a one-time download.',
+    ],
+  },
+  {
     version: '1.36.0',
     notes: [
       'Loose ends: when your notes say "I\'ll email Eyal" or "need to book the dentist", Arise asks a day later whether it happened, and makes it a to-do if you like.',
