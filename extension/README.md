@@ -1,6 +1,6 @@
 # Arise browser extension
 
-Records the sites you visit, your searches and your time on each site, seals it in the browser so only your Arise can open it, and hands it to Arise when Arise is open in the same browser. One codebase for Chrome, Edge, Brave, Arc and Firefox. The logic is in `src/lib/` and is tested with everything else (`npm test`).
+Records the sites you visit, your searches and your time on each site, seals it in the browser so only your Arise can open it, and hands it to Arise when Arise is open in the same browser. It also saves a page to Arise when asked ("Save this page to Arise", in its menu or on a right click), and, when turned on, shows Arise's reminders while the browser is open. One codebase for Chrome, Edge, Brave, Arc and Firefox. The logic is in `src/lib/` and is tested with everything else (`npm test`).
 
 `npm run ext:build` makes `dist-extension/`: `arise-chrome.zip`, `arise-edge.zip`, `arise-firefox.zip`, and `dev/` (also works with Arise on localhost). The website offers the Chrome zip for "Load unpacked" until the extension is in the stores.
 
@@ -17,7 +17,9 @@ Get the zips: on your Mac, in a copy of the repo, `npm ci && npm run ext:build`.
    - history: reads visits and searches, and the 90 days before linking.
    - tabs: sees which site is in front, for time on each site.
    - idle: stops counting time while you're away.
-   - alarms: looks for new visits every minute.
+   - alarms: looks for new visits every minute, and shows each reminder at its time.
+   - notifications: shows a reminder from Arise, and says a page was saved.
+   - contextMenus: "Save this page to Arise" when you right click a page or a link.
    - storage, unlimitedStorage: keeps sealed data until Arise collects it.
    - content script on Arise's site: talks to Arise's page, nowhere else.
    Data: tick "Web history" and "User activity". Privacy policy: `https://abyyworld.github.io/arise/privacy.html`.
@@ -38,6 +40,6 @@ Get the zips: on your Mac, in a copy of the repo, `npm ci && npm run ext:build`.
 
 ## A new version
 
-Bump `version` in `extension/manifest.json`. Firefox gets it by itself with the next deploy. For Chrome and Edge, upload the new zips in their dashboards.
+Bump `version` in `extension/manifest.json`. A version that asks for new permissions (1.1.0 added notifications and contextMenus) makes Chrome and Edge ask each person to allow them once before it turns back on. Firefox gets it by itself with the next deploy. For Chrome and Edge, upload the new zips in their dashboards.
 
 The signing tool, web-ext, is locked with its dependencies in `scripts/amo/package-lock.json`. To move to a newer web-ext: change its version in `scripts/amo/package.json`, then `npm install --package-lock-only --ignore-scripts --prefix scripts/amo`.

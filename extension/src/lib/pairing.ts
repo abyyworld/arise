@@ -36,7 +36,10 @@ export type PageRequest =
   | { t: 'status'; link: string }
   | { t: 'pull'; link: string }
   | { t: 'ack'; link: string; ids: string[]; notes: string[] }
-  | { t: 'unlink'; link: string };
+  | { t: 'unlink'; link: string }
+  // Reminders in the browser (remind.ts): Arise's switch, and the list sealed for the extension.
+  | { t: 'remindOn'; link: string; on: boolean }
+  | { t: 'remind'; link: string; box: SealedBatch };
 
 export type Push = { t: 'paired' | 'declined' | 'ready' | 'unlinked'; link: string };
 
@@ -52,6 +55,8 @@ export interface StatusReply {
   linked: boolean;
   waiting: number; // sealed batches not delivered yet
   paused: boolean;
+  remind?: boolean; // reminders in this browser are on (only told to the Arise it's linked with)
+  rkey?: string; // then, the extension's public key to seal them for
 }
 export interface PullReply {
   ok: true;
@@ -84,6 +89,10 @@ export function parseRequest(x: unknown): PageRequest | null {
       return isId(m.link) ? { t: m.t, link: m.link } : null;
     case 'ack':
       return isId(m.link) && isIds(m.ids) && isIds(m.notes ?? []) ? { t: 'ack', link: m.link, ids: m.ids as string[], notes: (m.notes as string[]) ?? [] } : null;
+    case 'remindOn':
+      return isId(m.link) && typeof m.on === 'boolean' ? { t: 'remindOn', link: m.link, on: m.on } : null;
+    case 'remind':
+      return isId(m.link) && isSealedBatch(m.box) && m.box.ct.length <= 400_000 ? { t: 'remind', link: m.link, box: m.box } : null;
     default:
       return null;
   }

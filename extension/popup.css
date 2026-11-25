@@ -48,3 +48,6 @@ textarea {
   background: #070b12; color: var(--text); font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; resize: vertical;
 }
 .saved { font-size: 13px; color: var(--sys); margin-left: 6px; }
+.row.between { justify-content: space-between; align-items: center; }
+button.small-btn { min-height: 30px; padding: 0 12px; font-size: 13px; }
+.remind { display: grid; gap: 2px; padding: 8px 10px; margin: 8px 0; border-left: 3px solid var(--sys); background: rgba(92, 200, 255, 0.06); border-radius: 6px; }

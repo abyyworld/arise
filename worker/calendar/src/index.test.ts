@@ -2,7 +2,7 @@
 // calendars, follows a few redirects but never to a private network, and keeps nothing.
 
 import { describe, expect, it, vi } from 'vitest';
-import { handle, MAX_BYTES, publicUrl, type Env } from './index';
+import { handle, MAX_BYTES, MAX_PAGE_BYTES, publicUrl, type Env } from './index';
 
 const ORIGIN = 'https://abyyworld.github.io';
 const CAL = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n';
@@ -61,6 +61,69 @@ describe('the calendar helper', () => {
     expect((await run(new Response('<html>Sign in</html>'))).status).toBe(422);
     expect((await run(new Response(`${CAL}${'X'.repeat(MAX_BYTES)}`))).status).toBe(413);
     expect((await run(new Response(`﻿${CAL}`))).status).toBe(200);
+  });
+
+  describe('POST /page (Keep a copy on Your links)', () => {
+    const askPage = (body: unknown, origin = ORIGIN) =>
+      new Request('https://arise-calendar.example.workers.dev/page', { method: 'POST', headers: { origin, 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.9' }, body: JSON.stringify(body) });
+    const HTML = '<!doctype html><title>Hi</title><p>Hello there</p>';
+    const run = (r: Response, url = 'https://news.example.com/a') => handle(askPage({ url }), env(), { fetch: (async () => r) as unknown as typeof globalThis.fetch });
+
+    it('fetches one HTML page and passes it back inside JSON, with no cookies either way', async () => {
+      const fetch = vi.fn(async () => new Response(HTML, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'set-cookie': 'id=1' } }));
+      const res = await handle(askPage({ url: 'https://news.example.com/a?b=1' }), env(), { fetch: fetch as unknown as typeof globalThis.fetch });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toMatch(/^application\/json/);
+      expect(res.headers.get('set-cookie')).toBeNull();
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      expect(await res.json()).toEqual({ url: 'https://news.example.com/a?b=1', html: HTML });
+      const init = (fetch.mock.calls[0] as unknown[])[1] as RequestInit;
+      const sent = new Headers(init.headers);
+      expect(sent.get('cookie')).toBeNull();
+      expect(sent.get('accept')).toBe('text/html');
+      expect(init.method).toBe('GET');
+    });
+
+    it('reads the character set the page names', async () => {
+      const bytes = new Uint8Array([0x3c, 0x70, 0x3e, 0x63, 0x61, 0x66, 0xe9, 0x3c, 0x2f, 0x70, 0x3e]); // <p>café</p> in latin-1
+      const res = await run(new Response(bytes, { headers: { 'content-type': 'text/html; charset=ISO-8859-1' } }));
+      expect(((await res.json()) as { html: string }).html).toBe('<p>café</p>');
+    });
+
+    it('passes back only HTML, at most 2 MB', async () => {
+      expect((await run(new Response('{"a":1}', { headers: { 'content-type': 'application/json' } }))).status).toBe(415);
+      expect((await run(new Response('plain', { headers: { 'content-type': 'text/plain' } }))).status).toBe(415);
+      expect((await run(new Response('%PDF', { headers: { 'content-type': 'application/pdf' } }))).status).toBe(415);
+      expect((await run(new Response(HTML, { headers: { 'content-type': 'text/htmlx' } }))).status).toBe(415);
+      expect((await run(new Response(`<p>${'x'.repeat(MAX_PAGE_BYTES)}</p>`, { headers: { 'content-type': 'text/html' } }))).status).toBe(413);
+      expect((await run(new Response('gone', { status: 404 }))).status).toBe(404);
+    });
+
+    it('never fetches this machine, a private network, or anything but http and https', async () => {
+      const fetch = vi.fn();
+      const deps = { fetch: fetch as unknown as typeof globalThis.fetch };
+      for (const url of ['http://127.0.0.1/', 'http://192.168.1.1/admin', 'http://localhost/', 'webcal://news.example.com/a', 'ftp://example.com/', 'javascript:alert(1)', 'file:///etc/passwd']) {
+        expect((await handle(askPage({ url }), env(), deps)).status).toBe(400);
+      }
+      expect(fetch).not.toHaveBeenCalled();
+      const sneaky = vi.fn(async () => new Response(null, { status: 301, headers: { location: 'http://10.0.0.1/' } }));
+      expect((await handle(askPage({ url: 'https://news.example.com/a' }), env(), { fetch: sneaky as unknown as typeof globalThis.fetch })).status).toBe(502);
+      expect(sneaky).toHaveBeenCalledTimes(1);
+    });
+
+    it('follows a redirect and says where the page ended up', async () => {
+      const fetch = vi.fn(async (url: string) => (url.includes('short') ? new Response(null, { status: 302, headers: { location: 'https://news.example.com/long' } }) : new Response(HTML, { headers: { 'content-type': 'text/html' } })));
+      const res = await handle(askPage({ url: 'https://short.example.com/x' }), env(), { fetch: fetch as unknown as typeof globalThis.fetch });
+      expect(((await res.json()) as { url: string }).url).toBe('https://news.example.com/long');
+    });
+
+    it('answers only Arise, and counts toward the same limit', async () => {
+      const fetch = vi.fn();
+      const deps = { fetch: fetch as unknown as typeof globalThis.fetch };
+      expect((await handle(askPage({ url: 'https://news.example.com/a' }, 'https://evil.example'), env(), deps)).status).toBe(403);
+      expect((await handle(askPage({ url: 'https://news.example.com/a' }), env(false), deps)).status).toBe(429);
+      expect(fetch).not.toHaveBeenCalled();
+    });
   });
 
   it('takes the link only in the body, and refuses a bad body', async () => {
