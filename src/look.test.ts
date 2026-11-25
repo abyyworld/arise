@@ -15,6 +15,7 @@ const someone = { sessions: [session('2026-10-07'), session('2026-10-08', 'b')],
 async function boot(view: string, data: object | null, device: Record<string, string> = {}) {
   vi.resetModules();
   localStorage.clear();
+  localStorage.setItem("arise-tabs-shown", JSON.stringify(["goals", "coach"])); // the full tab bar (tabs.js)
   if (data) localStorage.setItem('pit-data-v1', JSON.stringify(data));
   for (const [k, v] of Object.entries(device)) localStorage.setItem(k, v);
   for (const a of ['data-theme', 'data-mode', 'data-bg', 'data-motion']) document.documentElement.removeAttribute(a);
@@ -179,6 +180,7 @@ describe('reminders', () => {
   it('use plain words in the Arise look and the game words in the System look, the same line each day', async () => {
     vi.resetModules();
     localStorage.clear();
+    localStorage.setItem("arise-tabs-shown", JSON.stringify(["goals", "coach"])); // the full tab bar (tabs.js)
     const S = await import('./store');
     const R = await import('./reminders.js');
     const lines = () => Array.from({ length: 60 }, (_, i) => R.morningLine(S.addDays('2026-10-01', i), 'Study'));

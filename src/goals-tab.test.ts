@@ -34,6 +34,7 @@ async function boot(view: string, data: object, setup: (S: typeof import('./stor
   for (const [target, type, fn, opts] of added.splice(0)) target.removeEventListener(type, fn, opts as EventListenerOptions);
   vi.resetModules();
   localStorage.clear();
+  localStorage.setItem("arise-tabs-shown", JSON.stringify(["goals", "coach"])); // the full tab bar (tabs.js)
   localStorage.setItem('arise-look-hint', 'seen');
   localStorage.setItem('pit-data-v1', JSON.stringify(data));
   document.body.innerHTML = '<nav id="tabs"></nav><main id="app"></main><div id="restbar" hidden></div><div id="sheet" hidden><div class="sheet-panel"><button class="sheet-close"></button><div class="sheet-body"></div></div></div><div id="toast"></div><input type="file" id="importFile" hidden>';

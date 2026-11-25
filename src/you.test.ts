@@ -46,6 +46,7 @@ async function boot({ data = {} as Record<string, unknown>, events = [] as LifeE
   vi.resetModules();
   globalThis.indexedDB = new IDBFactory();
   localStorage.clear();
+  localStorage.setItem("arise-tabs-shown", JSON.stringify(["goals", "coach"])); // the full tab bar (tabs.js)
   localStorage.setItem('pit-data-v1', JSON.stringify({ sessions: [], profile: { onboarded: true, skipped: true }, ...data }));
   localStorage.setItem('arise-look-hint', 'seen');
   document.documentElement.removeAttribute('data-theme');

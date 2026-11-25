@@ -27,6 +27,7 @@ async function boot({ events = {}, todos = {}, linked = [] as object[], view = '
   vi.resetModules();
   globalThis.indexedDB = new IDBFactory();
   localStorage.clear();
+  localStorage.setItem("arise-tabs-shown", JSON.stringify(["goals", "coach"])); // the full tab bar (tabs.js)
   localStorage.setItem('arise-look-hint', 'seen');
   localStorage.setItem('pit-data-v1', JSON.stringify({ sessions: [], profile: { onboarded: true, skipped: true }, todos, events }));
   document.body.innerHTML = '<nav id="tabs"></nav><main id="app"></main><div id="restbar" hidden></div><div id="sheet" hidden><div class="sheet-panel"><button class="sheet-close"></button><div class="sheet-body"></div></div></div><div id="toast"></div><input type="file" id="importFile" hidden>';

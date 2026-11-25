@@ -35,6 +35,7 @@ async function boot(view: string, { events = EVENTS, facts = [] as string[], sum
   vi.resetModules();
   globalThis.indexedDB = new IDBFactory();
   localStorage.clear();
+  localStorage.setItem("arise-tabs-shown", JSON.stringify(["goals", "coach"])); // the full tab bar (tabs.js)
   localStorage.setItem('pit-data-v1', JSON.stringify({ sessions: [], profile: { onboarded: true, skipped: true }, ...data }));
   document.body.innerHTML = '<nav id="tabs"></nav><main id="app"></main><div id="restbar" hidden></div><div id="sheet" hidden><div class="sheet-panel"><button class="sheet-close"></button><div class="sheet-body"></div></div></div><div id="toast"></div><input type="file" id="importFile" hidden>';
   history.replaceState(null, '', `#${view}`);

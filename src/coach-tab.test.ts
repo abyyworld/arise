@@ -23,6 +23,7 @@ async function boot(view: string, data: object = {}) {
   for (const [target, type, fn, opts] of added.splice(0)) target.removeEventListener(type, fn, opts as EventListenerOptions);
   vi.resetModules();
   localStorage.clear();
+  localStorage.setItem("arise-tabs-shown", JSON.stringify(["goals", "coach"])); // the full tab bar (tabs.js)
   localStorage.setItem('pit-data-v1', JSON.stringify({ sessions: [], profile: { name: 'Sam', onboarded: true }, ...data, settings: { aiEngine: 'own', ...((data as { settings?: object }).settings || {}) } }));
   localStorage.setItem('arise-ai-keys', JSON.stringify([{ id: 'k1', key: 'gsk_aaaa1111', provider: 'groq', model: 'llama-3.3-70b-versatile' }]));
   localStorage.setItem('arise-ai-consent', 'groq');
