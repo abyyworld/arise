@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // The Coach tab: quick actions about the whole of life, each looking up the right stretch of the
 // life log; the workout plan's button only with the plan; a quest bar that welcomes talk; and
-// small print that says what the coach reads.
+// small print that says what the coach reads. Its chats: making, switching, renaming, deleting and
+// forgetting them all, and "Ask how I'm doing".
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { version } from '../package.json';
@@ -207,5 +208,149 @@ describe('the Coach tab', () => {
     expect(reflect).toHaveBeenCalledTimes(2);
     expect(btn().disabled).toBe(false);
     expect(btn().textContent!.trim()).toBe('Reflect again');
+  });
+});
+
+describe('chats on the Coach tab', () => {
+  const T = new Date(2026, 9, 9, 12).getTime();
+  const CHATS = {
+    ai: {
+      chat: [
+        { role: 'user', text: 'From the one long chat', at: T - 3 * 86400_000 },
+        { role: 'assistant', text: 'An old answer.', at: T - 3 * 86400_000 + 1000 },
+        { role: 'user', text: 'My knee hurts after runs', at: T - 2 * 3600_000, c: 'k1' },
+        { role: 'assistant', text: 'Rest it for two days.', at: T - 2 * 3600_000 + 1000, c: 'k1' },
+        { role: 'user', text: 'How do I save more?', at: T - 86400_000, c: 'm1' },
+        { role: 'assistant', text: 'Start with one small rule.', at: T - 86400_000 + 1000, c: 'm1' },
+      ],
+      chatNames: { m1: { title: 'Money', at: T - 86400_000 } },
+    },
+  };
+  const bubbles = () => $$('#chatLog .bubble').map((b) => b.textContent!.trim());
+  const rows = () => $$('#sheet .chat-open').map((b) => [b.querySelector('b')!.textContent, b.querySelector('small')!.textContent]);
+  const submit = (sel: string) => $(sel)!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+  it('opens the chat used last, lists every chat, and switches between them', async () => {
+    await boot('coach', CHATS);
+    expect(text('.chat-name')).toBe('My knee hurts after runs');
+    expect(bubbles()).toEqual(['My knee hurts after runs', 'Rest it for two days.']);
+    expect(text('[data-act="ai-chats"]')).toBe('Chats (3)');
+
+    await tap('[data-act="ai-chats"]');
+    expect(text('#sheet .sheet-title')).toBe('Your chats');
+    expect(rows()).toEqual([
+      ['My knee hurts after runs', 'Last used today at 10:00 · 2 messages'],
+      ['Money', 'Last used yesterday · 2 messages'],
+      ['From the one long chat', 'Last used on Tuesday · 2 messages'],
+    ]);
+    expect($('#sheet .chat-item.on [data-id="k1"]')).not.toBeNull();
+
+    await tap('#sheet [data-act="ai-open"][data-id="first"]');
+    expect($('#sheet')!.hidden).toBe(true);
+    expect(text('.chat-name')).toBe('From the one long chat');
+    expect(bubbles()).toEqual(['From the one long chat', 'An old answer.']);
+  });
+
+  it('starts a new chat, and the coach answers within the chat that is open', async () => {
+    const { AI } = await boot('coach', CHATS);
+    const chat = vi.spyOn(AI, 'chat').mockResolvedValue('Noted.');
+    await tap('[data-act="ai-new"]');
+    expect($('.chat-name')).toBeNull();
+    expect($('.chat-empty')).not.toBeNull();
+    expect(text('.chat-empty [data-act="ai-how"]')).toBe("Ask how I'm doing");
+    ($('#chatText') as HTMLTextAreaElement).value = 'A new question';
+    submit('#chatForm');
+    await tick();
+    const id = chat.mock.lastCall![1]!.chat as string;
+    expect(id).toMatch(/^[a-z0-9]+$/);
+    expect(['k1', 'm1', 'first']).not.toContain(id);
+
+    // Back in the knee chat, a question goes there.
+    await tap('[data-act="ai-chats"]');
+    await tap('#sheet [data-act="ai-open"][data-id="k1"]');
+    ($('#chatText') as HTMLTextAreaElement).value = 'And now?';
+    submit('#chatForm');
+    await tick();
+    expect(chat).toHaveBeenLastCalledWith('And now?', expect.objectContaining({ chat: 'k1' }));
+    // So do the quick actions.
+    await tap('[data-act="ai-quick"][data-i="0"]');
+    expect(chat).toHaveBeenLastCalledWith(expect.stringContaining('Review my last 7 days'), expect.objectContaining({ chat: 'k1' }));
+  });
+
+  it("asks how I'm doing in a new chat, gently, from the last week", async () => {
+    const { AI } = await boot('coach', CHATS);
+    const chat = vi.spyOn(AI, 'chat').mockResolvedValue('You slept less this week. How are you, really?');
+    expect(text('.quick [data-act="ai-how"]')).toBe("Ask how I'm doing new chat");
+    await tap('.quick [data-act="ai-how"]');
+    const [question, opts] = chat.mock.lastCall!;
+    expect(question.split('\n')[0]).toBe("Ask me how I'm really doing this week.");
+    expect(question).toContain('ask me one gentle, open question about how I really am');
+    expect(question).toContain('as far as you may read it');
+    expect(opts).toEqual(expect.objectContaining({ recallAs: 'the last 7 days' }));
+    expect(['k1', 'm1', 'first']).not.toContain(opts!.chat);
+    expect(question).not.toMatch(/—/);
+  });
+
+  it('starts a chat of its own for a question from another screen', async () => {
+    const { AI, SYS } = await boot('today', CHATS);
+    const chat = vi.spyOn(AI, 'chat').mockResolvedValue('Noted.');
+    expect(SYS.askCoach('Arise noticed: something. What do you make of it?', { recallAs: 'the last 6 weeks' })).toBe(true);
+    await tick();
+    expect(['k1', 'm1', 'first']).not.toContain(chat.mock.lastCall![1]!.chat);
+  });
+
+  it('renames a chat, and an empty name goes back to its first question', async () => {
+    await boot('coach', CHATS);
+    const S = await import('./store');
+    await tap('[data-act="ai-chats"]');
+    await tap('#sheet [data-act="ai-rename"][data-id="k1"]');
+    const input = $('#chatName') as HTMLInputElement;
+    expect(input.value).toBe('');
+    expect(input.placeholder).toBe('My knee hurts after runs');
+    input.value = '  Knee  ';
+    submit('#sheet form[data-form="chat-rename"]');
+    expect(rows()[0][0]).toBe('Knee');
+    expect(text('.chat-name')).toBe('Knee');
+    expect(S.state.ai.chatNames.k1.title).toBe('Knee');
+
+    await tap('#sheet [data-act="ai-rename"][data-id="m1"]');
+    expect(($('#chatName') as HTMLInputElement).value).toBe('Money');
+    ($('#chatName') as HTMLInputElement).value = '';
+    submit('#sheet form[data-form="chat-rename"]');
+    expect(rows()[1][0]).toBe('How do I save more?');
+  });
+
+  it('deletes one chat after asking, on every device (with a stamp), and opens the one used last', async () => {
+    await boot('coach', CHATS);
+    const S = await import('./store');
+    const ask = vi.spyOn(window, 'confirm').mockReturnValueOnce(false);
+    await tap('[data-act="ai-chats"]');
+    await tap('#sheet [data-act="ai-del"][data-id="k1"]');
+    expect(ask).toHaveBeenLastCalledWith('Delete "My knee hurts after runs"? It goes from all your devices, and this can\'t be undone.');
+    expect(rows()).toHaveLength(3);
+
+    ask.mockReturnValueOnce(true);
+    await tap('#sheet [data-act="ai-del"][data-id="k1"]');
+    expect(rows().map((r) => r[0])).toEqual(['Money', 'From the one long chat']);
+    expect(S.state.ai.chat.some((m) => m.c === 'k1')).toBe(false);
+    expect(S.state.stamps.chat.k1).toBeLessThan(0);
+    expect(text('.chat-name')).toBe('Money');
+    expect(text('[data-act="ai-chats"]')).toBe('Chats (2)');
+  });
+
+  it('forgets every chat after a plain question, on every device', async () => {
+    await boot('coach', CHATS);
+    const S = await import('./store');
+    const ask = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await tap('[data-act="ai-chats"]');
+    await tap('#sheet [data-act="ai-forget"]');
+    expect(ask).toHaveBeenLastCalledWith("Forget every chat? They go from all your devices, and this can't be undone. The questions you asked stay in your life log until you delete them there.");
+    expect($('#sheet')!.hidden).toBe(true);
+    expect(S.state.ai.chat).toEqual([]);
+    expect(S.state.ai.chatNames).toEqual({});
+    expect(S.state.stamps.chat.cleared).toBe(Date.now());
+    expect($('.chat-empty')).not.toBeNull();
+    expect($('[data-act="ai-chats"]')).toBeNull();
+    expect(text('#toast')).toBe('Every chat is forgotten.');
   });
 });

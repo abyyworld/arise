@@ -18,6 +18,7 @@ import { mergePlaceNames } from './place-names';
 import { mergeEvents } from './events';
 import { mergeDecisions, mergeDismissed } from './decisions';
 import { mergeOwnStorage } from './own-storage';
+import { mergeChat, mergeChatNames } from './chats';
 
 export type CloudCopy = Omit<State, 'active' | 'updatedAt'>;
 
@@ -162,21 +163,8 @@ function mergeValues(a: Values, b: Values): Values {
 
 type AI = CloudCopy['ai'];
 
-// Coach chat: every message from both, minus anything from before the last "clear" (the later of
-// the two, in the stamps already merged).
-// A message in both keeps the higher tier of the two (a reply made from the life log; see ai.js).
-export function mergeChat(older: AI['chat'], newer: AI['chat'], stamps: Stamps): AI['chat'] {
-  const cleared = Math.max(0, stamps.chat?.cleared || 0);
-  const seen = new Map<string, AI['chat'][number]>();
-  for (const m of [...older, ...newer]) {
-    if (m.at <= cleared) continue;
-    const key = `${m.at}|${m.role}|${m.text.length}`;
-    const had = seen.get(key);
-    if (!had) seen.set(key, m);
-    else if ((m.tier || 1) > (had.tier || 1)) seen.set(key, { ...had, tier: m.tier });
-  }
-  return [...seen.values()].sort((a, b) => a.at - b.at).slice(-200);
-}
+// Coach chats: every message from both, minus anything deleted (lib/chats.ts).
+export { mergeChat };
 
 // The System's message of each day: the later one (the newer copy's when they're as old).
 export function mergeDaily(older: AI['daily'], newer: AI['daily']): AI['daily'] {
@@ -223,6 +211,7 @@ export function merge(local: CloudCopy, localAt: number, remote: CloudCopy, remo
   const profile = !cloudWins && localP >= remoteP ? (local.profile ?? remote.profile) : (remote.profile ?? local.profile);
 
   const chat = mergeChat(older.ai.chat, newer.ai.chat, stamps);
+  const chatNames = mergeChatNames(local.ai.chatNames, remote.ai.chatNames, stamps);
   const daily = mergeDaily(older.ai.daily, newer.ai.daily);
 
   // An account that never had the workout plan has only the default plan settings: a device's
@@ -244,7 +233,7 @@ export function merge(local: CloudCopy, localAt: number, remote: CloudCopy, remo
     },
     profile: profile || null,
     customPlan,
-    ai: { ...newer.ai, chat, daily },
+    ai: { ...newer.ai, chat, chatNames, daily },
     goals: mergeGoals(local.goals, remote.goals, stamps, cloudWins, now),
     checks: mergeChecks(local.checks, remote.checks),
     values: mergeValues(local.values, remote.values),

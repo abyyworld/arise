@@ -429,6 +429,51 @@ describe('what Arise saw, for the coach', () => {
     expect(await AI.dailyBriefing({ force: true })).not.toHaveProperty('tier');
   });
 
+  it("answers within one chat: that chat's history, with what it always knows, and each chat's own tiers", async () => {
+    const { S, AI } = await withSignals();
+    const CH = await import('./lib/chats');
+    const bodies = stubAnswers();
+    const asked = () => bodies.at(-1)!.messages.filter((m) => m.role !== 'system').map((m) => m.content);
+    await AI.chat('About my knee', { chat: 'k1' }); // the private AI: its reply is made from the life log
+    await AI.chat('About money', { chat: 'm1' });
+    expect(asked()).toEqual(['About money']);
+    expect(system(bodies.at(-1)!)).toContain(ALL);
+    await AI.chat('And my knee again?', { chat: 'k1' });
+    expect(asked()).toHaveLength(3);
+    expect(asked()[0]).toBe('About my knee');
+    expect(asked()[2]).toBe('And my knee again?');
+    expect(JSON.stringify(bodies.at(-1))).not.toContain('About money');
+    expect(system(bodies.at(-1)!)).toContain(ALL);
+    // Without a chat, the one used last.
+    await AI.chat('One more?');
+    expect(CH.listChats(S.state.ai.chat).map((c) => [c.id, c.count, c.tier])).toEqual([
+      ['k1', 6, 3],
+      ['m1', 2, 3],
+    ]);
+    expect(S.state.ai.chat.filter((m) => m.role === 'assistant').every((m) => m.tier === 3)).toBe(true);
+
+    // The free AI, with the life log kept from it: in each chat, only that chat's replies are hidden.
+    S.state.settings.aiEngine = 'free';
+    AI.agreeFree();
+    await AI.chat('Money again?', { chat: 'm1' });
+    expect(asked()).toEqual(['About money', AI.HIDDEN_REPLY, 'Money again?']);
+    expect(CH.messagesOf(S.state.ai.chat, 'm1').at(-1)).not.toHaveProperty('tier');
+
+    // A new chat starts with no history at all.
+    await AI.chat('Something new', { chat: 'n1' });
+    expect(asked()).toEqual(['Something new']);
+
+    // A chat deleted while its answer is on its way: the answer doesn't bring it back.
+    vi.stubGlobal('fetch', async () => {
+      S.deleteChat('m1');
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'Too late.' }, finish_reason: 'stop' }] }));
+    });
+    await AI.chat('Still there?', { chat: 'm1' });
+    expect(CH.messagesOf(S.state.ai.chat, 'm1')).toEqual([]);
+    expect(S.state.ai.chat.some((m) => m.text === 'Too late.')).toBe(false);
+    expect(CH.listChats(S.state.ai.chat).map((c) => c.id).sort()).toEqual(['k1', 'n1']);
+  });
+
   it('stays out of the reminder texts, which show on the lock screen', async () => {
     const { AI } = await withSignals();
     const bodies = stubAnswers();

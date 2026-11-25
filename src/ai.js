@@ -36,6 +36,7 @@ import * as PLAN from './plan';
 import { isSystem } from './words';
 import { WAITS, classify, makeBy } from './life/strength';
 import * as STUDY from './study.js';
+import * as CH from './lib/chats';
 
 export { plain };
 
@@ -2037,18 +2038,32 @@ export const HIDDEN_QUESTION = "(An earlier question is left out here: it was ab
 // The highest tier of the life log this AI may read (1 without a life log).
 export const lifeCap = (e = engine()) => memoryCap(e);
 
-// Coach chat. The conversation lives in S.state.ai.chat.
+// Coach chats. Every message lives in S.state.ai.chat, each with its chat's id (lib/chats.ts).
+// The coach answers within one chat (`chat`, its id; none: the chat used last, or a new one): its
+// history is that chat's messages only, plus what it always knows (buildContext and the life log).
 // A reply carries the highest tier of the life log it was made from (`tier`, when above 1), and
 // goes back only to an AI that may read that tier, like the notes themselves. So does a question
 // with something from the life log in it (`about`: its tier, for "Ask your coach" on a pattern).
 // `recallAs`: what to look up in the life log instead of the question's own words, like "the last
 // 7 days" for a quick action that reviews the week.
-export async function chat(userText, { full = false, recallAs = '', about = 1, onText, signal } = {}) {
-  const log = S.state.ai.chat;
-  log.push({ role: 'user', text: userText, at: Date.now(), ...(about === 2 || about === 3 ? { tier: about } : {}) });
+export async function chat(userText, { chat: id = '', full = false, recallAs = '', about = 1, onText, signal } = {}) {
+  const c = CH.isChatId(id) ? id : CH.lastChat(S.state.ai.chat) || CH.newChatId();
+  const question = CH.inChat({ role: 'user', text: userText, at: Date.now(), ...(about === 2 || about === 3 ? { tier: about } : {}) }, c);
+  S.state.ai.chat.push(question);
   S.save();
   // Failed replies stay on screen but are never sent back to the AI.
-  const recent = log.filter((m) => !m.error).slice(-CHAT_KEEP);
+  const recent = CH.messagesOf(S.state.ai.chat, c)
+    .filter((m) => !m.error)
+    .slice(-CHAT_KEEP);
+  // The answer goes in the list as it is then (a sync may have replaced it meanwhile), unless the
+  // chat was deleted or every chat forgotten while it was on its way.
+  const keep = (m) => {
+    if (CH.gone(S.state.stamps, question)) return;
+    const log = S.state.ai.chat;
+    log.push(CH.inChat(m, c));
+    if (log.length > CH.CHAT_MAX) log.splice(0, log.length - CH.CHAT_MAX);
+    S.save();
+  };
   let tier = 1; // of what the answer is made from
   const history = (e) => {
     const cap = memoryCap(e);
@@ -2073,22 +2088,18 @@ export async function chat(userText, { full = false, recallAs = '', about = 1, o
       return buildContext({ full, compact, e, recalled: ok ? notes.text : '' });
     };
     const { text } = await ask({ context, effort: full ? 'high' : 'medium', messages: history, onText, signal, cacheLast: true });
-    log.push({ role: 'assistant', text, at: Date.now(), ...(tier > 1 ? { tier } : {}) });
-    if (log.length > 200) log.splice(0, log.length - 200);
-    S.save();
+    keep({ role: 'assistant', text, at: Date.now(), ...(tier > 1 ? { tier } : {}) });
     return text;
   } catch (err) {
     // Keep the question so it can be retried, but mark that no answer came back.
-    log.push({ role: 'assistant', text: `⚠️ ${err.message}`, error: true, at: Date.now() });
-    S.save();
+    keep({ role: 'assistant', text: `⚠️ ${err.message}`, error: true, at: Date.now() });
     throw err;
   }
 }
 
+// "Forget every chat" (see S.forgetChats).
 export function clearChat() {
-  S.state.ai.chat = [];
-  S.stamp('chat', 'cleared', true); // so another device's copy doesn't bring the old messages back
-  S.save();
+  S.forgetChats();
 }
 
 // ---------- personalised plan
