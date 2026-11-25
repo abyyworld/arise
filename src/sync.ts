@@ -60,7 +60,9 @@ const TIMEOUT = 45_000;
 // currency and writing-voice settings, which 1.33 would drop.
 // 14: who's invited to an event (lib/events.ts guests), the morning brief's time (settings.briefAt),
 // and 1.35's other additions, which 1.34 would drop.
-export const SCHEMA = 14;
+// 15: the coach's separate chats (a chat id on each message, ai.chatNames, deleted chats in
+// stamps.chat), which 1.35 would merge into one chat and could bring back.
+export const SCHEMA = 15;
 
 interface Meta {
   uid?: string;
