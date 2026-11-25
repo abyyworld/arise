@@ -2703,6 +2703,8 @@ initInsight();
 initAhead();
 // The box on Today sends a question to the coach.
 EVERYDAY.initEveryday({ ask: (text) => SYS.askCoach(text) });
+// Loose ends in their notes, for A quick one: read a few seconds after opening.
+setTimeout(() => void EVERYDAY.refreshLoose(), 4000);
 // The plan's cards follow the life log (calendars, sleep, people) as it's read.
 // Next-step messages: planned on the phone in the phone apps, shown while open on the web.
 N.useNudges((now) => [...aheadNudges(now), ...BRIEF.nudges(now)]);

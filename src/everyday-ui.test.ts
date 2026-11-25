@@ -176,7 +176,16 @@ describe('a quick one on Today', () => {
     expect(text('#askCard')).toContain('When do you think best?');
     await tap('[data-act="q-best"][data-v="evening"]');
     expect(S.state.settings.bestTime).toBe('evening');
-    expect(text('#askCard')).toBe('');
+    // Then, with nothing else open, one question to get to know them, kept as a note.
+    expect(text('#askCard')).toContain('Getting to know you.');
+    const notes: { title?: string; detail?: string }[] = [];
+    (await import('./life/store-port')).setLifeStore({ addEvents: async (ev) => (notes.push(...(ev as never[])), ev.length) });
+    const q = $('#askCard .ask-text')!.textContent!;
+    (document.querySelector('#askIn') as HTMLTextAreaElement).value = 'Football with friends, then a long call home.';
+    await submit('[data-form="q-write"]');
+    await vi.waitFor(() => expect(notes).toHaveLength(1));
+    expect(notes[0]).toMatchObject({ title: q, detail: `${q}\nFootball with friends, then a long call home.` });
+    expect(text('#askCard')).toBe(''); // one a day
   });
 
   it('marks money paid back from the question', async () => {

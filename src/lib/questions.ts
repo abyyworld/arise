@@ -29,7 +29,26 @@ export interface QInput {
   bestTime: string; // '' when not said
   weekBig: number; // to-dos marked as mattering a lot, not done, due this week
   dismissed: Record<string, unknown>;
+  loose?: { id: string; text: string; at: number }[]; // loose ends in their notes (lib/loose.ts)
+  now?: number;
 }
+
+// Getting to know you: one of these on a quiet day, answered in a few words, kept as a note in
+// the life log so the coach and the memory learn it.
+export const KNOW = [
+  'What does a good day look like for you?',
+  'Who do you turn to when things get hard?',
+  'What drains your energy most?',
+  'What are you proudest of this year?',
+  'When do you feel most like yourself?',
+  'What is one habit you would like to drop?',
+  'What would you do with a completely free Saturday?',
+  'What do you wish people knew about you?',
+  'What are you looking forward to right now?',
+  'What is something you keep putting off, and why?',
+  'Which people give you energy?',
+  'What did you learn the hard way this year?',
+];
 
 const addDays = (k: string, n: number) => {
   const [y, m, d] = k.split('-').map(Number);
@@ -76,6 +95,21 @@ export function questions(q: QInput): Question[] {
     });
   }
 
+  // Loose ends in their own notes, a day or more old: did it happen?
+  for (const l of q.loose || []) {
+    if ((q.now ?? Date.now()) - l.at < 86_400_000) continue;
+    add({
+      id: `loose:${l.id}`,
+      text: `You wrote "${short(l.text, 70)}". Did it happen?`,
+      hint: `In your notes, ${new Date(l.at).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}.`,
+      choices: [
+        { label: 'Done', act: 'q-loose-done' },
+        { label: 'Make it a to-do', act: 'q-loose-todo', v: l.text },
+        { label: 'Not a thing', act: 'q-skip' },
+      ],
+    });
+  }
+
   // A goal with quests and nothing ticked for a week (and older than a week).
   for (const g of q.goals) {
     if (!g.quests || g.created > addDays(q.today, -7)) continue;
@@ -102,6 +136,16 @@ export function questions(q: QInput): Question[] {
         { label: 'Not sure', act: 'q-skip' },
       ],
     });
+
+  // Nothing else to ask: one question to get to know them, a new one each day.
+  if (!out.length) {
+    const day = Math.floor(Date.UTC(+q.today.slice(0, 4), +q.today.slice(5, 7) - 1, +q.today.slice(8, 10)) / 86_400_000);
+    const left = KNOW.map((text, i) => ({ text, i })).filter((k) => !seen(`know:${k.i}`));
+    if (left.length && !seen(`know-day:${q.today}`)) {
+      const k = left[day % left.length];
+      add({ id: `know:${k.i}`, text: k.text, hint: 'Getting to know you. A few words is plenty; they stay in your notes.', choices: [], write: { placeholder: 'Write a few words', act: 'q-know' } });
+    }
+  }
 
   return out;
 }
