@@ -1,0 +1,15 @@
+/* Voice notes (src/voice/voice-ui.js): the Talk button next to a text box, what's in its place
+   while it listens, and the download offer. Colour tokens only, so both looks get them. */
+
+.voice { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.voice.wide { flex: 1 1 100%; order: 9; display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.voice.wide progress { width: 100%; }
+.voice .voice-btns { margin-top: 0; align-items: center; }
+.voice-mic svg { vertical-align: -3px; }
+.voice-rec { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.voice-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: voice-pulse 1.2s ease-in-out infinite; }
+@keyframes voice-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .voice-dot { animation: none; } }
+.capture-row { flex-wrap: wrap; }
+.field .voice { margin-top: 6px; }
+.sheet-body > .voice { margin: -2px 0 12px; }

@@ -20,6 +20,7 @@ import { deleteCoachQuestion, isCoachQuestion } from './ingest';
 import { SOURCE_NAMES } from './tiers';
 import * as MEANING from './embed/index';
 import * as MUI from './meaning-ui.js';
+import * as VOICE from '../voice/voice-ui.js';
 import { addDays, dayEnd, dayKey, dayStart, monthStart, parseDay, parseWhen, withoutWhen } from './dates';
 import { PART_NAMES, shareText, splitLine, toText } from './diary';
 import { WAITS, byText } from './strength';
@@ -280,6 +281,7 @@ export function renderDays(root) {
           <p class="small">${esc(whereLine())}</p>
         </section>
         ${MUI.panel()}
+        ${VOICE.panel()}
       </div>
     </div>`;
   fillDay();
@@ -698,6 +700,7 @@ function openAdd(day) {
     <h2 class="display sheet-title">${esc(dayLabel(k))}</h2>
     <label class="field"><span class="k">Title <span class="muted">· if you like</span></span><input id="lifeNoteTitle" type="text" maxlength="120" autocomplete="off"></label>
     <label class="field"><span class="k">What happened</span><textarea id="lifeNote" class="log-text" rows="4" maxlength="2000" placeholder="Lunch with Sam in the park. Felt good after."></textarea></label>
+    ${VOICE.micButton('lifeNote', 'lifeFile')}
     <label class="field"><span class="k">A file or photo <span class="muted">· if you like</span></span><input id="lifeFile" type="file"></label>
     <p class="muted small" id="lifeFileNote">A text file's words go into the note. A photo or any other file is kept with your day, locked on your device first.</p>
     <p class="label">Mood <span class="muted">· if you like</span></p>

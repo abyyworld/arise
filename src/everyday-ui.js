@@ -13,6 +13,7 @@ import { noteWithFile } from './life/quick-note';
 import { hasLifeStore, lifeStore } from './life/store-port';
 import { esc, icon, openSheet, closeSheet, toast } from './ui.js';
 import { todoCard, dayText } from './todos-ui.js';
+import * as VOICE from './voice/voice-ui.js';
 import './styles/everyday.css';
 
 const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
@@ -47,6 +48,7 @@ export function captureCard() {
       <p class="capture-what muted small" id="captureWhat" aria-live="polite"></p>
       <div class="capture-kinds chips" id="captureKinds" hidden role="group" aria-label="Save it as">${KINDS.map(([k, label]) => `<button type="button" class="chip" data-act="capture-kind" data-v="${k}" aria-pressed="false">${label}</button>`).join('')}</div>
       <div class="row capture-row">
+        ${VOICE.micButton('captureIn', 'captureFile')}
         <label class="btn ghost small capture-file">${icon('note')} <span id="captureFileName">Add a file</span><input id="captureFile" type="file" hidden></label>
         <button class="btn primary small" type="submit" id="captureGo">Save</button>
       </div>
@@ -578,6 +580,7 @@ async function writeGo() {
 
 // True when it was one of these.
 export function handleAction(act, el) {
+  if (act?.startsWith('voice-')) return VOICE.handleAction(act, el);
   const v = el?.dataset?.v;
   const id = el?.dataset?.id;
   switch (act) {

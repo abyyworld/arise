@@ -1150,6 +1150,21 @@ export function cleanMeaningPrefs(raw: unknown): MeaningPrefs {
   return { on: d.on === true, at: time(d.at) };
 }
 
+// Voice notes with the model on this device (voice/model.ts): on, when it was downloaded, the
+// language to listen for ('auto' or a code like 'uz'), and whether a recording is kept with its
+// note (off unless the person turns it on). Kept on this device only.
+export interface VoicePrefs {
+  on: boolean;
+  at: number;
+  lang: string;
+  keep: boolean;
+}
+export function cleanVoicePrefs(raw: unknown): VoicePrefs {
+  const d = obj(raw);
+  const lang = typeof d.lang === 'string' && /^(auto|[a-z]{2,3})$/.test(d.lang) ? d.lang : 'auto';
+  return { on: d.on === true, at: time(d.at), lang, keep: d.keep === true };
+}
+
 // ---------- Arise reads it for you (life/reads.ts)
 
 // What an AI wrote about one note or file, or what the Player put right: a one-line description,
