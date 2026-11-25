@@ -47,6 +47,7 @@ import * as AHEAD from './ahead-ui.js';
 import * as EVERYDAY from './everyday-ui.js';
 import * as TABS from './tabs.js';
 import * as BRIEF from './brief';
+import * as REVIEW from './review';
 import { initAhead, onAheadChange, nudges as aheadNudges } from './ahead';
 import * as CAL from './calendar-ui.js';
 import * as PAUSEUI from './life/pause-ui';
@@ -197,7 +198,7 @@ function render() {
 // Training, with the rest of it.
 function renderToday() {
   const k = S.todayKey();
-  const main = [PAUSEUI.todayCard(), EVERYDAY.captureCard(), dayCard(k), ...(isSystem() ? [] : [lookHint()]), resumeBanner(), LIFE.recapSlot(), SYS.systemMessageCard(), EVERYDAY.briefCard(), ...AHEAD.todayCards(), EVERYDAY.questionCard(), STUDY.todayCard(), `<div id="todo">${todo(k)}</div>`, TODOS.todoCard(k), EVERYDAY.everydayCard(), journalNotifyCard(), installBanner()];
+  const main = [PAUSEUI.todayCard(), EVERYDAY.captureCard(), dayCard(k), ...(isSystem() ? [] : [lookHint()]), resumeBanner(), LIFE.recapSlot(), SYS.systemMessageCard(), EVERYDAY.briefCard(), EVERYDAY.reviewCard(), ...AHEAD.todayCards(), EVERYDAY.questionCard(), STUDY.todayCard(), `<div id="todo">${todo(k)}</div>`, TODOS.todoCard(k), EVERYDAY.everydayCard(), journalNotifyCard(), installBanner()];
   const life = S.state.profile?.life;
   const side = isSystem() ? [statusWindow(), quoteCard(k)] : [SIDE.todaySide(), TOP.slot(), SIDE.gameLine(), life && (life.values?.length || life.hope) ? mattersCard(life) : quoteCard(k)];
 
@@ -2710,8 +2711,8 @@ EVERYDAY.initEveryday({ ask: (text) => SYS.askCoach(text) });
 setTimeout(() => void EVERYDAY.refreshLoose(), 4000);
 // The plan's cards follow the life log (calendars, sleep, people) as it's read.
 // Next-step messages: planned on the phone in the phone apps, shown while open on the web.
-N.useNudges((now) => [...aheadNudges(now), ...BRIEF.nudges(now)]);
-ALERTS.useNudges((now) => [...aheadNudges(now, 2), ...BRIEF.nudges(now, 2)]);
+N.useNudges((now) => [...aheadNudges(now), ...BRIEF.nudges(now), ...REVIEW.nudges(now)]);
+ALERTS.useNudges((now) => [...aheadNudges(now, 2), ...BRIEF.nudges(now, 2), ...REVIEW.nudges(now, 2)]);
 onAheadChange(() => {
   AHEAD.repaintCards();
   if (N.isNative) void N.syncNotifications();

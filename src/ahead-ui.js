@@ -14,6 +14,7 @@ import * as AI from './ai.js';
 import { hours } from './lib/ahead';
 import { OUTCOME_TEXT } from './lib/decisions';
 import { BOXES } from './lib/priorities';
+import * as REVIEW from './review';
 import { esc, icon, openSheet, closeSheet, toast } from './ui.js';
 
 const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
@@ -354,6 +355,9 @@ export function settingsHTML() {
       <select data-set="briefAt">${['', '06:00', '06:30', '07:00', '07:30', '08:00', '08:30', '09:00', '09:30', '10:00']
         .map((v) => `<option value="${v}" ${st.briefAt === v ? 'selected' : ''}>${v || 'Off'}</option>`)
         .join('')}</select></label>
+    <h3 class="sub">Weekly review</h3>
+    <p class="small muted">On Sunday afternoon and Monday morning, Today looks back at your week and ahead to the next, with a note on Sunday at 18:00. For this device.</p>
+    <label class="field"><span>Weekly review</span><select data-set="review"><option value="on" ${REVIEW.on() ? 'selected' : ''}>On</option><option value="off" ${REVIEW.on() ? '' : 'selected'}>Off</option></select></label>
   </div>`;
 }
 
@@ -367,6 +371,11 @@ globalThis.document?.addEventListener('change', (e) => {
   else if ((key === 'quietFrom' || key === 'quietTo') && TIME.test(el.value)) st[key] = el.value;
   else if (key === 'bestTime' && ['', 'morning', 'afternoon', 'evening'].includes(el.value)) st.bestTime = el.value;
   else if (key === 'briefAt' && (el.value === '' || TIME.test(el.value))) st.briefAt = el.value;
+  else if (key === 'review') {
+    REVIEW.setOn(el.value === 'on');
+    toast('Saved.');
+    return;
+  }
   else return;
   S.save();
   toast('Saved.');

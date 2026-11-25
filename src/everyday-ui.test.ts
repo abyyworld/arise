@@ -224,6 +224,26 @@ describe('the morning brief', () => {
   });
 });
 
+describe('the weekly review', () => {
+  it('shows on Sunday afternoon, plans a plain note at 18:00, and goes when put away', async () => {
+    vi.setSystemTime(new Date(2026, 10, 29, 16, 0)); // Sunday 29 November, 16:00
+    const { S } = await boot({ settings: { bestTime: 'morning' } });
+    const t = S.addTodo({ title: 'Pay rent', day: '2026-11-27' })!;
+    S.setTodoDone(t.id, true);
+    const UI = await import('./everyday-ui.js');
+    document.querySelector('#reviewCard')!.outerHTML = UI.reviewCard();
+    expect(text('#reviewCard')).toContain('1 to-do done: Pay rent.');
+    expect(text('#reviewCard')).toContain('One thing to try');
+    const R = await import('./review');
+    const n = R.nudges(Date.now(), 3);
+    expect(n.map((x) => [new Date(x.at).getHours(), x.body])).toEqual([[18, 'Your week is ready to look back on, with one thing to try next week.']]);
+    await tap('[data-act="review-done"]');
+    expect(text('#reviewCard')).toBe('');
+    expect(R.nudges(Date.now(), 3)).toEqual([]);
+    expect(UI.reviewCard(new Date(2026, 10, 25, 16, 0))).toBe('<div id="reviewCard"></div>'); // a Wednesday
+  });
+});
+
 describe('Write it my way', () => {
   it('writes from rough notes on Coach, keeps the sample of how you write, and copies the result', async () => {
     const { S, AI } = await boot({}, 'coach');
