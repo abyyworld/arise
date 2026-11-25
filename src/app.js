@@ -67,6 +67,10 @@ import * as LINKS from './life/links-ui.js';
 import * as WORLD from './life/world-ui.js';
 import * as PEOPLE from './people-ui.js';
 import { initPeople, nudges as peopleNudges } from './people';
+import * as MONEY from './life/money-ui.js';
+import * as HABITS from './habits-ui.js';
+import { initHabits } from './life/habits';
+import { initMoney } from './life/money';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const app = $('#app');
@@ -156,6 +160,7 @@ const VIEWS = {
   [LINKS.VIEW]: () => LINKS.renderLinks(app),
   [WORLD.VIEW]: () => WORLD.renderWorld(app),
   [PEOPLE.VIEW]: () => PEOPLE.renderPeople(app),
+  [MONEY.VIEW]: () => MONEY.renderMoney(app),
   [IMPORT.VIEW]: () => IMPORT.renderImport(app, { store: loadLifeStore, back: importBack }),
 };
 
@@ -183,7 +188,7 @@ function render() {
   if (applyLook()) buildNav();
   document.body.dataset.view = view;
   // Screens without a tab of their own light up the one they open from.
-  const tab = (view === 'plan' || view === 'training' || view === 'goals') && !TABS.isShown('goals') ? 'progress' : view === 'coach' && !TABS.isShown('coach') ? 'progress' : view === 'plan' || view === 'training' ? 'goals' : view === WORLD.VIEW || view === PEOPLE.VIEW ? 'progress' : view === 'knows' || view === HUB.VIEW || view === PLACES.VIEW || view === LINKS.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
+  const tab = (view === 'plan' || view === 'training' || view === 'goals') && !TABS.isShown('goals') ? 'progress' : view === 'coach' && !TABS.isShown('coach') ? 'progress' : view === 'plan' || view === 'training' ? 'goals' : view === WORLD.VIEW || view === PEOPLE.VIEW || view === MONEY.VIEW ? 'progress' : view === 'knows' || view === HUB.VIEW || view === PLACES.VIEW || view === LINKS.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
   for (const b of document.querySelectorAll('#tabs [data-v]')) {
     b.classList.toggle('on', b.dataset.v === tab);
     if (b.dataset.v === tab) b.setAttribute('aria-current', 'page');
@@ -1362,6 +1367,7 @@ function renderProgress() {
         ${YOU.lifePanel()}
         ${YOU.noticedPanel()}
         ${YOU.lookingBackPanel()}
+        ${HABITS.habitsPanel()}
         ${YOU.checkinsPanel(ui.histLimit)}
       </div>
       <div class="col">
@@ -1370,12 +1376,14 @@ function renderProgress() {
         ${GOALS.goalsProgress()}
         ${PEOPLE.entryCard()}
         ${WORLD.entryCard()}
+        ${MONEY.entryCard()}
         ${TABS.moreCard()}
         ${sys ? '' : gameLine()}
       </div>
     </div>`;
   GOALS.drawGoalCharts();
   YOU.fillYou();
+  void HABITS.fillHabits();
 }
 
 // ---------- training
@@ -2379,6 +2387,8 @@ document.addEventListener('click', async (e) => {
       if (WORLD.handleAction(d.act, el)) break;
       if (PEOPLE.handleAction(d.act, el)) break;
       if (YOU.handleAction(d.act, el)) break;
+      if (HABITS.handleAction(d.act, el)) break;
+      if (MONEY.handleAction(d.act, el)) break;
       if (await LIFE.handleAction(d.act, el)) break;
       if (PAUSEUI.handleAction(d.act, el)) break;
       if (SKIPUI.handleAction(d.act, el)) break;
@@ -2712,6 +2722,8 @@ useJournal({
 initIngest();
 initMemory();
 initInsight();
+initHabits();
+initMoney();
 initAhead();
 // People: when they were last in touch, from the life log, read a few seconds after opening.
 initPeople();
