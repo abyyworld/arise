@@ -2414,6 +2414,18 @@ export async function askMemory({ instructions, prompt, schema, maxTokens = 6000
   return { text, json, by: by || '' };
 }
 
+// ---------- Arise reads it for you (src/life/reads.ts)
+
+// One note or file described. Only its own words go, with no system prompt and none of the rest of
+// the Player's data, and only to the engine reads.ts checked may read it: if the Player switched
+// AI since, nothing is sent. Nobody asked for it just now, so on the free plan it never uses the
+// private AI (see engine).
+export async function askRead({ prompt, schema, signal = undefined, engine: forEngine, maxTokens = 3000 }) {
+  if (!forEngine || engine({ background: true }) !== forEngine) throw new AIError('changed', 'The AI in use changed, so Arise stopped reading for now.');
+  const { json, by } = await ask({ bare: true, background: true, effort: 'low', maxTokens, schema, signal, messages: [{ role: 'user', content: prompt }] });
+  return { json, by: by || '' };
+}
+
 // Quick check that the key works, with the smallest possible request.
 export async function testKey() {
   const { text } = await ask({ bare: true, effort: 'low', maxTokens: 1024, messages: [{ role: 'user', content: 'Reply with exactly: System online.' }] });

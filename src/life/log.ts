@@ -570,6 +570,13 @@ export async function span(): Promise<{ first: number; last: number } | null> {
 // `any`: events with at least one of the words, the ones with the most first.
 
 const INDEX_MAX = 5000;
+
+// More words a note is found by, by its id: what an AI wrote about it, its description and tags
+// (life/reads.ts registers this, so the log never needs it).
+let extraWords: (() => ReadonlyMap<string, readonly string[]>) | null = null;
+export function useExtraWords(fn: (() => ReadonlyMap<string, readonly string[]>) | null) {
+  extraWords = fn;
+}
 const GIVEN_MAX = 1000;
 const WINDOW = 31 * 864e5;
 
@@ -592,18 +599,41 @@ export async function search(text: string, { from = -Infinity, to = Infinity, li
   const sizes = await Promise.all(q.map((w) => req(wIndex().count(prefix(w)))));
   const inRange = (r: Row) => r.at >= from && r.at < to;
   const has = given ? hasGiven : hasWord;
-  const score = (r: Row) => q.reduce((n, w) => n + (has(r.w, w) ? 1 : 0), 0);
+  // A note is also found by what an AI wrote about it (useExtraWords).
+  let extra: ReadonlyMap<string, readonly string[]> = new Map();
+  try {
+    extra = extraWords?.() ?? extra;
+  } catch {}
+  const wOf = (r: Row): string[] => {
+    const x = extra.get(r.id);
+    return x ? [...r.w, ...x] : r.w;
+  };
+  const score = (r: Row) => q.reduce((n, w) => n + (has(wOf(r), w) ? 1 : 0), 0);
+  // The notes found that way, read one by one (there are few).
+  const viaExtra = async (keep: (r: Row) => boolean): Promise<Row[]> => {
+    const out: Row[] = [];
+    for (const [id, w] of extra) {
+      if (!q.some((x) => has(w as string[], x))) continue;
+      const r = (await req(db.transaction('events').objectStore('events').get(id))) as Row | undefined;
+      if (r && inRange(r) && keep(r)) out.push(r);
+    }
+    return out;
+  };
 
   if (!any) {
-    if (sizes.some((n) => n === 0)) return [];
-    const rare = sizes.indexOf(Math.min(...sizes));
-    if (sizes[rare] <= INDEX_MAX) {
-      const seen = new Set<string>();
-      const hits = (await req(wIndex().getAll(prefix(q[rare])))) as Row[];
-      const ok = hits.filter((r) => !seen.has(r.id) && !!seen.add(r.id) && inRange(r) && q.every((w) => has(r.w, w)));
-      return rows(ok.sort((a, b) => b.at - a.at).slice(0, max));
+    const all = (r: Row) => q.every((w) => has(wOf(r), w));
+    let base: Row[] = [];
+    if (!sizes.some((n) => n === 0)) {
+      const rare = sizes.indexOf(Math.min(...sizes));
+      if (sizes[rare] <= INDEX_MAX) {
+        const seen = new Set<string>();
+        const hits = (await req(wIndex().getAll(prefix(q[rare])))) as Row[];
+        base = hits.filter((r) => !seen.has(r.id) && !!seen.add(r.id) && inRange(r) && all(r));
+      } else base = await scan(db, from, to, max, all);
     }
-    return rows(await scan(db, from, to, max, (r) => q.every((w) => has(r.w, w))));
+    const more = extra.size ? await viaExtra(all) : [];
+    const byId = new Map([...base, ...more].map((r) => [r.id, r]));
+    return rows([...byId.values()].sort((a, b) => b.at - a.at).slice(0, max));
   }
 
   // Any of the words: the less common ones through the index. Words given by meaning are many,
@@ -612,6 +642,7 @@ export async function search(text: string, { from = -Infinity, to = Infinity, li
   const usable = q.filter((_, i) => sizes[i] > 0 && sizes[i] <= (given ? GIVEN_MAX : INDEX_MAX));
   for (const w of usable) for (const r of (await req(wIndex().getAll(prefix(w), given ? max * 4 : undefined))) as Row[]) if (inRange(r) && (!given || has(r.w, w))) found.set(r.id, r);
   if (!given && !usable.length && sizes.some((n) => n > 0)) for (const r of await scan(db, from, to, max * 5, (x) => score(x) > 0)) found.set(r.id, r);
+  if (extra.size) for (const r of await viaExtra((x) => score(x) > 0)) found.set(r.id, r);
   const ranked = [...found.values()].map((r) => ({ r, s: score(r) })).sort((a, b) => b.s - a.s || b.r.at - a.r.at);
   return rows(ranked.slice(0, max).map((x) => x.r));
 }

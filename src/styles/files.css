@@ -46,3 +46,9 @@
 .goal-files:empty { display: none; }
 .goal-files .row { flex-wrap: wrap; }
 .folder-tile:focus-visible, .folder-row:focus-visible, .file-row:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+/* Arise reads it for you (src/life/reads-ui.js): on a note's or a file's sheet. */
+.reads-box { margin: 12px 0; }
+.reads-box:empty { display: none; }
+.reads-desc { margin: 2px 0 6px; font-weight: 600; }
+.reads-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.reads-tidy { margin-top: 2px; }

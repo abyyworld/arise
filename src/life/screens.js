@@ -31,6 +31,8 @@ import { MOODS, isTextFile, noteWithFile, setFileStore, sizeText } from './quick
 import * as FILES from './files';
 import * as FIX from './fix-ui.js';
 import * as LOOK from './lookback-ui.js';
+import * as READUI from './reads-ui.js';
+import { isNote } from './reads';
 
 // (Parts of these screens fill in after reading the log; by then a test may have gone.)
 const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
@@ -68,11 +70,13 @@ export function initLife(hooks) {
     refresh();
   });
   M.onMemoryChange(refresh);
+  READUI.initReadsUI(); // Arise reads it for you: new notes and files described, in the background
 }
 
 // The log was emptied (or this device's data wiped): nothing from it stays on screen, like the
 // last search's results, which the next person would otherwise see.
 export function forgetScreens() {
+  READUI.forget();
   Object.assign(ui, fresh());
   recapCache = null;
   dayLineCache = null;
@@ -669,6 +673,7 @@ async function showEvent(id) {
   openSheet(`<p class="kicker">${eventIcon(e)} ${esc(SOURCE_NAMES[e.source] || e.source)}</p>
     <h2 class="display sheet-title life-ev-title">${esc(e.title)}</h2>
     <p class="muted">${esc(fmt(dayKey(e.at), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}, ${esc(timeOf(e.at))}${e.end && e.end > e.at ? ` to ${esc(timeOf(e.end))}` : ''}</p>
+    ${isNote(e) ? READUI.slot(`e:${e.id}`) : ''}
     ${e.detail ? `<p class="life-detail">${esc(e.detail)}</p>` : ''}
     ${value}
     ${e.url ? `<p class="small"><a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">Open the link ${icon('ext')}</a></p>` : ''}
@@ -678,6 +683,7 @@ async function showEvent(id) {
         ? '<p class="muted small">This comes from Arise itself. To change it, change it where you made it.</p>'
         : `${isCoachQuestion(e.id) ? '<p class="muted small">You asked the coach this. Deleting it here takes it out of your log for good. The chat keeps it until you start a new chat.</p>' : FIX.fixButton(e.id)}<button class="btn ghost block danger" data-act="life-ev-del" data-id="${esc(e.id)}">Delete from your log</button>`
     }`);
+  if (isNote(e)) void READUI.fillSlot();
 }
 
 // ---------- adding to a day
@@ -775,6 +781,7 @@ export function renderKnows(root) {
           <button class="toggle-row" data-act="life-pause" data-on="${!pr.paused}" aria-pressed="${pr.paused}"><span><b>Stop learning</b><small>Arise keeps your log but doesn't sum up days or learn new facts.</small></span><span class="switch ${pr.paused ? 'on' : ''}"></span></button>
           <button class="toggle-row" data-act="life-less-private" data-on="${!pr.lessPrivate}" aria-pressed="${pr.lessPrivate}"><span><b>Let less private AIs read my life log</b><small>Off: the free AI and your own AI service only see your goals and quests in Arise. On: they can read your notes and everything you bring in, like searches, places and messages. Those companies can read what they're sent. Gemini's free tier also says not to send it personal information.</small></span><span class="switch ${pr.lessPrivate ? 'on' : ''}"></span></button>
         </section>
+        ${READUI.knowsPanel()}
         <section class="panel">
           <div class="panel-title"><span>What's in your log</span></div>
           <div id="lifeSources">${sourcesHTML()}</div>
@@ -878,6 +885,7 @@ async function fillKnows() {
   if (learn) learn.innerHTML = learnText();
   MEUI.fillMe();
   void FIX.fillAreas();
+  READUI.fillStatus();
 }
 
 function showWhy(id) {
@@ -922,6 +930,7 @@ export function settingsPanel() {
     <div class="row"><button class="btn ghost small" data-act="nav" data-v="knows">What Arise knows</button><button class="btn ghost small" data-act="nav" data-v="days">Your days</button></div>
     <p class="label">Your journal is written as</p>
     <div class="seg" role="group" aria-label="Your journal is written as">${opt('first', '“I”, like a diary')}${opt('you', '“You”')}</div>
+    ${READUI.settingsBlock()}
   </section>`;
 }
 
@@ -935,6 +944,7 @@ export async function handleAction(act, el) {
   if (act.startsWith('meaning-')) return MUI.handleAction(act, el);
   if (act.startsWith('fix-')) return FIX.handleAction(act, el);
   if (act.startsWith('lookback-')) return LOOK.handleAction(act, el);
+  if (act.startsWith('reads-')) return READUI.handleAction(act, el);
   const d = el.dataset;
   switch (act) {
     case 'life-day': {
