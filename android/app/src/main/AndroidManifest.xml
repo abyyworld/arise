@@ -119,6 +119,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Voice notes: the microphone, asked for only when the Player taps Talk. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <!-- Your life, Android. Each is asked for only when the Player turns that one on. -->
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
