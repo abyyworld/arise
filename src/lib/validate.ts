@@ -24,6 +24,7 @@ import { cleanEvents, type CalEvents } from './events';
 import { cleanDecisions, cleanDismissed, type Decisions, type Dismissed } from './decisions';
 import { cleanOwnStorage, type OwnStorage } from './own-storage';
 import { cleanPlaceNames, type PlaceNames } from './place-names';
+import { CHAT_MAX, FIRST, cleanChatNames, isChatId, type ChatMsg } from './chats';
 
 export { DATE, isDate } from './clean';
 const ID = /^[a-z0-9]{1,32}$/i;
@@ -387,19 +388,20 @@ function cleanAI(raw: unknown) {
     const d = obj(v);
     if (isDate(k) && typeof d.message === 'string') daily[k] = { message: d.message.slice(0, 1500), focus: str(d.focus, 300), at: time(d.at), ...(d.tier === 2 || d.tier === 3 ? { tier: d.tier } : {}) };
   }
-  const chat = arr(a.chat)
-    .slice(-200)
+  const chat: ChatMsg[] = arr(a.chat)
+    .slice(-CHAT_MAX)
     .map(obj)
     .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.text === 'string')
     // tier: the highest tier of the life log a reply was made from, or a question has in it (see
-    // ai.js, chat).
-    .map((m) => ({ role: m.role as 'user' | 'assistant', text: (m.text as string).slice(0, 20000), at: time(m.at), ...(m.error === true ? { error: true } : {}), ...(m.tier === 2 || m.tier === 3 ? { tier: m.tier as 2 | 3 } : {}) }));
+    // ai.js, chat). c: its chat (lib/chats.ts), none for the first one.
+    .map((m) => ({ role: m.role as 'user' | 'assistant', text: (m.text as string).slice(0, 20000), at: time(m.at), ...(m.error === true ? { error: true } : {}), ...(m.tier === 2 || m.tier === 3 ? { tier: m.tier as 2 | 3 } : {}), ...(isChatId(m.c) && m.c !== FIRST ? { c: m.c } : {}) }));
+  const chatNames = cleanChatNames(a.chatNames);
   const n = obj(a.nudges);
   const nudges = Array.isArray(n.messages) ? { messages: strList(n.messages, 60, 140), at: time(n.at) } : null;
   const u = obj(a.usage);
   const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
   const usage = { input: count(u.input), output: count(u.output), cacheWrite: count(u.cacheWrite), cacheRead: count(u.cacheRead), otherIn: count(u.otherIn), otherOut: count(u.otherOut), calls: count(u.calls) };
-  return { daily, chat, nudges: nudges?.messages.length ? nudges : null, usage };
+  return { daily, chat, chatNames, nudges: nudges?.messages.length ? nudges : null, usage };
 }
 
 // The workout in progress. Only ever read from this device's own storage, but a bad one would

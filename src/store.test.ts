@@ -643,19 +643,19 @@ describe('loading a backup onto a device with its own data', () => {
     expect(S.state.stamps.chat.cleared).toBe(t - 3000);
   });
 
-  it("drops this device's messages from before a clear the backup knows of, and keeps the last 200", async () => {
+  it("drops this device's messages from before a clear the backup knows of, and keeps the last 400", async () => {
     const S = await fresh();
     S.saveGoal({ id: 'g1', title: 'Read more', category: 'learning' });
     const t = Date.now();
     S.state.ai.chat = Array.from({ length: 150 }, (_, i) => ({ role: 'user' as const, text: `here ${i}`, at: t - 100_000 + i }));
     S.state.easySnooze = '2026-10-20';
     S.save();
-    S.importData({ sessions: [], stamps: { chat: { cleared: t - 100_000 + 50 } }, ai: { chat: Array.from({ length: 200 }, (_, i) => ({ role: 'assistant', text: `backup ${i}`, at: t - 50_000 + i })) }, easySnooze: '2026-10-12' });
-    // 99 of this device's are after the clear, 200 in the backup: the last 200 of those.
-    expect(S.state.ai.chat).toHaveLength(200);
+    S.importData({ sessions: [], stamps: { chat: { cleared: t - 100_000 + 50 } }, ai: { chat: Array.from({ length: 400 }, (_, i) => ({ role: 'assistant', text: `backup ${i}`, at: t - 50_000 + i })) }, easySnooze: '2026-10-12' });
+    // 99 of this device's are after the clear, 400 in the backup: the last 400 of those (every chat together).
+    expect(S.state.ai.chat).toHaveLength(400);
     expect(S.state.ai.chat.some((m) => m.text === 'here 50')).toBe(false); // from before the clear
     expect(S.state.ai.chat[0].text).toBe('backup 0');
-    expect(S.state.ai.chat[199].text).toBe('backup 199');
+    expect(S.state.ai.chat[399].text).toBe('backup 399');
     expect(S.state.stamps.chat.cleared).toBe(t - 100_000 + 50);
     expect(S.state.easySnooze).toBe('2026-10-20'); // the later snooze stays
   });

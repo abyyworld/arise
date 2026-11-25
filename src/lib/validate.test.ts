@@ -184,7 +184,7 @@ describe('backup and cloud data', () => {
   it('caps chat history and long text', () => {
     const chat = Array.from({ length: 500 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: 'x'.repeat(30000), at: i }));
     const s = clean({ ai: { chat } });
-    expect(s.ai.chat).toHaveLength(200);
+    expect(s.ai.chat).toHaveLength(400); // every chat together (lib/chats.ts)
     expect(s.ai.chat[0].text).toHaveLength(20000);
   });
 
