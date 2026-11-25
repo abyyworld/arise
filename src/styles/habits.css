@@ -1,0 +1,9 @@
+/* Habits that help, on Me (src/habits-ui.js). Colour tokens only, so both looks get them. */
+.habits p { margin: 0 0 6px; }
+.habit-top { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); box-shadow: inset 3px 0 0 var(--sys); margin-bottom: 8px; }
+.habit-text { font-size: 15px; line-height: 1.4; }
+.habit-try { margin-top: 8px; }
+.habit-also { padding: 6px 0; border-top: 1px solid var(--line); }
+.habit-goals { display: grid; gap: 6px; margin: 10px 0; padding: 0; border: 0; }
+.habit-goals legend { margin-bottom: 4px; color: var(--text-2); }
+.habit-goal { display: flex; align-items: center; gap: 8px; }

@@ -1,0 +1,18 @@
+/* Money (src/life/money-ui.js). Colour tokens only, so both looks get them. */
+.mn-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
+.mn-month { display: grid; gap: 2px; padding: 6px 0; border-top: 1px solid var(--line); }
+.mn-month:first-child { border-top: 0; }
+.mn-line { display: grid; grid-template-columns: 9em 1fr; align-items: center; gap: 8px; font-size: 14px; }
+.mn-bar { display: block; height: 8px; border-radius: 4px; }
+.mn-bar.out { background: var(--gold); }
+.mn-bar.in { background: var(--sys); }
+.mn-cat { border-top: 1px solid var(--line); padding: 6px 0; }
+.mn-cat summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.mn-row { width: 100%; display: flex; justify-content: space-between; gap: 10px; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.mn-row > span { overflow-wrap: anywhere; }
+.mn-row:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+.mn-sub { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.mn-sub:first-child { border-top: 0; }
+.mn-picks { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.mn-note { margin: 8px 2px; }
+@media (max-width: 520px) { .mn-line { grid-template-columns: 7.5em 1fr; } }
