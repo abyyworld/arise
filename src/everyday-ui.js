@@ -8,6 +8,7 @@ import { classify, asKind } from './lib/capture';
 import { questions, threeThings } from './lib/questions';
 import { looseEnds } from './lib/loose';
 import * as BRIEF from './brief';
+import * as VP from './lib/voice-profile';
 import * as REVIEW from './review';
 import { balanceText, later, leftOf, money, totals } from './lib/everyday';
 import { noteWithFile } from './life/quick-note';
@@ -595,6 +596,7 @@ const WRITE_LABELS = [
   ['comment', 'Comment'],
 ];
 let writeKind = 'message';
+let drafted = ''; // the AI's last draft, to tell their own changes from it
 let writing = null; // AbortController while the AI writes
 
 function writeSheet() {
@@ -606,8 +608,13 @@ function writeSheet() {
       <label class="field"><span class="k">Your rough notes</span><textarea id="writeNotes" class="log-text" rows="5" maxlength="4000" placeholder="tell sam cant make fri, ill bring the book sat, sorry"></textarea></label>
       <label class="field"><span class="k">To <span class="muted">· if you like</span></span><input id="writeTo" type="text" maxlength="80" placeholder="My manager, a friend, a group chat" autocomplete="off"></label>
       <details class="write-voice"${voice ? '' : ' open'}><summary>How you write${voice ? ' (saved)' : ''}</summary>
-        <label class="field"><span class="k">Paste a few messages you wrote yourself</span><textarea id="writeVoice" class="log-text" rows="4" maxlength="3000">${esc(voice)}</textarea></label>
-        <p class="muted small">Arise copies how you sound from this, not what it says. Kept with the rest of your Arise.</p>
+        <label class="field"><span class="k">Paste messages you wrote yourself, a blank line between each</span><textarea id="writeVoice" class="log-text" rows="4" maxlength="3000">${esc(voice)}</textarea></label>
+        ${(() => {
+          const t = VP.traits(voice);
+          const lines = VP.traitsText(t);
+          return `<p class="muted small">${t.samples} of ${VP.GOOD_SAMPLES} messages${t.samples < VP.GOOD_SAMPLES ? ': more makes it sound more like you' : ''}.</p>${lines.length ? `<ul class="brief-list small">${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}`;
+        })()}
+        <p class="muted small">Arise copies how you sound from this, not what it says. When you change a draft and copy it, your version is added here. Kept with the rest of your Arise.</p>
       </details>
       <button class="btn primary block" type="submit" id="writeGo">Write it</button>
       <div id="writeOut" aria-live="polite"></div>
@@ -643,7 +650,8 @@ async function writeGo() {
   }
   try {
     const text = await AI.writeMyWay(notes, writeKind, { to: ($('#writeTo')?.value || '').trim(), signal: writing.signal });
-    if (out) out.innerHTML = `<div class="write-out" id="writeText">${esc(text)}</div><div class="row"><button class="btn small primary" type="button" data-act="write-copy">Copy</button><button class="btn small ghost" type="button" data-act="write-again">Write it again</button></div>`;
+    drafted = text;
+    if (out) out.innerHTML = `<label class="sr-only" for="writeText">The draft, yours to change</label><textarea class="write-out log-text" id="writeText" rows="6">${esc(text)}</textarea><div class="row"><button class="btn small primary" type="button" data-act="write-copy">Copy</button><button class="btn small ghost" type="button" data-act="write-again">Write it again</button></div>`;
   } catch (err) {
     if (out) out.innerHTML = `<p class="muted small">${esc(err?.message || "That didn't work. Try again.")}</p>`;
   } finally {
@@ -696,7 +704,13 @@ export function handleAction(act, el) {
       writeGo();
       return true;
     case 'write-copy': {
-      const text = $('#writeText')?.textContent || '';
+      const text = ($('#writeText')?.value ?? $('#writeText')?.textContent ?? '').trim();
+      // Their own changes teach the next draft.
+      if (text && drafted && text !== drafted.trim()) {
+        S.state.settings.voice = VP.addSample(S.state.settings.voice || '', text);
+        S.save();
+        drafted = text;
+      }
       globalThis.navigator?.clipboard?.writeText(text).then(
         () => toast('Copied.'),
         () => toast("Couldn't copy. Select the text and copy it."),

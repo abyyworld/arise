@@ -297,5 +297,10 @@ describe('Write it my way', () => {
     await vi.waitFor(() => expect(text('#writeText')).toBe('Hey Sam! Can’t make Friday, sorry.'));
     expect(writeSpy).toHaveBeenCalledWith('tell sam cant make fri', 'email', expect.objectContaining({ to: '' }));
     expect(S.state.settings.voice).toBe('hey!! so sorry about that lol');
+    // Their own change to the draft, copied, becomes a new sample.
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: async () => {} }, configurable: true });
+    ($('#writeText') as HTMLTextAreaElement).value = 'hey sam cant make fri sorry!!';
+    await tap('[data-act="write-copy"]');
+    expect(S.state.settings.voice).toBe('hey!! so sorry about that lol\n\nhey sam cant make fri sorry!!');
   });
 });

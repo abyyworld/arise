@@ -30,6 +30,7 @@ import { normalizePlan, plain } from './lib/clean';
 import * as G from './lib/goals';
 import * as DC from './lib/decisions';
 import * as EVD from './lib/everyday';
+import * as VP from './lib/voice-profile';
 import * as LC from './lib/life-check';
 import * as Device from './lib/on-device';
 import * as F from './lib/free-ai';
@@ -2453,7 +2454,7 @@ export async function writeMyWay(notes, kind = 'message', { to = '', signal } = 
     messages: [
       {
         role: 'user',
-        content: `Turn my rough notes into ${what}${to ? ` for ${to}` : ''}, written as me.\n\nMy notes:\n${notes}\n\n${voice ? `How I write (a sample of my own writing, copy its tone, length of sentences, punctuation and words, not its content):\n${voice}\n\n` : ''}Rules:\n- Sound like a person, not an assistant. ${voice ? 'Match my sample.' : 'Plain, warm and direct.'}\n- Keep every fact from my notes and add none.\n- Same language as my notes.\n- No em dashes.\n- Reply with only the text, ready to paste. No notes, no options, no quotes around it.`,
+        content: `Turn my rough notes into ${what}${to ? ` for ${to}` : ''}, written as me.\n\nMy notes:\n${notes}\n\n${voice ? `How I write (a sample of my own writing, copy its tone, length of sentences, punctuation and words, not its content):\n${voice}\n\nWhat stands out in it: ${VP.traitsText(VP.traits(voice)).join(' ')}\n\n` : ''}Rules:\n- Sound like a person, not an assistant. ${voice ? 'Match my sample.' : 'Plain, warm and direct.'}\n- Keep every fact from my notes and add none.\n- Same language as my notes.\n- No em dashes.\n- Reply with only the text, ready to paste. No notes, no options, no quotes around it.`,
       },
     ],
   });
