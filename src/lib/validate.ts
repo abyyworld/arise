@@ -74,7 +74,7 @@ export interface Settings {
   aiProvider: string;
   aiModel: string;
   aiBase: string;
-  aiEngine: '' | 'private' | 'device' | 'local' | 'free' | 'own';
+  aiEngine: '' | 'private' | 'device' | 'local' | 'free' | 'own' | 'tab'; // on this device only (never synced)
   bar: 'home' | 'nearby' | 'none';
   dayOff: boolean;
   privateModel: string; // the private AI's model, picked by the Player; '' is the recommended one
@@ -120,7 +120,7 @@ export function cleanSettings(raw: unknown, d: Settings): Settings {
     aiProvider: pick(s.aiProvider, (x) => AI_PROVIDERS.includes(x as string), d.aiProvider),
     aiModel: pick(s.aiModel, isModel, d.aiModel),
     aiBase: pick(s.aiBase, (x) => typeof x === 'string' && (x === '' || AI_BASE.test(x)), d.aiBase),
-    aiEngine: pick(s.aiEngine, (x) => ['', 'private', 'device', 'local', 'free', 'own'].includes(x as string), d.aiEngine),
+    aiEngine: pick(s.aiEngine, (x) => ['', 'private', 'device', 'local', 'free', 'own', 'tab'].includes(x as string), d.aiEngine),
     bar: pick(s.bar, (x) => ['home', 'nearby', 'none'].includes(x as string), d.bar),
     dayOff: pick(s.dayOff, isBool, d.dayOff),
     privateModel: pick(s.privateModel, isModel, d.privateModel),

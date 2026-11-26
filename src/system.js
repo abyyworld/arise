@@ -15,6 +15,7 @@ import * as GOALS from './goals-ui.js';
 import * as PLAN from './plan';
 import { handlePlanAction, planRowHTML, upgradeFor } from './plan-ui.js';
 import * as LOCAL from './local-ai-ui.js'; // "Your computer's AI" in Settings, AI coach
+import * as GTAB from './gemini-tab-ui.js'; // "Gemini in your browser" in Settings, AI coach
 import { esc, icon, md, toast, openSheet, closeSheet, setBackgroundInert } from './ui.js';
 import * as CH from './lib/chats';
 import { isNative } from './native.js';
@@ -34,6 +35,7 @@ let app = { go: () => {}, render: () => {}, view: () => 'today' };
 export function initSystem(hooks) {
   app = { ...app, ...hooks };
   LOCAL.initLocalUI(app);
+  GTAB.initGeminiTabUI(app);
 }
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -939,7 +941,7 @@ export function renderCoach(root) {
   const empty = !log.length && !here;
   root.innerHTML = `
     <header class="page-head">
-      <div><p class="kicker">${hasKey ? `${esc(AI.isPrivate() ? 'Private' : AI.engine() === 'free' ? 'Free AI' : AI.keys().length > 1 ? 'Your AI keys' : prov?.id && prov.id !== 'custom' ? prov.name : 'Your AI')} · your AI coach` : 'Your AI coach'}</p><h1 class="display">${w('coachTitle')}</h1></div>
+      <div><p class="kicker">${hasKey ? `${esc(AI.isPrivate() ? 'Private' : AI.engine() === 'free' ? 'Free AI' : AI.engine() === 'tab' ? 'Gemini' : AI.keys().length > 1 ? 'Your AI keys' : prov?.id && prov.id !== 'custom' ? prov.name : 'Your AI')} · your AI coach` : 'Your AI coach'}</p><h1 class="display">${w('coachTitle')}</h1></div>
       <div class="head-btns">
         ${count ? `<button class="btn small ghost" data-act="ai-chats">Chats (${count})</button>` : ''}
         ${log.length ? `<button class="btn small ghost" data-act="ai-new">New chat</button>` : ''}
@@ -982,7 +984,9 @@ export function renderCoach(root) {
               ? 'What you send stays private: nobody else can read it.'
               : AI.engine() === 'free'
                 ? `Less private: your goals, workouts and anything you typed or rated in Arise go to Cloudflare's servers, which can read them, whenever the coach answers you, here or on Today. Your life log goes too only if you allowed it. The deep review sends your whole history. <button class="link small" data-act="ai-learn">Learn more</button>`
-                : `Less private: your goals, workouts and anything you typed or rated in Arise are sent to ${esc(companies(prov))}, who can read them, whenever the coach answers you, here or on Today. Your life log goes too only if you allowed it. The deep review sends your whole history. <button class="link small" data-act="ai-learn" data-v="keys">Learn more</button>`
+                : AI.engine() === 'tab'
+                  ? `Less private: your goals, workouts and anything you typed or rated in Arise go to Google, in your own Gemini account, whenever you ask the coach something. Google can read them and keeps them in your Gemini activity. Your life log goes too only if you allowed it. <button class="link small" data-act="ai-learn">Learn more</button>`
+                  : `Less private: your goals, workouts and anything you typed or rated in Arise are sent to ${esc(companies(prov))}, who can read them, whenever the coach answers you, here or on Today. Your life log goes too only if you allowed it. The deep review sends your whole history. <button class="link small" data-act="ai-learn" data-v="keys">Learn more</button>`
           }</p>
         </section>
       </div>
@@ -1227,6 +1231,7 @@ const ENGINE_TEXT = {
   private: 'An open AI model in a sealed enclave. The app checks the enclave is genuine, then encrypts what it sends to it, so nobody can read it: not the people who run Arise, not the cloud it runs in.',
   device: 'Runs on this computer. Nothing leaves it, it works offline, and it costs nothing. Needs Chrome 148 or later on a laptop or desktop (not phones yet).',
   local: LOCAL.CARD_TEXT,
+  tab: GTAB.CARD_TEXT,
   free: "Free for you. Runs on Cloudflare's servers, which can read what the coach sends while it answers. Cloudflare says it isn't used to train AI.",
   own: 'Link free AIs like Gemini and Groq. When one hits its daily limit, the next one answers by itself. Paid keys (Claude, ChatGPT) work too. Each company can read what the coach sends it.',
 };
@@ -1234,6 +1239,7 @@ let deviceState = { progress: null, error: '' };
 
 function engineStatus(id) {
   if (id === 'local') return LOCAL.cardStatus();
+  if (id === 'tab') return GTAB.cardStatus();
   if (id === 'private' || id === 'free') {
     if (!AI.privateConfigured()) return { ok: false, text: 'Not switched on for this app yet.' };
     if (!AI.privateSignedIn()) return { ok: false, text: 'Needs a free account (Account, above). That keeps it for Arise players.' };
@@ -1271,7 +1277,7 @@ function engineCard(id) {
   const picked = S.state.settings.aiEngine;
   const on = picked ? picked === id : AI.engine() === id;
   const st = engineStatus(id);
-  const tag = id === 'private' ? '<span class="tag gold">Recommended</span>' : id === 'own' || id === 'free' ? '<span class="tag gold">Less private</span>' : '';
+  const tag = id === 'private' ? '<span class="tag gold">Recommended</span>' : id === 'own' || id === 'free' || id === 'tab' ? '<span class="tag gold">Less private</span>' : '';
   const card = `<button class="engine ${on ? 'on' : ''}" data-act="ai-engine" data-v="${id}" aria-pressed="${on}">
     <span class="engine-head"><b>${esc(AI.ENGINES[id].name)}</b>${tag}</span>
     <small>${esc(engineText(id))}</small>
@@ -1391,6 +1397,13 @@ const AI_OPTIONS = [
     cost: 'Free keys are free, within their limits. With paid keys, that company bills you.',
     needs: 'A key from each service you link. They stay on this device.',
     where: "Each company's servers.",
+  },
+  {
+    name: 'Gemini in your browser (less private)',
+    read: "Google. Arise types the coach's question into Gemini in a tab of your browser, with your own Google account, so Google sees it and keeps it in your Gemini activity.",
+    cost: 'Free, within your Gemini limits.',
+    needs: 'The Arise extension, linked to this browser, and being signed in at gemini.google.com. Only on a laptop or desktop.',
+    where: "Google's servers.",
   },
 ];
 
@@ -1568,18 +1581,21 @@ export function settingsPanels() {
     <section class="panel glow" id="aiSettings">
       <div class="panel-title">${icon('system')}<span>AI coach</span></div>
       <p>Pick where ${w('coach')} does its thinking. ${st.aiEngine ? '' : `Right now it picks for you: ${LOCAL.autoOrder()}.`}</p>
-      <div class="engines" role="group" aria-label="Where the AI runs">${['private', 'device', ...(LOCAL.offered() ? ['local'] : []), 'free', 'own'].map((id) => engineCard(id)).join('')}</div>
+      <div class="engines" role="group" aria-label="Where the AI runs">${['private', 'device', ...(LOCAL.offered() ? ['local'] : []), 'free', 'own', ...(GTAB.offered() ? ['tab'] : [])].map((id) => engineCard(id)).join('')}</div>
       ${st.aiEngine ? `<button class="link small" data-act="ai-engine" data-v="">Let the app pick (${LOCAL.autoFirst()} first)</button>` : ''}
       ${LOCAL.showPanel(st.aiEngine) ? LOCAL.panel() : ''}
       ${['private', 'free'].includes(AI.engine()) ? engineModelPanel(AI.engine()) : ''}
       ${st.aiEngine === 'own' ? keysPanel() : ''}
+      ${st.aiEngine === 'tab' ? GTAB.panel() : ''}
       <button class="toggle-row" data-act="toggle-setting" data-k="aiDaily" aria-pressed="${!!st.aiDaily}"><span><b>${isSystem() ? 'Daily System message' : 'Daily message from your coach'}</b><small>Writes a personal message on the Today screen once a day.${AI.rationed() && !AI.ready({ background: true }) ? ' On the free plan, when you tap for it there.' : ''}</small></span><span class="switch ${st.aiDaily ? 'on' : ''}"></span></button>
       <p class="muted small">${
         AI.engine() === 'own'
           ? `Used so far on this device: ${Number(u.calls) || 0} request${u.calls === 1 ? '' : 's'}.${cost > 0 ? ` Claude: about $${cost < 0.01 ? '0.01' : cost.toFixed(2)}.` : ''}${other ? ` Other services: ${tokens(other)} tokens (their dashboard shows the cost).` : ''} Your profile, life check-in, check-ins, plan, workouts and weigh-ins go to ${esc(companies(prov))} when you use an AI feature, and once a day for the daily message if it's on.`
           : AI.engine() === 'free'
             ? `Used so far on this device: ${Number(u.calls) || 0} request${u.calls === 1 ? '' : 's'}. Your profile, life check-in, check-ins, plan, workouts and weigh-ins go to Cloudflare's servers when you use an AI feature, and once a day for the daily message if it's on. Cloudflare can read them while it answers.`
-            : AI.engine()
+            : AI.engine() === 'tab'
+              ? 'Your profile, life check-in, check-ins, plan, workouts and weigh-ins go to Google, in your own Gemini account, when you ask the coach something. Google can read them and keeps them in your Gemini activity.'
+              : AI.engine()
               ? 'Your profile, life check-in, check-ins, plan, workouts and weigh-ins are used to coach you, privately: nobody else can read them.'
               : 'Until the AI is on, the app works fully without it.'
       }</p>
@@ -1616,10 +1632,12 @@ export function reminderAIBlock(live = isNative) {
 export async function handleAction(act, el) {
   if (handlePlanAction(act)) return true;
   if (act.startsWith('local-')) return LOCAL.handleAction(act, el);
+  if (act.startsWith('gtab-')) return GTAB.handleAction(act);
   switch (act) {
     case 'ai-engine': {
       const v = el.dataset.v;
       if (v === 'local') LOCAL.turnOn();
+      if (v === 'tab' && !(await GTAB.turnOn())) return true;
       if (v === 'own' && AI.hasKey() && AI.provider() && !AI.consented()) {
         const p = AI.provider();
         if (!confirm(consentText(p.id))) return true;

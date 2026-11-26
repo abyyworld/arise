@@ -17,8 +17,8 @@ import { TARGETS, ariseUrls, manifestFor, updatesJson } from './extension-manife
 const root = fileURLToPath(new URL('..', import.meta.url));
 const src = join(root, 'extension');
 const out = join(root, 'dist-extension');
-const ENTRIES = ['background', 'content', 'popup'];
-const STATIC = ['popup.html', 'popup.css', 'icons'];
+const ENTRIES = ['background', 'content', 'popup', 'gemini', 'allow'];
+const STATIC = ['popup.html', 'allow.html', 'popup.css', 'icons'];
 
 // Each script is one self-contained file: content scripts can't load modules.
 async function bundle(dir, { dev }) {

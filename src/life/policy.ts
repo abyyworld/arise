@@ -15,7 +15,8 @@ import { prefs } from './prefs';
 import type { LifeTier } from './types';
 export { floorTier } from './tiers';
 
-export type Engine = 'private' | 'device' | 'local' | 'free' | 'own';
+// 'tab': Gemini in the Player's own browser tab (gemini-tab.ts), read by Google like the free AI.
+export type Engine = 'private' | 'device' | 'local' | 'free' | 'own' | 'tab';
 export type Cap = 0 | LifeTier; // 0: nothing at all (no AI)
 
 // ---------- the Player's switches (prefs.ts)
@@ -24,12 +25,12 @@ export { prefs, setPrefs, forgetPrefs } from './prefs';
 
 // ---------- the rules
 
-export const lessPrivate = (e: Engine | null | undefined) => e === 'free' || e === 'own';
+export const lessPrivate = (e: Engine | null | undefined) => e === 'free' || e === 'own' || e === 'tab';
 
 // The highest tier this engine may read.
 export function capFor(e: Engine | null | undefined, { lessPrivateOk = prefs().lessPrivate } = {}): Cap {
   if (e === 'private' || e === 'device' || e === 'local') return 3;
-  if (e === 'free' || e === 'own') return lessPrivateOk ? 3 : 1;
+  if (lessPrivate(e)) return lessPrivateOk ? 3 : 1;
   return 0;
 }
 

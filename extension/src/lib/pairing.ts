@@ -16,6 +16,7 @@
 // extension's own window, which a web page can't fake.
 
 import { type SealedBatch, isSealedBatch } from './seal';
+import type { GeminiRequest } from './gemini';
 import { randomId, sha256, toB64url } from './bytes';
 import { WORDS } from './words';
 
@@ -39,7 +40,9 @@ export type PageRequest =
   | { t: 'unlink'; link: string }
   // Reminders in the browser (remind.ts): Arise's switch, and the list sealed for the extension.
   | { t: 'remindOn'; link: string; on: boolean }
-  | { t: 'remind'; link: string; box: SealedBatch };
+  | { t: 'remind'; link: string; box: SealedBatch }
+  // Gemini in your browser: checked by gemini.ts's own parseGeminiRequest, not parseRequest.
+  | GeminiRequest;
 
 export type Push = { t: 'paired' | 'declined' | 'ready' | 'unlinked'; link: string };
 
