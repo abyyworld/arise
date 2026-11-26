@@ -39,6 +39,7 @@ vi.mock('../ai.js', () => ({
   // A strong model answers (only strong ones write the memory: life/strength.ts), and says which.
   askMemory: async () => (ai.answer && typeof ai.answer === 'object' ? { by: 'private:gpt-oss-120b', ...(ai.answer as object) } : ai.answer),
   useMemory: () => {},
+  useTab: () => {}, // Gemini in your browser registers itself (life/gemini-tab.ts)
   memoryStrength: () => (ai.engine ? 'strong' : 'none'),
   trustedModel: () => false,
 }));
