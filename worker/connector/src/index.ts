@@ -20,10 +20,17 @@
 // only while it answers for that app. mcp/core.mjs keeps to them: what a rule says never isn't
 // offered, and what it says to ask first goes into the log as a sealed request ('ask'), which
 // their Arise shows them to allow or not. Nothing is added until they do.
+//
+// Files (1.2.0), only with the switches the Player turned on for that app: the page lists the files
+// in the one folder they share with it (src/lib/me-files.ts). A small one is in the page; a bigger
+// one is in sealed parts, each a page of its own in the cloud, which this fetches and opens only
+// while it answers, with a key made from the page's key. A file the app saves goes into the log,
+// sealed like a note, for their Arise to put in that folder. It keeps no file.
 
 import { createServer } from '../../../mcp/core.mjs';
-import { parseMeLink, readMe } from '../../../public/me.js';
+import { CLOUD, parseMeLink, readMe } from '../../../public/me.js';
 import { clientName, feedKey, sealEntry, tokenHash, type FeedEntry, type FeedTool, type SealedEntry } from '../../../src/lib/feed';
+import { filesKey, fromB64, joinParts, openPart, partId, type MeFile, type SavedFile } from '../../../src/lib/me-files';
 
 export interface Env {
   ALLOWED_ORIGINS: string; // the Arise app's own addresses, comma-separated (for reading the feed back)
@@ -43,6 +50,7 @@ export interface DurableObjectNamespaceLike {
 export interface StorageLike {
   get<T>(key: string): Promise<T | undefined>;
   put(key: string, value: unknown): Promise<void>;
+  delete(key: string): Promise<unknown>;
   deleteAll(): Promise<void>;
   setAlarm(time: number): Promise<void>;
 }
@@ -58,15 +66,18 @@ export interface Deps {
   now?: () => number;
 }
 
-// 1.1.0: the Player's rules (ask first, never, house rules). Arise reads `rules` from /health to
-// know this connector keeps to them.
-export const VERSION = '1.1.0';
-export const FEATURES = ['rules'] as const;
-const MAX_BODY = 64 * 1024;
+// 1.1.0: the Player's rules (ask first, never, house rules). 1.2.0: files (list_files, read_file,
+// save_file). Arise reads `rules` and `files` from /health to know this connector does them.
+export const VERSION = '1.2.0';
+export const FEATURES = ['rules', 'files'] as const;
+const MAX_BODY = 1024 * 1024; // (a file to save, in base64, is the biggest thing an app sends)
 const PAGE_MS = 15_000; // a page read is reused this long, so a burst of calls reads it once
 const KEEP_MS = 60 * 86_400_000;
 export const MAX_ENTRIES = 300;
 export const MAX_NOTES = 50; // waiting for Arise to take them
+export const MAX_FILES = 10; // saved files waiting, each kept on its own
+export const FILE_CT_MAX = 480_000; // a saved file's entry, sealed (SAVE_MAX in base64, sealed again)
+const NOTE_CT_MAX = 8000;
 
 const NOT_ON = 'This Arise link isn\'t turned on for AI apps on the web. In Arise: What Arise knows, Connected apps, this app, then "Use it on the web".';
 const ENDED = 'The time the user picked for this app in Arise is over, so it no longer gets anything. They can turn it on again in Arise (What Arise knows, Connected apps).';
@@ -121,10 +132,39 @@ async function webPage(link: string, deps: Deps) {
 
 const feed = (env: Env, id: string) => env.FEEDS.get(env.FEEDS.idFromName(id));
 
-async function append(env: Env, id: string, hash: string, sealed: { iv: string; ct: string }, note: boolean) {
-  const res = await feed(env, id).fetch('https://feed/append', { method: 'POST', body: JSON.stringify({ hash, ...sealed, note }) });
-  if (res.status === 429) throw Object.assign(new Error('full'), { say: `There are already ${MAX_NOTES} notes waiting for them to open Arise. Try again after they do.` });
+async function append(env: Env, id: string, hash: string, sealed: { iv: string; ct: string }, note: boolean, file = false) {
+  const res = await feed(env, id).fetch('https://feed/append', { method: 'POST', body: JSON.stringify({ hash, ...sealed, note, ...(file ? { file: true } : {}) }) });
+  if (res.status === 429) throw Object.assign(new Error('full'), { say: file ? `There are already ${MAX_FILES} files waiting for them to open Arise. Try again after they do.` : `There are already ${MAX_NOTES} notes waiting for them to open Arise. Try again after they do.` });
   if (!res.ok) throw new Error(`The log said ${res.status}.`);
+}
+
+// ---------- shared files: a bigger one's sealed parts, each a page in the cloud
+
+const GONE = "Part of that file isn't there any more. Ask them to open Arise, so it sends the file again.";
+
+async function sealedPage(id: string, deps: Deps): Promise<{ iv: string; ct: string }> {
+  const projectId = deps.projectId || CLOUD.projectId;
+  const apiKey = deps.apiKey || CLOUD.apiKey;
+  const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/shares/${id}?key=${encodeURIComponent(apiKey)}`;
+  const res = await (deps.fetch || fetch)(url, { credentials: 'omit' });
+  if (!res.ok) throw Object.assign(new Error(GONE), { say: GONE });
+  const f = ((await res.json()) as { fields?: Record<string, { stringValue?: string }> }).fields || {};
+  const iv = f.iv?.stringValue;
+  const ct = f.ct?.stringValue;
+  if (f.off || typeof iv !== 'string' || typeof ct !== 'string') throw Object.assign(new Error(GONE), { say: GONE });
+  return { iv, ct };
+}
+
+async function fileBytes(ref: { id: string; key: string }, f: MeFile, deps: Deps): Promise<Uint8Array> {
+  if (typeof f.data === 'string') return fromB64(f.data);
+  const p = f.p;
+  if (!p || typeof p.v !== 'string' || !Number.isSafeInteger(p.n) || p.n < 1 || p.n > 200) throw Object.assign(new Error('no parts'), { say: "That file can't be read here. They can open it in Arise." });
+  const key = await filesKey(ref.id, ref.key);
+  const parts: Uint8Array[] = [];
+  for (let i = 0; i < p.n; i++) parts.push(await openPart(key, ref.id, f.id, p.v, i, p.n, await sealedPage(await partId(ref.id, ref.key, f.id, p.v, i), deps)));
+  const bytes = joinParts(parts);
+  if (bytes.length !== f.size) throw Object.assign(new Error(GONE), { say: GONE });
+  return bytes;
 }
 
 // ---------- /mcp/<id>.<key>
@@ -173,14 +213,20 @@ async function mcp(req: Request, env: Env, ref: { id: string; key: string }, dep
       await append(env, ref.id, hash, s, true);
       noted = true;
     },
-    askFirst: async (want: 'add_note' | 'add_todo', words: string, day: string) => {
-      const { hash, sealed: s } = await sealed({ at: now(), tool: 'ask', want, ok: true, ...(client ? { client } : {}), note: words, ...(day ? { day } : {}) });
-      await append(env, ref.id, hash, s, true);
+    askFirst: async (want: 'add_note' | 'add_todo' | 'save_file', words: string, day: string, _me: unknown, file?: SavedFile) => {
+      const { hash, sealed: s } = await sealed({ at: now(), tool: 'ask', want, ok: true, ...(client ? { client } : {}), note: words, ...(day ? { day } : {}), ...(file ? { file } : {}) });
+      await append(env, ref.id, hash, s, true, !!file);
+      noted = true;
+    },
+    readFile: (f: MeFile) => fileBytes(ref, f, deps),
+    saveFile: async (file: SavedFile) => {
+      const { hash, sealed: s } = await sealed({ at: now(), tool: 'save_file', ok: true, ...(client ? { client } : {}), file });
+      await append(env, ref.id, hash, s, true, true);
       noted = true;
     },
     onCall: async (name: string, ok: boolean) => {
-      if ((name === 'add_note' || name === 'add_todo') && noted) return;
-      if (!['about_me', 'my_goals', 'recent_days', 'search', 'fetch', 'add_note', 'add_todo'].includes(name)) return;
+      if ((name === 'add_note' || name === 'add_todo' || name === 'save_file') && noted) return;
+      if (!['about_me', 'my_goals', 'recent_days', 'search', 'fetch', 'add_note', 'add_todo', 'list_files', 'read_file', 'save_file'].includes(name)) return;
       // Nothing is logged for a page that isn't on for the web: there's nobody to show it to.
       if (!ok && !pages.get(link)?.me.web) return;
       const { hash, sealed: s } = await sealed({ at: now(), tool: name as FeedTool, ok, ...(client ? { client } : {}) });
@@ -260,25 +306,28 @@ export class Feed {
     private now: () => number = Date.now,
   ) {}
 
+  // A saved file's entry is kept under a key of its own (`f<n>`), so the list stays small.
   private async entries() {
-    return (await this.state.storage.get<(SealedEntry & { note?: boolean })[]>('e')) || [];
+    return (await this.state.storage.get<(SealedEntry & { note?: boolean; file?: boolean })[]>('e')) || [];
   }
 
   async fetch(req: Request): Promise<Response> {
     const op = new URL(req.url).pathname;
-    const body = (await req.json()) as { hash?: string; iv?: string; ct?: string; note?: boolean; upTo?: number };
+    const body = (await req.json()) as { hash?: string; iv?: string; ct?: string; note?: boolean; file?: boolean; upTo?: number };
     if (typeof body.hash !== 'string' || !/^[0-9a-f]{64}$/.test(body.hash)) return json({ error: 'bad' }, 400);
     const st = this.state.storage;
     const hash = await st.get<string>('hash');
     if (op === '/append') {
       // (The hash comes from the page, which only the Player's account writes: a new one there,
       // when they turned the web off and on again, takes over.)
-      if (typeof body.iv !== 'string' || typeof body.ct !== 'string' || body.ct.length > 8000) return json({ error: 'bad' }, 400);
+      const file = body.file === true;
+      if (typeof body.iv !== 'string' || typeof body.ct !== 'string' || body.ct.length > (file ? FILE_CT_MAX : NOTE_CT_MAX)) return json({ error: 'bad' }, 400);
       let list = await this.entries();
-      if (body.note && list.filter((e) => e.note).length >= MAX_NOTES) return json({ error: 'full' }, 429);
+      if (file ? list.filter((e) => e.file).length >= MAX_FILES : body.note && list.filter((e) => e.note && !e.file).length >= MAX_NOTES) return json({ error: 'full' }, 429);
       const n = ((await st.get<number>('n')) || 0) + 1;
-      list.push({ n, iv: body.iv, ct: body.ct, ...(body.note ? { note: true } : {}) });
-      // The oldest go first, but never a note Arise hasn't taken yet.
+      if (file) await st.put(`f${n}`, body.ct);
+      list.push({ n, iv: body.iv, ct: file ? '' : body.ct, ...(body.note || file ? { note: true } : {}), ...(file ? { file: true } : {}) });
+      // The oldest go first, but never a note or file Arise hasn't taken yet.
       while (list.length > MAX_ENTRIES) {
         const i = list.findIndex((e) => !e.note);
         list = i < 0 ? list.slice(1) : list.filter((_, j) => j !== i);
@@ -292,10 +341,16 @@ export class Feed {
     // Reading and letting go need the token whose hash came with the first entry.
     if (!hash) return json({ entries: [] });
     if (hash !== body.hash) return json({ error: 'not this link' }, 403);
-    if (op === '/list') return json({ entries: (await this.entries()).map(({ n, iv, ct }) => ({ n, iv, ct })) });
+    if (op === '/list') {
+      const out = [];
+      for (const { n, iv, ct, file } of await this.entries()) out.push({ n, iv, ct: file ? (await st.get<string>(`f${n}`)) || '' : ct });
+      return json({ entries: out });
+    }
     if (op === '/done') {
       const upTo = Number(body.upTo);
-      const list = (await this.entries()).filter((e) => e.n > upTo);
+      const all = await this.entries();
+      for (const e of all) if (e.file && e.n <= upTo) await st.delete(`f${e.n}`);
+      const list = all.filter((e) => e.n > upTo);
       await st.put('e', list);
       return json({ left: list.length });
     }

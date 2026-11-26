@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // The journal on screen: each day opens on its journal (with a switch to everything in the log),
-// today's fills in as the day goes, editing it, copying and sharing it, the ways into it on Today,
+// the day's story at its top and Write it better, today's fills in as the day goes, editing it, copying and sharing it, the ways into it on Today,
 // links and tapped notifications opening a day, asking for notifications once from a tap, the
 // journal's switches in Settings, and the plain line when the AI in use is too weak to learn.
 
@@ -10,8 +10,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LifeEvent } from './types';
 
 vi.mock('../lib/firebase', () => import('../test/fake-firebase'));
-const device = vi.hoisted(() => ({ state: 'unavailable' }));
-vi.mock('../lib/on-device', () => ({ lastKnown: () => device.state, availability: async () => device.state, ask: vi.fn(async () => ''), download: vi.fn() }));
+const device = vi.hoisted(() => ({ state: 'unavailable', answer: '', asked: [] as unknown[] }));
+vi.mock('../lib/on-device', () => ({
+  lastKnown: () => device.state,
+  availability: async () => device.state,
+  ask: vi.fn(async (o: unknown) => {
+    device.asked.push(o);
+    return device.answer;
+  }),
+  download: vi.fn(),
+}));
 
 const T = (k: string, h = 12, m = 0) => {
   const [y, mo, d] = k.split('-').map(Number);
@@ -61,6 +69,8 @@ beforeEach(() => {
   window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   window.scrollTo = () => {};
   device.state = 'unavailable';
+  device.answer = '';
+  device.asked = [];
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -72,7 +82,7 @@ describe('Your days', () => {
   it('opens each day on its journal, hour by hour, with a switch to everything in the log', async () => {
     await boot('days');
     click('[data-act="life-day"][data-d="-1"]');
-    await vi.waitFor(() => expect(text('#lifeDay .journal-intro')).toBe('I slept 8 h 10 min, did a workout (Strength training) and looked up 1 thing.'));
+    await vi.waitFor(() => expect(text('#lifeDay .journal-intro')).toBe('I woke up at 07:40 after 8 h 10 min of sleep. I did a workout: strength training (1 h 5 min).'));
     expect(pane('journal').hidden).toBe(false);
     expect(pane('events').hidden).toBe(true);
     expect(texts('#lifeDay .journal-part-name')).toEqual(['Morning', 'Afternoon']);
@@ -107,7 +117,7 @@ describe('Your days', () => {
     await vi.waitFor(() => expect($('#lifeDay [data-act="life-j-edit"]')).not.toBeNull());
     click('#lifeDay [data-act="life-j-edit"]');
     const box = $('#lifeJournalEdit') as HTMLTextAreaElement;
-    expect(box.value.split('\n').slice(0, 4)).toEqual(['I slept 8 h 10 min, did a workout (Strength training) and looked up 1 thing.', '', 'Morning', '07:40 Woke up after 8 h 10 min of sleep']);
+    expect(box.value.split('\n').slice(0, 4)).toEqual(['I woke up at 07:40 after 8 h 10 min of sleep. I did a workout: strength training (1 h 5 min).', '', 'Morning', '07:40 Woke up after 8 h 10 min of sleep']);
     box.value = 'A good, slow day.\n\nMorning\nI ran by the river before work.';
     click('[data-act="life-j-save"]');
     await vi.waitFor(() => expect(text('#lifeDay .journal-intro')).toBe('A good, slow day.'));
@@ -141,7 +151,7 @@ describe('Your days', () => {
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     const copied = (writeText.mock.calls[0] as unknown as [string])[0];
     expect(copied).toMatch(/16/);
-    expect(copied).toContain('I slept 8 h 10 min, did a workout (Strength training) and looked up 1 thing.\n\nMorning\n07:40 Woke up after 8 h 10 min of sleep');
+    expect(copied).toContain('I woke up at 07:40 after 8 h 10 min of sleep. I did a workout: strength training (1 h 5 min).\n\nMorning\n07:40 Woke up after 8 h 10 min of sleep');
     await vi.waitFor(() => expect(text('#toast')).toBe('Copied.'));
     click('#lifeDay [data-act="life-j-share"][data-day="2026-10-16"]');
     await vi.waitFor(() => expect(share).toHaveBeenCalledTimes(1));
@@ -254,5 +264,61 @@ describe('a weak AI', () => {
     click('[data-act="life-day"][data-d="-1"]');
     await vi.waitFor(() => expect(text('#lifeDay .journal-waits')).toBe('Learning waits for a strong AI: the private AI or a strong key in Your AI keys.'));
     expect($('#lifeDay [data-act="life-j-again"]')).toBeNull();
+  });
+});
+
+describe("the day's story", () => {
+  const STORY = 'I woke up at 07:40 after 8 h 10 min of sleep. I did a workout: strength training (1 h 5 min).';
+  const asked = () => device.asked.map((o) => JSON.stringify(o)).filter((t) => t.includes('The facts:'));
+
+  it('writes it better only when asked, through an AI that may read it, and keeps it as your own words', async () => {
+    device.state = 'available'; // the AI on this device may read every tier
+    device.answer = 'I woke at 07:40 after a long sleep \u2014 then did strength training for 1 h 5 min.';
+    const { M } = await boot('days');
+    click('[data-act="life-day"][data-d="-1"]');
+    await vi.waitFor(() => expect($('#lifeDay [data-act="story-better"][data-day="2026-10-16"]')).not.toBeNull());
+    expect(text('#lifeDay .journal-intro')).toBe(STORY);
+    expect(asked()).toEqual([]); // nothing goes by itself
+    click('#lifeDay [data-act="story-better"]');
+    await vi.waitFor(() => expect(text('.day-story-better')).toBe('I woke at 07:40 after a long sleep, then did strength training for 1 h 5 min.'));
+    expect(asked()).toHaveLength(1);
+    expect(asked()[0]).toContain(STORY);
+    expect(asked()[0]).not.toContain('Rome'); // only the story: not the searches, nor anything else
+    expect(M.journalFor('2026-10-16')).toBeNull(); // kept only if you keep it
+    click('[data-act="story-keep"]');
+    await vi.waitFor(() => expect(text('#lifeDay .journal-intro')).toBe('I woke at 07:40 after a long sleep, then did strength training for 1 h 5 min.'));
+    expect(M.journalFor('2026-10-16')).toMatchObject({ edited: true });
+    expect(M.journalFor('2026-10-16')!.text).toMatch(/^I woke at 07:40 after a long sleep, then did strength training for 1 h 5 min\.\n\nMorning\n07:40 Woke up after 8 h 10 min of sleep/);
+    expect(text('#lifeDay .journal-by')).toBe("Your own words. Arise won't change them.");
+    // What Arise saw stays under your words, and there's nothing more to write better.
+    expect(text('#lifeDay .day-story-saw .day-story')).toBe(STORY);
+    expect($('#lifeDay [data-act="story-better"]')).toBeNull();
+  });
+
+  it('closes with nothing kept when you say not now', async () => {
+    device.state = 'available';
+    device.answer = 'A slow morning, then strength training.';
+    const { M } = await boot('days');
+    click('[data-act="life-day"][data-d="-1"]');
+    await vi.waitFor(() => expect($('#lifeDay [data-act="story-better"]')).not.toBeNull());
+    click('#lifeDay [data-act="story-better"]');
+    await vi.waitFor(() => expect($('[data-act="story-close"]')).not.toBeNull());
+    click('[data-act="story-close"]');
+    expect(M.journalFor('2026-10-16')).toBeNull();
+    expect(text('#lifeDay .journal-intro')).toBe(STORY);
+  });
+
+  it("isn't offered without an AI, nor for today, which says so far", async () => {
+    await boot('days');
+    click('[data-act="life-day"][data-d="-1"]');
+    await vi.waitFor(() => expect(text('#lifeDay .journal-intro')).toBe(STORY));
+    expect($('#lifeDay [data-act="story-better"]')).toBeNull();
+
+    device.state = 'available';
+    const { L } = await boot('days', { events: [] });
+    await L.addEvents([{ id: 'manual:n1', source: 'manual', kind: 'note', at: T('2026-10-17', 8, 15), title: 'Coffee in the garden', tier: 2 }]);
+    await vi.waitFor(() => expect(text('#lifeDay .journal-intro')).toBe('So far today, I wrote 1 note.'));
+    expect($('#lifeDay [data-act="story-better"]')).toBeNull();
+    expect(asked()).toEqual([]);
   });
 });

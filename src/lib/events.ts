@@ -14,6 +14,7 @@
 // same form as `start`): `skip` leaves some out, and `changes` holds the ones changed on their own.
 
 import { expand, instantToWall, intlZone, wallToInstant, type Offset, type Rule } from '../connect/ics';
+import { cleanEventPlan, type EventPlan } from './plan-link';
 
 export const COLORS = ['blue', 'teal', 'green', 'yellow', 'orange', 'red', 'pink', 'purple', 'gray'] as const;
 export type Color = (typeof COLORS)[number];
@@ -54,6 +55,7 @@ export interface CalEvent {
   remind?: number[]; // minutes before (0: at the time); a whole day's count from 9:00 that day
   from?: string; // the app that added it, if not the Player
   guests?: string[]; // who's invited: email addresses or names (since SCHEMA 14)
+  plan?: EventPlan; // planned with someone through a private link (lib/plan-link.ts, lib/plans.ts)
   created: number;
   at: number; // when it last changed
   gone?: true;
@@ -219,6 +221,8 @@ export function cleanEvent(raw: unknown): CalEvent | null {
     const guests = [...new Set(r.guests.map((g) => line(g, 120)).filter(Boolean))].slice(0, MAX_GUESTS);
     if (guests.length) out.guests = guests;
   }
+  const plan = cleanEventPlan(r.plan);
+  if (plan) out.plan = plan;
   return out;
 }
 

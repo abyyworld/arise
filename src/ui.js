@@ -46,13 +46,25 @@ export function closeSheet() {
 }
 
 let toastTimer = null;
-export function toast(msg) {
+// With `undo`, the message carries an Undo button for as long as it shows.
+export function toast(msg, undo) {
   const t = $('#toast');
   t.textContent = msg;
+  if (typeof undo === 'function') {
+    const b = document.createElement('button');
+    b.className = 'toast-undo';
+    b.type = 'button';
+    b.textContent = 'Undo';
+    b.addEventListener('click', () => {
+      t.classList.remove('show');
+      undo();
+    });
+    t.append(' ', b);
+  }
   t.classList.add('show');
   clearTimeout(toastTimer);
   // Long enough to read: a long message stays longer.
-  toastTimer = setTimeout(() => t.classList.remove('show'), Math.max(2600, String(msg).length * 50));
+  toastTimer = setTimeout(() => t.classList.remove('show'), Math.max(typeof undo === 'function' ? 6000 : 2600, String(msg).length * 50));
 }
 
 export function xpPop(text) {

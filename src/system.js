@@ -16,6 +16,7 @@ import * as PLAN from './plan';
 import { handlePlanAction, planRowHTML, upgradeFor } from './plan-ui.js';
 import * as LOCAL from './local-ai-ui.js'; // "Your computer's AI" in Settings, AI coach
 import * as GTAB from './gemini-tab-ui.js'; // "Gemini in your browser" in Settings, AI coach
+import * as SENTUI from './sent-ui.js'; // "What was sent to an AI", from Settings, AI coach too
 import { esc, icon, md, toast, openSheet, closeSheet, setBackgroundInert } from './ui.js';
 import * as CH from './lib/chats';
 import { isNative } from './native.js';
@@ -886,6 +887,14 @@ const HOW = {
   text: "Ask me how I'm really doing this week.\nLook at what Arise saw in my week, as far as you may read it: my sleep, movement and focus, the people I was in touch with, my screens and my life log. Say in one or two short sentences what you noticed, kindly and without judging. Then ask me one gentle, open question about how I really am, not about my goals. No advice yet and no pep talk: just ask, and listen to my answer.",
 };
 
+// More ways in, each a new chat: where they stand, the one thing, their values, what they avoid.
+const MIRROR = [
+  { label: 'Where do I really stand?', text: 'Tell me honestly where I stand right now, from what Arise saw in the last few weeks as far as you may read it: what is going well, what is slipping, and what I keep saying but not doing. Short, kind, specific, no pep talk.' },
+  { label: 'The one thing', text: 'If I changed one thing this week, what should it be? Pick one, from what Arise saw and my goals, say why in two sentences, and say how I would know it worked.' },
+  { label: 'Am I living by my values?', values: true, text: 'Here are my values. For each one, say in one line whether my last few weeks fit it, with one real example from what Arise saw, and where they clash. Be honest and kind.' },
+  { label: 'What am I avoiding?', text: 'What do you think I am avoiding? Look for things I keep putting off, people I have gone quiet on and goals I have stopped touching, as far as you may read them. Ask me one question about it instead of telling me what to do.' },
+];
+
 // `chat`: the chat the answer on its way is for.
 let chatState = { busy: false, controller: null, text: '', chat: '' };
 // The chat open on the Coach screen (lib/chats.ts): on this device only. Until one is picked, the
@@ -972,7 +981,7 @@ export function renderCoach(root) {
       <div class="col">
         <section class="panel">
           <div class="panel-title"><span>Quick actions</span></div>
-          <div class="quick"><button class="quick-btn how" data-act="ai-how" ${hasKey && !chatState.busy ? '' : 'disabled'}>Ask how I'm doing <span class="tag">new chat</span></button>${QUICK.map((q, i) => `<button class="quick-btn" data-act="ai-quick" data-i="${i}" ${hasKey && !chatState.busy ? '' : 'disabled'}>${esc(q.label)}${q.full ? ' <span class="tag">all data</span>' : ''}</button>`).join('')}
+          <div class="quick"><button class="quick-btn how" data-act="ai-how" ${hasKey && !chatState.busy ? '' : 'disabled'}>Ask how I'm doing <span class="tag">new chat</span></button>${MIRROR.map((m, i) => `<button class="quick-btn how" data-act="ai-mirror" data-i="${i}" ${hasKey && !chatState.busy ? '' : 'disabled'}>${esc(m.label)} <span class="tag">new chat</span></button>`).join('')}${QUICK.map((q, i) => `<button class="quick-btn" data-act="ai-quick" data-i="${i}" ${hasKey && !chatState.busy ? '' : 'disabled'}>${esc(q.label)}${q.full ? ' <span class="tag">all data</span>' : ''}</button>`).join('')}
             ${S.workoutsOn() ? '<button class="quick-btn" data-act="nav" data-v="plan">Personalise my workout plan →</button>' : ''}
           </div>
         </section>
@@ -1599,6 +1608,7 @@ export function settingsPanels() {
               ? 'Your profile, life check-in, check-ins, plan, workouts and weigh-ins are used to coach you, privately: nobody else can read them.'
               : 'Until the AI is on, the app works fully without it.'
       }</p>
+      <div class="row">${SENTUI.settingsLink()}</div>
     </section>
     <section class="panel">
       <div class="panel-title">${icon('target')}<span>Your goals</span></div>
@@ -1633,6 +1643,7 @@ export async function handleAction(act, el) {
   if (handlePlanAction(act)) return true;
   if (act.startsWith('local-')) return LOCAL.handleAction(act, el);
   if (act.startsWith('gtab-')) return GTAB.handleAction(act);
+  if (act.startsWith('sent-')) return SENTUI.handleAction(act, el);
   switch (act) {
     case 'ai-engine': {
       const v = el.dataset.v;
@@ -1688,6 +1699,19 @@ export async function handleAction(act, el) {
       closeSheet();
       sendChat(HOW.text, { recallAs: HOW.recall });
       return true;
+    case 'ai-mirror': {
+      const m = MIRROR[Number(el?.dataset.i)];
+      if (!m || chatState.busy) return true;
+      const values = S.state.profile?.life?.values || [];
+      if (m.values && !values.length) {
+        toast('Pick your values first, in your life check-in on Me.');
+        return true;
+      }
+      openChat = CH.newChatId();
+      closeSheet();
+      sendChat(m.values ? `${m.text}\nMy values: ${values.join(', ')}.` : m.text, { recallAs: 'the last 4 weeks' });
+      return true;
+    }
     case 'ai-chats':
       openSheet(chatsSheet());
       return true;

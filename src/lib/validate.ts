@@ -16,7 +16,8 @@ import { cleanPauses, type Pause } from './pause';
 import { cleanBy } from '../life/strength';
 import { ABOUT_DEFAULT, cleanChoice, cleanRules, LINK_DEFAULT, type MeChoice, type MeRules } from './me';
 import { ASK_WANTS, cleanEntry, type AskWant, type FeedEntry } from './feed';
-import { cleanLife, cleanLifeBefore } from './life-check';
+import type { SavedFile } from './me-files';
+import { cleanLife, cleanLifeBefore, isArea, type AreaId } from './life-check';
 import { cleanStudy, type Study } from './study';
 import { cleanTodos, type Todos } from './todos';
 import { cleanDebts, cleanGroceries, type Debts, type Groceries } from './everyday';
@@ -622,6 +623,7 @@ export interface LifeFact {
   sources: string[]; // the days it came from or was confirmed by, oldest first
   at: number; // last changed
   by?: string; // the AI that last wrote or vouched for it (life/strength.ts); none for the Player's own
+  imp?: true; // learned from a day that came mostly from imports: "Imported, not confirmed" until they say it's right
 }
 
 const FACT_ID = /^f[a-z0-9]{1,24}$/;
@@ -639,6 +641,7 @@ export function cleanLifeFact(raw: unknown): LifeFact | null {
   if (isTier(f.share)) out.share = Math.max(f.share, out.tier) as LifeTier;
   const by = from === 'ai' ? cleanBy(f.by) : '';
   if (by) out.by = by;
+  if (f.imp === true) out.imp = true;
   return out;
 }
 
@@ -861,6 +864,91 @@ export function cleanLifeKnew(raw: unknown): LifeKnew | null {
   return { day: k.day, at: time(k.at), facts };
 }
 
+// What the Player said about one fact on What Arise knows (life/know.ts). Synced in the memory's
+// pack. Each part has its own time, so changing one on a device never undoes another made
+// elsewhere: `ta` for noAI, `tc` for check, `to` for ok.
+export interface LifeFactFlag {
+  id: string; // the fact's id
+  at: number; // last changed
+  noAI?: true; // never sent to any AI, whatever the settings
+  check?: string; // the day to ask whether it's still true
+  ok?: true; // they said it's right (one that came from imports, or one they were asked about)
+  apart?: string[]; // facts they said aren't the same as this one and don't disagree with it
+  ta?: number;
+  tc?: number;
+  to?: number;
+}
+
+export function cleanLifeFactFlag(raw: unknown): LifeFactFlag | null {
+  const f = obj(raw);
+  const at = time(f.at);
+  if (typeof f.id !== 'string' || !FACT_ID.test(f.id) || !at) return null;
+  const out: LifeFactFlag = { id: f.id, at };
+  if (f.noAI === true) out.noAI = true;
+  if (isDate(f.check)) out.check = f.check;
+  if (f.ok === true) out.ok = true;
+  const apart = [...new Set(arr(f.apart).filter((x): x is string => typeof x === 'string' && FACT_ID.test(x) && x !== f.id))].sort().slice(0, 50);
+  if (apart.length) out.apart = apart;
+  for (const k of ['ta', 'tc', 'to'] as const) if (time(f[k])) out[k] = Math.min(time(f[k]), at);
+  return out;
+}
+
+// A note or a sub-branch the Player added under a part of their life ("Add here",
+// life/area-notes.ts), like Work > Drone EduTrain. Synced in the memory's pack. A deleted one
+// stays as a tombstone (its id and when), so it stays deleted on every device.
+export interface LifeAreaNote {
+  id: string;
+  at: number; // last changed
+  gone?: true;
+  areas: AreaId[]; // where it shows: one or more parts of life
+  title: string;
+  text?: string;
+  branch?: true; // a sub-branch, which holds notes
+  parent?: string; // the sub-branch it's under
+  day: string; // when it was written ('' for a tombstone)
+  from?: string; // the dates it covers, if they gave them
+  to?: string;
+  key?: true; // listed first, and given to the coach first
+  labels?: string[];
+  links?: string[]; // notes that go with it ("these go together"), shown on both
+  more?: { day: string; text: string }[]; // what they added to it later, oldest first
+  tier: LifeTier;
+}
+
+const NOTE_ID = /^n[a-z0-9]{1,24}$/;
+export const AREA_NOTE_MAX = 4000;
+export const AREA_LABEL_MAX = 30;
+
+export function cleanLifeAreaNote(raw: unknown): LifeAreaNote | null {
+  const n = obj(raw);
+  const at = time(n.at);
+  if (typeof n.id !== 'string' || !NOTE_ID.test(n.id) || !at) return null;
+  if (n.gone === true) return { id: n.id, at, gone: true, areas: [], title: '', day: '', tier: 2 };
+  const areas = [...new Set(arr(n.areas).filter(isArea))];
+  const title = oneLine(n.title, 120);
+  const text = manyLines(n.text, AREA_NOTE_MAX);
+  if (!areas.length || !isDate(n.day) || (!title && !text) || (n.branch === true && !title)) return null;
+  const out: LifeAreaNote = { id: n.id, at, areas, title, day: n.day, tier: isTier(n.tier) ? (Math.max(n.tier, 2) as LifeTier) : 2 };
+  if (text) out.text = text;
+  if (n.branch === true) out.branch = true;
+  if (typeof n.parent === 'string' && NOTE_ID.test(n.parent) && n.parent !== n.id) out.parent = n.parent;
+  if (isDate(n.from)) out.from = n.from;
+  if (isDate(n.to) && (!out.from || n.to >= out.from)) out.to = n.to;
+  if (n.key === true) out.key = true;
+  const labels = [...new Set(arr(n.labels).map((x) => oneLine(x, AREA_LABEL_MAX)).filter(Boolean))].slice(0, 8);
+  if (labels.length) out.labels = labels;
+  const links = [...new Set(arr(n.links).filter((x): x is string => typeof x === 'string' && NOTE_ID.test(x) && x !== n.id))].slice(0, 20);
+  if (links.length) out.links = links;
+  const more: { day: string; text: string }[] = [];
+  for (const x of arr(n.more).slice(0, 50)) {
+    const m = obj(x);
+    const t = manyLines(m.text, AREA_NOTE_MAX);
+    if (isDate(m.day) && t) more.push({ day: m.day, text: t });
+  }
+  if (more.length) out.more = more;
+  return out;
+}
+
 // ---------- Arise as "me" for other apps (me.ts, lib/me.ts). On this device only, like the
 // memory they're made from.
 
@@ -885,8 +973,18 @@ export interface MeLink {
 // for good without touching the link. `tok` reads back what the app did (only this device has
 // it; the page holds `fh`, its SHA-256). `off`: its page was emptied (it ended). `fed`: the last
 // entry taken from the connector.
+// What the app may do there, each its own switch: read about the Player (unless `read: false`),
+// add notes and to-dos (`notes`), read the files in the folder `dir` they share with it (`fread`)
+// and save files there (`fwrite`). `parts`: the bigger shared files sent as sealed parts, by file
+// id: which upload, how many parts, and the file's SHA-256, so a file is sent again only when it
+// changes (lib/me-files.ts).
 export interface LinkWeb {
   notes: boolean;
+  read?: false;
+  dir?: string;
+  fread?: true;
+  fwrite?: true;
+  parts?: Record<string, SharedParts>;
   until?: number;
   id: string;
   key: string;
@@ -901,6 +999,20 @@ function cleanLinkWeb(raw: unknown): LinkWeb | undefined {
   const w = obj(raw);
   if (typeof w.id !== 'string' || !LINK_ID.test(w.id) || typeof w.key !== 'string' || !LINK_KEY.test(w.key) || typeof w.tok !== 'string' || !LINK_KEY.test(w.tok) || typeof w.fh !== 'string' || !/^[0-9a-f]{64}$/.test(w.fh)) return undefined;
   const out: LinkWeb = { notes: w.notes === true, id: w.id, key: w.key, tok: w.tok, fh: w.fh };
+  if (w.read === false) out.read = false;
+  if (typeof w.dir === 'string' && LINK_ID.test(w.dir)) {
+    out.dir = w.dir;
+    if (w.fread === true) out.fread = true;
+    if (w.fwrite === true) out.fwrite = true;
+  }
+  const parts = Object.entries(obj(w.parts))
+    .slice(0, 100)
+    .flatMap(([id, p]): [string, SharedParts][] => {
+      const x = obj(p);
+      const ids = arr(x.ids).filter((i): i is string => typeof i === 'string' && LINK_ID.test(i));
+      return LINK_ID.test(id) && typeof x.v === 'string' && /^[A-Za-z0-9_-]{8,22}$/.test(x.v) && Number.isSafeInteger(x.n) && (x.n as number) >= 1 && (x.n as number) <= 200 && ids.length === x.n && typeof x.h === 'string' && HEX_64.test(x.h) ? [[id, { v: x.v, n: x.n as number, h: x.h, ids }]] : [];
+    });
+  if (parts.length) out.parts = Object.fromEntries(parts);
   if (time(w.until)) out.until = time(w.until);
   const sig = oneLine(w.sig, 40);
   if (sig) out.sig = sig;
@@ -910,6 +1022,13 @@ function cleanLinkWeb(raw: unknown): LinkWeb | undefined {
   return out;
 }
 
+export interface SharedParts {
+  v: string;
+  n: number;
+  h: string;
+  ids: string[]; // the parts' pages, to turn off once they're not needed
+}
+const HEX_64 = /^[0-9a-f]{64}$/;
 const LINK_ID = /^[A-Za-z0-9_-]{22}$/;
 const LINK_KEY = /^[A-Za-z0-9_-]{43}$/;
 const UID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -964,24 +1083,30 @@ export interface MeAsk {
   text: string;
   day?: string;
   client?: string;
+  file?: SavedFile; // a file it asked to save, kept here until the Player says yes or no
 }
 export const MAX_ASKS = 100;
+export const MAX_FILE_ASKS = 5;
 export function cleanMeAsks(raw: unknown): MeAsk[] {
   const seen = new Set<string>();
+  let files = 0;
   return arr(raw)
     .slice(-MAX_ASKS)
     .flatMap((x) => {
       const a = obj(x);
       if (typeof a.link !== 'string' || !LINK_ID.test(a.link) || typeof a.web !== 'string' || !LINK_ID.test(a.web)) return [];
       if (typeof a.n !== 'number' || !Number.isSafeInteger(a.n) || a.n < 1 || !time(a.at) || !ASK_WANTS.includes(a.want as AskWant)) return [];
-      const c = cleanEntry({ at: a.at, tool: 'ask', ok: true, want: a.want, note: a.text, day: a.day, client: a.client });
+      const c = cleanEntry({ at: a.at, tool: 'ask', ok: true, want: a.want, note: a.text, day: a.day, client: a.client, file: a.file });
       if (!c?.note) return [];
+      // A file waits here with its bytes, so only a few at once.
+      if (c.want === 'save_file' && (!c.file || !('data' in c.file) || ++files > MAX_FILE_ASKS)) return [];
       const k = `${a.web}/${a.n}/${a.at}`;
       if (seen.has(k)) return [];
       seen.add(k);
       const out: MeAsk = { link: a.link, web: a.web, n: a.n, at: c.at, want: c.want!, text: c.note };
       if (c.day) out.day = c.day;
       if (c.client) out.client = c.client;
+      if (c.file && 'data' in c.file) out.file = c.file;
       return [out];
     });
 }
@@ -1002,7 +1127,8 @@ export function cleanOffLater(raw: unknown): OffLater[] {
     by.delete(o.id);
     by.set(o.id, owner);
   }
-  return [...by].slice(-200).map(([id, owner]) => ({ id, owner }));
+  // (Room for every link's pages and the parts of their shared files: lib/me-files.ts.)
+  return [...by].slice(-1000).map(([id, owner]) => ({ id, owner }));
 }
 
 // ---------- photos and files (life/files.ts), and search by meaning (life/embed/)
@@ -1029,6 +1155,12 @@ export interface FileMeta {
   bin?: number; // when it went to the trash
   moved?: number; // when it was last moved, put in the trash or taken out
   hash?: string; // SHA-256 of its bytes, in hex: how copies are found
+  // Also synced in the tree, never in its details (life/files-versions.ts, files-names.ts):
+  renamed?: number; // when the Player gave it the name it has (then the tree carries the name)
+  upkeep?: string; // how to keep it up to date, in their words ("Update the CV after each new job")
+  vg?: string; // the file whose versions it's one of (none: its own id)
+  cur?: number; // when it became the current version (none: when it was added)
+  edited?: number; // when its name, note or versions last changed here or on another device
 }
 export const MAX_FILE_BYTES = 200 * 1024 * 1024;
 const FILE_ID = /^[A-Za-z0-9_-]{22}$/;
@@ -1051,7 +1183,7 @@ export function cleanFileMeta(raw: unknown): FileMeta | null {
   const size = typeof d.size === 'number' && Number.isInteger(d.size) && d.size >= 0 && d.size <= MAX_FILE_BYTES ? d.size : -1;
   const at = time(d.at);
   if (size < 0 || !at) return null;
-  const name = str(d.name, 200).replace(/[\u0000-\u001f\u007f/\\]/g, ' ').trim() || 'File';
+  const name = fileName(d.name) || 'File';
   const type = typeof d.type === 'string' && MIME.test(d.type.toLowerCase()) ? d.type.toLowerCase() : 'application/octet-stream';
   const out: FileMeta = { id: d.id, name, type, size, at, day: d.day as string, sync: d.sync !== false };
   if (typeof d.note === 'string' && d.note.length > 0 && d.note.length <= 120) out.note = d.note;
@@ -1065,8 +1197,23 @@ export function cleanFileMeta(raw: unknown): FileMeta | null {
   if (time(d.bin)) out.bin = time(d.bin);
   if (time(d.moved)) out.moved = time(d.moved);
   if (typeof d.hash === 'string' && HASH.test(d.hash)) out.hash = d.hash;
+  if (time(d.renamed)) out.renamed = time(d.renamed);
+  const upkeep = upkeepText(d.upkeep);
+  if (upkeep) out.upkeep = upkeep;
+  if (typeof d.vg === 'string' && FILE_ID.test(d.vg) && d.vg !== d.id) out.vg = d.vg;
+  if (time(d.cur)) out.cur = time(d.cur);
+  if (time(d.edited)) out.edited = time(d.edited);
   return out;
 }
+// A file's name as it's kept: no slashes or control characters, at most 200 characters.
+export const fileName = (v: unknown) => str(v, 200).replace(/[\u0000-\u001f\u007f/\\]/g, ' ').trim();
+export const UPKEEP_MAX = 200;
+export const upkeepText = (v: unknown) =>
+  str(v, UPKEEP_MAX * 2)
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, UPKEEP_MAX);
 const HASH = /^[0-9a-f]{64}$/;
 
 // The list of synced files (life/files-sync.ts): each file's number of parts and size, and the
@@ -1119,13 +1266,20 @@ export interface FolderRec {
   name: string;
   p?: string; // the folder it's in (none: the top)
   g?: string; // the goal it's the project folder of
+  s?: 'w' | 'f'; // "Working on" or "Finished"
   e: number; // when it was made or last changed
 }
 export interface FilePlaceRec {
   d?: string; // folder
   t?: number; // in the trash since
-  m?: number; // when it was last moved
+  m?: number; // when it was last moved or changed
   h?: string; // SHA-256 of its bytes
+  // Apps from before these ignore them (and write the record back without them, with the same m):
+  n?: string; // the name the Player gave it
+  u?: string; // how to keep it up to date
+  v?: string; // the file whose versions it's one of
+  c?: number; // when it became the current version
+  k?: number; // when n, u, v or c last changed: the later k wins them (none of them then means none)
 }
 export interface FilesTree {
   dirs: Record<string, FolderRec>;
@@ -1152,6 +1306,7 @@ export function cleanFilesTree(raw: unknown): FilesTree {
     const rec: FolderRec = { name, e };
     if (typeof x.p === 'string' && FILE_ID.test(x.p) && x.p !== id) rec.p = x.p;
     if (typeof x.g === 'string' && GOAL_ID.test(x.g)) rec.g = x.g;
+    if (x.s === 'w' || x.s === 'f') rec.s = x.s;
     dirs[id] = rec;
   }
   for (const [id, v] of Object.entries(obj(d.gone)).slice(0, 5000)) if (FILE_ID.test(id) && time(v)) gone[id] = time(v);
@@ -1163,6 +1318,13 @@ export function cleanFilesTree(raw: unknown): FilesTree {
     if (time(x.t)) rec.t = time(x.t);
     if (time(x.m)) rec.m = time(x.m);
     if (typeof x.h === 'string' && HASH.test(x.h)) rec.h = x.h;
+    const n = fileName(x.n);
+    if (n) rec.n = n;
+    const u = upkeepText(x.u);
+    if (u) rec.u = u;
+    if (typeof x.v === 'string' && FILE_ID.test(x.v) && x.v !== id) rec.v = x.v;
+    if (time(x.c)) rec.c = time(x.c);
+    if (time(x.k)) rec.k = time(x.k);
     if (Object.keys(rec).length) files[id] = rec;
   }
   return { dirs, gone, files };

@@ -30,8 +30,27 @@ export interface QInput {
   weekBig: number; // to-dos marked as mattering a lot, not done, due this week
   dismissed: Record<string, unknown>;
   loose?: { id: string; text: string; at: number }[]; // loose ends in their notes (lib/loose.ts)
+  checks?: { id: string; text: string; due: string }[]; // facts they asked to check again, due now (life/know.ts)
+  clashes?: { a: { id: string; text: string }; b: { id: string; text: string } }[]; // facts that disagree (life/know.ts)
   now?: number;
+  dayStart?: number; // the start of today: with it, no more than DAILY_QUESTIONS a day
 }
+
+// At most this many quick ones a day, of every kind together, so it never nags. A question counts
+// once it's answered or put away (each goes in `dismissed` under 'q:<id>' with the time, on every
+// device), so the one on screen is never cut off half way.
+export const DAILY_QUESTIONS = 6;
+
+export function askedSince(dismissed: Record<string, unknown>, from: number): number {
+  let n = 0;
+  for (const [k, v] of Object.entries(dismissed || {})) {
+    // (The marker for "one getting-to-know-you question a day" isn't a question.)
+    if (k.startsWith('q:') && !k.startsWith('q:know-day:') && typeof v === 'number' && v >= from) n++;
+  }
+  return n;
+}
+
+export const questionsLeft = (dismissed: Record<string, unknown>, from: number, max = DAILY_QUESTIONS) => Math.max(0, max - askedSince(dismissed, from));
 
 // Getting to know you: one of these on a quiet day, answered in a few words, kept as a note in
 // the life log so the coach and the memory learn it.
@@ -96,8 +115,12 @@ export function questions(q: QInput): Question[] {
   }
 
   // Loose ends in their own notes, a day or more old: did it happen?
+  const now = q.now ?? Date.now();
   for (const l of q.loose || []) {
-    if ((q.now ?? Date.now()) - l.at < 86_400_000) continue;
+    if (now - l.at < 86_400_000) continue;
+    // On hold: asked again 2 weeks later.
+    const held = q.dismissed[`q:hold:${l.id}`];
+    if (typeof held === 'number' && now - held < 14 * 86_400_000) continue;
     add({
       id: `loose:${l.id}`,
       text: `You wrote "${short(l.text, 70)}". Did it happen?`,
@@ -105,7 +128,37 @@ export function questions(q: QInput): Question[] {
       choices: [
         { label: 'Done', act: 'q-loose-done' },
         { label: 'Make it a to-do', act: 'q-loose-todo', v: l.text },
+        { label: "It's ongoing", act: 'q-loose-habit', v: l.text },
+        { label: 'On hold', act: 'q-loose-hold', v: l.id },
         { label: 'Not a thing', act: 'q-skip' },
+      ],
+    });
+  }
+
+  // A fact they asked Arise to check again, on its day.
+  for (const c of q.checks || []) {
+    add({
+      id: `check:${c.id}:${c.due}`,
+      text: `Is this still true? "${short(c.text, 90)}"`,
+      hint: 'You asked Arise to check it today.',
+      choices: [
+        { label: 'Still true', act: 'q-fact-ok', v: c.id },
+        { label: 'Not any more', act: 'q-fact-old', v: c.id },
+        { label: 'Not now', act: 'q-skip' },
+      ],
+    });
+  }
+
+  // Two things Arise knows that can't both be true.
+  for (const c of q.clashes || []) {
+    add({
+      id: `clash:${c.a.id}:${c.b.id}`,
+      text: 'Which is right?',
+      hint: `"${short(c.a.text, 90)}" or "${short(c.b.text, 90)}"`,
+      choices: [
+        { label: short(c.a.text, 40), act: 'q-fact-right', v: `${c.a.id}|${c.b.id}` },
+        { label: short(c.b.text, 40), act: 'q-fact-right', v: `${c.b.id}|${c.a.id}` },
+        { label: 'Both are true', act: 'q-fact-both', v: `${c.a.id}|${c.b.id}` },
       ],
     });
   }
@@ -147,6 +200,8 @@ export function questions(q: QInput): Question[] {
     }
   }
 
+  // Today's are used up: nothing more until tomorrow. (The order above stays as it is.)
+  if (q.dayStart != null && !questionsLeft(q.dismissed, q.dayStart)) return [];
   return out;
 }
 

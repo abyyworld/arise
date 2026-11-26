@@ -212,7 +212,11 @@ describe('Connected apps', () => {
     click('.sheet-body [data-act="me-web-explain"]');
     expect(text('.sheet-body')).toContain("So this app gets an address of its own, and Arise's connector, a small server Arise runs on Cloudflare, opens it for a moment");
     expect(text('.sheet-body')).toContain('that server and Cloudflare could read what this app gets');
-    expect(text('.sheet-body [data-act="me-web-notes"][aria-pressed="true"]')).toBe('No, only read');
+    // A switch for each thing it may do: only reading is on to start with, and the file switches
+    // wait for a connector that serves files.
+    const perms = () => [...document.querySelectorAll<HTMLButtonElement>('.sheet-body [data-act="me-web-perm"]')].map((b) => `${b.dataset.p} ${b.getAttribute('aria-pressed')}${b.disabled ? ' disabled' : ''}`);
+    expect(perms()).toEqual(['read true', 'notes false', 'fread false disabled', 'fwrite false disabled']);
+    expect(text('.sheet-body')).toContain("Needs the connector update. Until it's there, apps on the web can't read or save files.");
     expect(text('.sheet-body [data-act="me-web-days"][aria-pressed="true"]')).toBe('A month');
     expect(ME.links()[0].web).toBeUndefined(); // nothing changes until Turn it on
     click('.sheet-body [data-act="me-web-days"][data-d="7"]');
@@ -283,7 +287,7 @@ describe('Connected apps', () => {
     expect(text('.sheet-body .me-rules')).toContain('No rules yet. It may do all you let it.');
     click('.sheet-body [data-act="me-rules-edit"]');
     expect(text('.sheet-body')).toContain('Pick what Claude may just do, must ask you about first, or may never do.');
-    expect([...document.querySelectorAll('.sheet-body [data-act="me-rule"][aria-pressed="true"]')].map((b) => b.textContent)).toEqual(['May just do', 'May just do', 'May just do', 'May just do']);
+    expect([...document.querySelectorAll('.sheet-body [data-act="me-rule"][aria-pressed="true"]')].map((b) => b.textContent)).toEqual(['May just do', 'May just do', 'May just do', 'May just do', 'May just do']);
     click('.sheet-body [data-act="me-rule"][data-a="todo"][data-v="ask"]');
     click('.sheet-body [data-act="me-rule"][data-a="note"][data-v="never"]');
     click('.sheet-body [data-act="me-rule"][data-a="health"][data-v="never"]');
@@ -348,5 +352,113 @@ describe('Connected apps', () => {
     expect(ME.links().map((x) => x.id)).toEqual([l.id]);
     const { cloud } = await import('../test/fake-firebase');
     expect(cloud.docs.get(`shares/${l.id}`)).toHaveProperty('ct');
+  });
+
+  it('picks what an app on the web may do with four switches and a shared folder, and says what it did in plain words', { timeout: 30_000 }, async () => {
+    const FEED = await import('../lib/feed');
+    let sealed: object[] = [];
+    vi.stubGlobal('fetch', async (u: string) => {
+      const url = String(u);
+      if (url.endsWith('/health')) return new Response(JSON.stringify({ ok: true, name: 'arise-connector', version: '1.2.0', features: ['rules', 'files'] }));
+      if (/\/feed\/[^/]+$/.test(url)) return new Response(JSON.stringify({ entries: sealed }));
+      return new Response('{}');
+    });
+    const { SYNC, ME } = await boot();
+    await SYNC.submit('up', { email: 'files@example.com', password: 'correct horse battery', password2: 'correct horse battery' });
+    expect(SYNC.status.error).toBe('');
+    const F = await import('./files');
+    const dir = await F.makeFolder('For Claude');
+    click('#tabs [data-v="today"]');
+    click('#tabs [data-v="days"]');
+    click('[data-act="nav"][data-v="knows"]');
+    click('[data-act="me-connect"]');
+    (document.getElementById('meAppName') as HTMLInputElement).value = 'Claude';
+    click('.sheet-body [data-act="me-make"]');
+    await vi.waitFor(() => expect(document.getElementById('meLinkIn')).not.toBeNull(), { timeout: 5000 });
+
+    click('.sheet-body [data-act="me-web-explain"]');
+    const perms = () => [...document.querySelectorAll<HTMLButtonElement>('.sheet-body [data-act="me-web-perm"]')].map((b) => `${b.dataset.p} ${b.getAttribute('aria-pressed')}${b.disabled ? ' disabled' : ''}`);
+    // The file switches wait for a folder.
+    await vi.waitFor(() => expect(document.querySelector('#meWebDir option[value]:not([value=""])')).not.toBeNull());
+    expect(perms()).toEqual(['read true', 'notes false', 'fread false disabled', 'fwrite false disabled']);
+    expect(text('.sheet-body')).not.toContain('Needs the connector update');
+    const pick = document.getElementById('meWebDir') as HTMLSelectElement;
+    pick.value = dir;
+    pick.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(perms()).toEqual(['read true', 'notes false', 'fread false', 'fwrite false']));
+    expect(text('.sheet-body [data-act="me-web-perm"][data-p="fread"] small')).toBe('Only the files in the one folder you pick below, up to 1 MB each, sealed for this app. Nothing else of Photos and files.');
+    click('.sheet-body [data-act="me-web-perm"][data-p="read"]');
+    click('.sheet-body [data-act="me-web-perm"][data-p="fread"]');
+    click('.sheet-body [data-act="me-web-perm"][data-p="fwrite"]');
+    expect(perms()).toEqual(['read false', 'notes false', 'fread true', 'fwrite true']);
+    expect(ME.links()[0].web).toBeUndefined(); // nothing changes until Turn it on
+    click('.sheet-body [data-act="me-web-on"]');
+    await vi.waitFor(() => expect(document.getElementById('meWebIn')).not.toBeNull(), { timeout: 5000 });
+    expect(ME.links()[0].web).toMatchObject({ notes: false, read: false, dir, fread: true, fwrite: true });
+    expect(text('.sheet-body .me-web')).toContain('It may read the files in your shared folder and save files there.');
+    expect(text('#meApps .fact')).toContain("doesn't read about you, may read your shared files, may save files.");
+
+    // What it did, in plain words, and a file it asked to save, waiting for Allow.
+    const w = ME.links()[0].web!;
+    const key = await FEED.feedKey(w.id, w.key);
+    const t = Date.now();
+    const did = [
+      { at: t - 5000, tool: 'my_goals', ok: false, client: 'Claude' },
+      { at: t - 4000, tool: 'list_files', ok: true, client: 'Claude' },
+      { at: t - 3000, tool: 'read_file', ok: true, client: 'Claude' },
+      { at: t - 2000, tool: 'save_file', ok: true, client: 'Claude', file: { name: 'plan.md', type: 'text/markdown', data: btoa('# Plan') } },
+      { at: t - 1000, tool: 'ask', want: 'save_file', ok: true, client: 'Claude', note: 'idea.txt', file: { name: 'idea.txt', type: 'text/plain', data: btoa('Paint the shed') } },
+    ] as const;
+    sealed = await Promise.all(did.map(async (e, i) => ({ n: i + 1, ...(await FEED.sealEntry(key, w.id, e as unknown as Parameters<typeof FEED.sealEntry>[2])) })));
+    click('.sheet-body [data-act="me-web-check"]');
+    await vi.waitFor(() => expect(document.querySelectorAll('.sheet-body .me-web-log li')).toHaveLength(5));
+    expect([...document.querySelectorAll('.sheet-body .me-web-log li')].map((li) => li.textContent!.replace(/\s+/g, ' ').replace(/^.*?Claude/, 'Claude'))).toEqual([
+      'Claude asked to save a file: “idea.txt”',
+      'Claude saved a file: “plan.md”',
+      'Claude read a file',
+      'Claude listed your shared files',
+      'Claude read your goals (refused)',
+    ]);
+    await vi.waitFor(async () => expect((await F.listFiles()).find((f) => f.name === 'plan.md')).toMatchObject({ dir }));
+    await vi.waitFor(() => expect(text('#meApps .me-ask')).toContain('Claude wants to: save a file “idea.txt”'));
+    click('#meApps [data-act="me-ask-allow"]');
+    await vi.waitFor(async () => expect((await F.listFiles()).find((f) => f.name === 'idea.txt')).toMatchObject({ dir }));
+
+    // Changed later, one switch at a time.
+    sealed = [];
+    click('.sheet-body [data-act="me-web-perm"][data-p="fwrite"]');
+    await vi.waitFor(() => expect(ME.links()[0].web).not.toHaveProperty('fwrite'));
+    expect(ME.links()[0].web).toMatchObject({ dir, fread: true });
+    await vi.waitFor(() => expect(text('#toast')).toContain("Claude can't save files now."));
+    // And the rules have a say on saving files too.
+    click('.sheet-body [data-act="me-rules-edit"]');
+    expect(text('.sheet-body')).toContain('Save a file in your shared folder');
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps the file switches off with a connector from before files, and says it needs the update', { timeout: 30_000 }, async () => {
+    vi.stubGlobal('fetch', async (u: string) => (String(u).endsWith('/health') ? new Response(JSON.stringify({ ok: true, name: 'arise-connector', version: '1.1.0', features: ['rules'] })) : new Response(JSON.stringify({ entries: [] }))));
+    const { SYNC, ME } = await boot();
+    await SYNC.submit('up', { email: 'old@example.com', password: 'correct horse battery', password2: 'correct horse battery' });
+    const F = await import('./files');
+    await F.makeFolder('For Claude');
+    click('#tabs [data-v="today"]');
+    click('#tabs [data-v="days"]');
+    click('[data-act="nav"][data-v="knows"]');
+    click('[data-act="me-connect"]');
+    (document.getElementById('meAppName') as HTMLInputElement).value = 'Claude';
+    click('.sheet-body [data-act="me-make"]');
+    await vi.waitFor(() => expect(document.getElementById('meLinkIn')).not.toBeNull(), { timeout: 5000 });
+    click('.sheet-body [data-act="me-web-explain"]');
+    await vi.waitFor(() => expect(ME.connectorDoesFiles()).toBe(false));
+    await vi.waitFor(() => expect(document.querySelector('#meWebDir option[value]:not([value=""])')).not.toBeNull());
+    expect((document.getElementById('meWebDir') as HTMLSelectElement).disabled).toBe(true);
+    expect([...document.querySelectorAll<HTMLButtonElement>('.sheet-body [data-act="me-web-perm"]')].map((b) => `${b.dataset.p} ${b.disabled}`)).toEqual(['read false', 'notes false', 'fread true', 'fwrite true']);
+    expect(text('.sheet-body')).toContain("Needs the connector update. Until it's there, apps on the web can't read or save files.");
+    click('.sheet-body [data-act="me-web-on"]');
+    await vi.waitFor(() => expect(document.getElementById('meWebIn')).not.toBeNull(), { timeout: 5000 });
+    expect(ME.links()[0].web).not.toHaveProperty('fread');
+    expect(ME.links()[0].web).not.toHaveProperty('dir');
+    vi.unstubAllGlobals();
   });
 });

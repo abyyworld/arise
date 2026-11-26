@@ -22,8 +22,9 @@ import * as M from './life/memory';
 import { firstName, goalStreak, problem } from './share';
 import * as LS from './lib/share';
 import * as ME from './lib/me';
-import { cleanAboutChoice, cleanFeedLog, cleanMeAsks, cleanMeLinks, cleanOffLater, MAX_FEED_SHOWN, MAX_ME_LINKS, type FeedLog, type LinkWeb, type MeAsk, type MeLink, type OffLater } from './lib/validate';
+import { cleanAboutChoice, cleanFeedLog, cleanMeAsks, cleanMeLinks, cleanOffLater, MAX_FEED_SHOWN, MAX_ME_LINKS, type FeedLog, type LinkWeb, type MeAsk, type MeLink, type OffLater, type SharedParts } from './lib/validate';
 import { feedKey, newFeedToken, openEntry, tokenHash, type FeedEntry, type SealedEntry } from './lib/feed';
+import { FILE_MAX, filesKey, fromB64, INLINE_MAX, INLINE_TOTAL, MAX_FILES, newUpload, PART_BYTES, partCount, partId, sealPart, SHARED_MAX, toB64, type MeFile, type SavedFile } from './lib/me-files';
 import { CONNECTOR } from './connector-config';
 import { lifeStore, hasLifeStore } from './life/store-port';
 import type { LifeEvent } from './life/types';
@@ -83,13 +84,14 @@ export const setAboutChoice = (c: ME.MeChoice) => write(ABOUT, cleanAboutChoice(
 // facts (the best first, as in the profile), today's quests and the summaries of the last 7 days.
 // Facts and days carry how private they are to share (memory.ts shareOf), not the tier the AI
 // reads them at: to the AI, Arise's own journal, weigh-ins and coach questions are tier 1.
+// A fact the Player marked "Never send to an AI" never goes to any app (an app may be an AI).
 export function sourceNow(): ME.MeSource {
   const today = S.todayKey();
   const week = S.addDays(today, -7);
   return {
     name: firstName(),
     goals: S.activeGoals().map((g) => ({ title: g.title, why: g.why, streak: goalStreak(g, today) })),
-    facts: M.rankFacts(M.activeFacts()).map((f) => ({ text: f.text, since: f.since, tier: M.shareOf(f) })),
+    facts: M.rankFacts(M.forAI(M.activeFacts())).map((f) => ({ text: f.text, since: f.since, tier: M.shareOf(f) })),
     today: { day: today, quests: S.questsFor(today).map(({ quest, done }) => ({ title: quest.title, done })) },
     days: M.daySummaries()
       .filter((s) => s.key < today && s.key >= week)
@@ -110,9 +112,23 @@ export const payloadFor = async (c: ME.MeChoice, now = Date.now(), web: ME.MeWeb
 // has passed (Arise then empties the page, and still says when it ended).
 // (A link whose rules say never to both notes and to-dos says it takes neither, so even a
 // connector from before rules offers the app no way to add anything.)
-export const webNow = (l: Pick<MeLink, 'web' | 'rules'>, now = Date.now()): ME.MeWeb | null =>
-  l.web && !l.web.off && !(l.web.until && now > l.web.until) ? { notes: l.web.notes && !addsNever(l.rules), ...(l.web.until ? { until: l.web.until } : {}), feed: l.web.fh } : null;
+// With the shared folder's name, it also says what the app may do with that folder's files (a
+// "never" rule for saving files turns saving off there too).
+export const webNow = (l: Pick<MeLink, 'web' | 'rules'>, now = Date.now(), folder = ''): ME.MeWeb | null => {
+  const w = l.web;
+  if (!w || w.off || (w.until && now > w.until)) return null;
+  const write = !!w.fwrite && ME.ruleOf(l.rules, 'file') !== 'never';
+  return {
+    notes: w.notes && !addsNever(l.rules),
+    ...(w.read === false ? { read: false as const } : {}),
+    ...(w.until ? { until: w.until } : {}),
+    feed: w.fh,
+    ...(folder && (w.fread || write) ? { files: { read: !!w.fread, write, folder } } : {}),
+  };
+};
 const addsNever = (r: ME.MeRules | undefined) => ME.ruleOf(r, 'note') === 'never' && ME.ruleOf(r, 'todo') === 'never';
+// What an app on the web may read about the Player: nothing at all once they switched reading off.
+const webChoice = (l: Pick<MeLink, 'web' | 'choice'>): ME.MeChoice => (l.web?.read === false ? { ...l.choice, sections: [] } : l.choice);
 
 // Only while it's still the same web page.
 function patchWeb(id: string, webId: string, patch: Partial<LinkWeb>) {
@@ -239,6 +255,7 @@ async function webOff(l: MeLink, uid: string) {
   try {
     await pullOne(l);
   } catch {}
+  await partsOff(Object.values(w.parts || {}), uid);
   let other = '';
   try {
     other = await pageOff(w.id, uid);
@@ -264,7 +281,26 @@ export async function setChoice(id: string, choice: ME.MeChoice): Promise<boolea
 // On, it gets a page of its own with its own key: the address given to AI apps on the web, apart
 // from the app's link. Off, that page is emptied for good, after taking what the app left there.
 // True once the page says so; throws if it couldn't be updated.
-export async function setWeb(id: string, web: { notes: boolean; until?: number } | null): Promise<boolean> {
+// The switches (lib/validate.ts LinkWeb): `read` (on unless false), `notes`, and for one folder
+// (`dir`), `fread` and `fwrite`. Those left out stay as they are (a new page: reading on, files off).
+export interface WebPicks {
+  notes: boolean;
+  until?: number;
+  read?: boolean;
+  dir?: string;
+  fread?: boolean;
+  fwrite?: boolean;
+}
+const picksOf = (web: WebPicks, was: Partial<LinkWeb> = {}): Pick<LinkWeb, 'notes' | 'read' | 'dir' | 'fread' | 'fwrite'> => {
+  const read = web.read ?? was.read !== false;
+  const dir = web.dir !== undefined ? web.dir || undefined : was.dir;
+  const fread = (web.fread ?? !!was.fread) && !!dir;
+  const fwrite = (web.fwrite ?? !!was.fwrite) && !!dir;
+  return { notes: web.notes === true, read: read ? undefined : false, dir, fread: fread || undefined, fwrite: fwrite || undefined };
+};
+const tidy = <T extends object>(o: T): T => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
+
+export async function setWeb(id: string, web: WebPicks | null): Promise<boolean> {
   const user = signedIn();
   const l = links().find((x) => x.id === id);
   if (!l) return false;
@@ -276,18 +312,20 @@ export async function setWeb(id: string, web: { notes: boolean; until?: number }
   const until = web.until && web.until > Date.now() ? web.until : undefined;
   if (l.web && !l.web.off) {
     // The same page, with what the Player changed.
-    patchWeb(l.id, l.web.id, { notes: web.notes === true, until, sig: undefined });
+    const w = l.web;
+    saveLinks(links().map((x) => (x.id === l.id && x.web?.id === w.id ? { ...x, web: tidy({ ...x.web, ...picksOf(web, x.web), until, sig: undefined }) } : x)));
   } else {
-    // A new page (the old one, if any, is off for good).
+    // A new page (the old one, if any, is off for good). Its files follow with the update below.
     const ref = await LS.newShareRef();
     const tok = newFeedToken();
     const fh = await tokenHash(tok);
-    const full = await payloadFor(l.choice, Date.now(), webNow({ web: { notes: web.notes === true, ...(until ? { until } : {}), id: ref.id, key: ref.key, tok, fh }, rules: l.rules }), l.rules);
+    const base: LinkWeb = tidy({ ...picksOf(web), ...(until ? { until } : {}), id: ref.id, key: ref.key, tok, fh });
+    const full = await payloadFor(webChoice({ web: base, choice: l.choice }), Date.now(), webNow({ web: base, rules: l.rules }), l.rules);
     const { doc, sig } = await page(ref, full, user.uid);
     const { fb } = A.firebase();
     await fb.setDoc(pageRef(ref.id), doc);
-    const next: LinkWeb = { notes: web.notes === true, ...(until ? { until } : {}), id: ref.id, key: ref.key, tok, fh, sig, sent: doc.updated };
-    saveLinks(links().map((x) => (x.id === l.id && x.key === l.key ? { ...x, web: next } : x)));
+    const next: LinkWeb = { ...base, sig: base.fread || base.fwrite ? undefined : sig, sent: doc.updated };
+    saveLinks(links().map((x) => (x.id === l.id && x.key === l.key ? { ...x, web: tidy(next) } : x)));
   }
   await refresh();
   if (note(id)) throw new A.AccountError('me-update', note(id));
@@ -309,8 +347,10 @@ export async function setRules(id: string, rules: ME.MeRules | null): Promise<bo
 }
 
 const waiting = (l: MeLink): OffLater => ({ id: l.id, owner: l.owner || '' });
-// A link's pages: its own and, if the web was ever on for it, its web page.
-const allWaiting = (list: MeLink[]): OffLater[] => list.flatMap((l) => [waiting(l), ...(l.web && !l.web.off ? [{ id: l.web.id, owner: l.owner || '' }] : [])]);
+// A link's pages: its own and, if the web was ever on for it, its web page and the parts of the
+// files it shares there.
+const allWaiting = (list: MeLink[]): OffLater[] =>
+  list.flatMap((l) => [waiting(l), ...(l.web && !l.web.off ? [{ id: l.web.id, owner: l.owner || '' }] : []), ...Object.values(l.web?.parts || {}).flatMap((p) => p.ids.map((id) => ({ id, owner: l.owner || '' })))]);
 
 // Every link off, before this device's data is removed (sync.ts calls it then, once that's
 // sure). Those it can't turn off now go off the next time their account is signed in here.
@@ -439,25 +479,150 @@ async function update(l: MeLink, uid: string) {
 async function updateWeb(l: MeLink, uid: string) {
   const w = l.web!;
   if (w.off) return;
-  const web = webNow(l);
-  if (!web) {
+  if (!webNow(l)) {
+    await partsOff(Object.values(w.parts || {}), uid);
     const other = await pageOff(w.id, uid);
     if (other) putOff([{ id: w.id, owner: other }]);
-    patchWeb(l.id, w.id, { off: true });
+    patchWeb(l.id, w.id, { off: true, parts: undefined });
     return;
   }
-  const full = ME.buildMe(sourceNow(), l.choice, Date.now(), web, l.rules);
+  const { folder, files, parts } = await shared(w, uid);
+  const web = webNow(l, Date.now(), folder);
+  // Parts made just now are noted first, so they can be turned off whatever happens next; those
+  // they replace go off with the next update, once the page points to the new ones.
+  const kept = { ...(w.parts || {}), ...parts };
+  if (Object.keys(parts).some((id) => parts[id] !== w.parts?.[id])) {
+    const replaced = Object.entries(w.parts || {}).flatMap(([id, p]) => (parts[id] && parts[id] !== p ? p.ids : []));
+    if (replaced.length) putOff(replaced.map((id) => ({ id, owner: uid })));
+    patchWeb(l.id, w.id, { parts: kept });
+  }
+  const full = ME.buildMe(sourceNow(), webChoice(l), Date.now(), web, l.rules, files);
   const sig = sigOf(full);
-  if (w.sig === sig) return;
-  const { doc } = await page(w, full, uid);
+  const stale = Object.entries(kept).filter(([id]) => !parts[id]);
+  if (w.sig === sig && !stale.length) return;
+  if (w.sig !== sig) {
+    const { doc } = await page(w, full, uid);
+    const { fb, db } = A.firebase();
+    const done = await fb.runTransaction(db, async (tx) => {
+      const now = await tx.get(pageRef(w.id));
+      if (!now.exists() || (now.data() as { off?: boolean }).off || (now.data() as LS.ShareDoc).owner !== uid) return false;
+      tx.set(pageRef(w.id), doc);
+      return true;
+    });
+    if (!done) {
+      await partsOff(Object.values(kept), uid);
+      patchWeb(l.id, w.id, { off: true, parts: undefined });
+      return;
+    }
+    patchWeb(l.id, w.id, { sig, sent: doc.updated });
+  }
+  // Parts the page no longer lists (the file changed, left the folder, or reading files was
+  // switched off) go off for good, once the page doesn't point to them.
+  if (stale.length) {
+    await partsOff(stale.map(([, p]) => p), uid);
+    patchWeb(l.id, w.id, { parts: Object.keys(parts).length ? parts : undefined });
+  }
+}
+
+// ---------- the folder shared with an app on the web (lib/me-files.ts)
+
+// What the app's page lists of the shared folder, and the parts of its bigger files, sent now if
+// they're new or changed. Nothing without reading files switched on, or once the folder is gone.
+async function shared(w: LinkWeb, uid: string): Promise<{ folder: string; files: MeFile[] | null; parts: Record<string, SharedParts> }> {
+  const none = { folder: '', files: null, parts: {} };
+  if (!w.dir || (!w.fread && !w.fwrite) || !hasLifeStore()) return none;
+  const F = await import('./life/files');
+  const tree = await F.listFolders();
+  const d = tree.dirs[w.dir];
+  if (!d) return none;
+  if (!w.fread) return { ...none, folder: d.name };
+  const inDir = (await F.listFiles())
+    .filter((f) => f.dir === w.dir)
+    .sort((a, b) => b.at - a.at)
+    .slice(0, MAX_FILES);
+  const files: MeFile[] = [];
+  const parts: Record<string, SharedParts> = {};
+  let inline = 0;
+  let inParts = 0;
+  const bytesOf = async (id: string) => {
+    const got = await F.getFile(id).catch(() => null);
+    return got ? { bytes: new Uint8Array(await got.blob.arrayBuffer()), hash: got.info.hash || '' } : null;
+  };
+  for (const f of inDir) {
+    const base = { id: f.id, name: f.name, type: f.type, size: f.size, at: f.at };
+    if (f.size <= INLINE_MAX && inline + f.size <= INLINE_TOTAL) {
+      const got = await bytesOf(f.id);
+      if (!got) continue; // not here now: next time
+      inline += f.size;
+      files.push({ ...base, data: toB64(got.bytes) });
+      continue;
+    }
+    if (f.size > FILE_MAX || inParts + f.size > SHARED_MAX) {
+      files.push({ ...base, big: true });
+      continue;
+    }
+    const had = w.parts?.[f.id];
+    if (had && f.hash && had.h === f.hash && had.n === partCount(f.size)) {
+      inParts += f.size;
+      parts[f.id] = had;
+      files.push({ ...base, p: { v: had.v, n: had.n } });
+      continue;
+    }
+    const got = await bytesOf(f.id);
+    if (!got || got.bytes.length !== f.size) continue;
+    inParts += f.size;
+    parts[f.id] = had && had.h === got.hash ? had : await sendParts(w, uid, f.id, got.bytes, got.hash);
+    files.push({ ...base, p: { v: parts[f.id].v, n: parts[f.id].n } });
+  }
+  return { folder: d.name, files, parts };
+}
+
+// A bigger file's parts, each sealed and a page of its own.
+async function sendParts(w: LinkWeb, uid: string, fileId: string, bytes: Uint8Array, hash: string): Promise<SharedParts> {
+  const key = await filesKey(w.id, w.key);
+  const v = newUpload();
+  const n = partCount(bytes.length);
+  const ids: string[] = [];
   const { fb, db } = A.firebase();
-  const done = await fb.runTransaction(db, async (tx) => {
-    const now = await tx.get(pageRef(w.id));
-    if (!now.exists() || (now.data() as { off?: boolean }).off || (now.data() as LS.ShareDoc).owner !== uid) return false;
-    tx.set(pageRef(w.id), doc);
-    return true;
-  });
-  patchWeb(l.id, w.id, done ? { sig, sent: doc.updated } : { off: true });
+  const at = Date.now();
+  for (let i = 0; i < n; i += 100) {
+    const batch = fb.writeBatch(db);
+    for (let j = i; j < Math.min(n, i + 100); j++) {
+      const s = await sealPart(key, w.id, fileId, v, j, n, bytes.subarray(j * PART_BYTES, (j + 1) * PART_BYTES));
+      const id = await partId(w.id, w.key, fileId, v, j);
+      ids.push(id);
+      batch.set(pageRef(id), { owner: uid, iv: s.iv, ct: s.ct, v: 1, updated: at } satisfies LS.ShareDoc);
+    }
+    await batch.commit();
+  }
+  return { v, n, h: hash || '0'.repeat(64), ids };
+}
+
+// Parts no longer needed, off for good. Those that can't go now go with the next update.
+async function partsOff(list: SharedParts[], uid: string) {
+  const ids = list.flatMap((p) => p.ids);
+  if (!ids.length) return;
+  try {
+    const { fb, db } = A.firebase();
+    for (let i = 0; i < ids.length; i += 400) {
+      const batch = fb.writeBatch(db);
+      for (const id of ids.slice(i, i + 400)) batch.set(pageRef(id), LS.SHARE_OFF);
+      await batch.commit();
+    }
+  } catch {
+    putOff(ids.map((id) => ({ id, owner: uid })));
+  }
+}
+
+// Into the shared folder: a file an app saved there, or asked to (once the Player said yes). Once
+// only: the same file, from the same moment, isn't added twice.
+async function putShared(dir: string | undefined, f: SavedFile, at: number): Promise<boolean> {
+  const F = await import('./life/files');
+  const bytes = fromB64(f.data);
+  const there = (await F.listFiles()).some((x) => x.at === at && x.name === f.name && x.size === bytes.length);
+  if (there) return false;
+  await F.putFile(bytes, { name: f.name, type: f.type, at, shrink: false, ...(dir ? { dir } : {}) });
+  return true;
 }
 
 // ---------- AI apps on the web: the connector's address, and what each app did
@@ -470,9 +635,13 @@ export const connectorAddress = (l: Pick<MeLink, 'web'>) => (l.web ? `${CONNECTO
 // before doesn't, until the owner deploys it again.
 let reachable: boolean | null = null;
 let keepsRules: boolean | null = null;
+let doesFiles: boolean | null = null;
 let checking: Promise<boolean> | null = null;
 export const connectorReachable = () => reachable;
 export const connectorKeepsRules = () => keepsRules;
+// Whether it serves files (its /health says `files`, from 1.2.0). Until it does, the file
+// switches wait for its update.
+export const connectorDoesFiles = () => doesFiles;
 export function checkConnector(): Promise<boolean> {
   if (!CONNECTOR.server) return Promise.resolve((reachable = false));
   checking ||= fetch(`${CONNECTOR.server.replace(/\/+$/, '')}/health`, { cache: 'no-store', credentials: 'omit' })
@@ -480,6 +649,7 @@ export function checkConnector(): Promise<boolean> {
       const h = r.ok ? ((await r.json()) as { name?: string; features?: unknown }) : null;
       if (h?.name !== 'arise-connector') return false;
       keepsRules = Array.isArray(h.features) && h.features.includes('rules');
+      doesFiles = Array.isArray(h.features) && h.features.includes('files');
       return true;
     })
     .catch(() => false)
@@ -509,7 +679,10 @@ export async function allowAsk(key: string): Promise<boolean> {
   const l = links().find((x) => x.id === a.link);
   if (l) {
     if (a.want === 'add_todo') S.addTodo({ id: `ai-${a.web}-${a.n}-${a.at}`, title: a.text, ...(a.day ? { day: a.day } : {}), from: l.app });
-    else {
+    else if (a.want === 'save_file') {
+      if (!hasLifeStore()) throw new Error("This copy of Arise can't keep files.");
+      if (a.file) await putShared(l.web?.dir, a.file, a.at);
+    } else {
       if (!hasLifeStore()) throw new Error("This copy of Arise can't add notes to your day.");
       await (await lifeStore()).addEvents([noteEvent({ app: l.app, web: { id: a.web } }, a.n, { at: a.at, tool: 'add_note', ok: true, note: a.text, ...(a.client ? { client: a.client } : {}) })]);
     }
@@ -595,21 +768,27 @@ async function pullOne(l: MeLink): Promise<number> {
   got.sort((a, b) => a.n - b.n);
   // What each entry adds, by the Player's rules as they are here: an older connector doesn't keep
   // to them, so a note or to-do they say never to is let go, and one they say to ask about first
-  // waits for their yes, as a request does.
-  const wantOf = (e: FeedEntry) => (!e.ok || !e.note ? null : e.tool === 'ask' ? e.want! : e.tool === 'add_note' || e.tool === 'add_todo' ? e.tool : null);
+  // waits for their yes, as a request does. A file only while saving files is still on.
+  const hasFile = (e: FeedEntry) => !!e.file && 'data' in e.file;
+  const wantOf = (e: FeedEntry) => {
+    if (!e.ok) return null;
+    const want = e.tool === 'ask' ? e.want! : e.tool === 'add_note' || e.tool === 'add_todo' || e.tool === 'save_file' ? e.tool : null;
+    return !want ? null : want === 'save_file' ? (hasFile(e) && w.fwrite && w.dir ? want : null) : e.note ? want : null;
+  };
   const ruleFor = (e: FeedEntry) => {
     const want = wantOf(e);
     if (!want) return null;
-    const rule = ME.ruleOf(l.rules, want === 'add_note' ? 'note' : 'todo');
+    const rule = ME.ruleOf(l.rules, want === 'add_note' ? 'note' : want === 'add_todo' ? 'todo' : 'file');
     return rule === 'never' ? null : e.tool === 'ask' ? 'ask' : rule;
   };
   const isNote = (x: { e: FeedEntry }) => x.e.tool === 'add_note' && ruleFor(x.e) === 'yes';
   const isTodo = (x: { e: FeedEntry }) => x.e.tool === 'add_todo' && ruleFor(x.e) === 'yes';
+  const isFile = (x: { e: FeedEntry }) => x.e.tool === 'save_file' && ruleFor(x.e) === 'yes';
   const isAsk = (x: { e: FeedEntry }) => ruleFor(x.e) === 'ask';
-  // Without a life log here, notes stay with the connector (for a device that has one), and so
-  // does everything after the first of them.
+  // Without a life log here, notes and files stay with the connector (for a device that has one),
+  // and so does everything after the first of them.
   if (!hasLifeStore()) {
-    const first = got.findIndex(isNote);
+    const first = got.findIndex((x) => isNote(x) || isFile(x));
     if (first >= 0) got = got.slice(0, first);
   }
   if (!got.length) return 0;
@@ -618,16 +797,20 @@ async function pullOne(l: MeLink): Promise<number> {
   const notesIn = fresh.filter(isNote);
   let added = 0;
   if (notesIn.length) added = await (await lifeStore()).addEvents(notesIn.map((x) => noteEvent(l, x.n, x.e)));
+  // Files go into the shared folder (once each: the same file from the same moment is let be).
+  for (const x of fresh.filter(isFile)) if (await putShared(w.dir, x.e.file as SavedFile, x.e.at)) added++;
   // To-dos go on the list (once each: the id comes from the entry).
   for (const x of fresh.filter(isTodo)) if (S.addTodo({ id: `ai-${w.id}-${x.n}-${x.e.at}`, title: x.e.note!, ...(x.e.day ? { day: x.e.day } : {}), from: l.app })) added++;
   const upTo = got.at(-1)!.n;
   // Only while it's still this web page here (it may have been turned off meanwhile).
   if (links().some((x) => x.id === l.id && x.web?.id === w.id)) {
-    const asked = fresh.filter(isAsk).map((x) => ({ link: l.id, web: w.id, n: x.n, at: x.e.at, want: wantOf(x.e)!, text: x.e.note!, ...(x.e.day ? { day: x.e.day } : {}), ...(x.e.client ? { client: x.e.client } : {}) }));
+    const asked = fresh.filter(isAsk).map((x) => ({ link: l.id, web: w.id, n: x.n, at: x.e.at, want: wantOf(x.e)!, text: x.e.note || (x.e.file?.name ?? ''), ...(x.e.day ? { day: x.e.day } : {}), ...(x.e.client ? { client: x.e.client } : {}), ...(x.e.file && 'data' in x.e.file ? { file: x.e.file } : {}) }));
     if (asked.length) saveAsks([...asks(), ...asked]);
     if (fresh.length) {
       const log = feedLog();
-      log[l.id] = [...(log[l.id] || []), ...fresh.map((x) => x.e)].slice(-MAX_FEED_SHOWN);
+      // (The log keeps a file's name and type, not its bytes.)
+      const shown = (e: FeedEntry): FeedEntry => (e.file ? { ...e, file: { name: e.file.name, type: e.file.type } } : e);
+      log[l.id] = [...(log[l.id] || []), ...fresh.map((x) => shown(x.e))].slice(-MAX_FEED_SHOWN);
       write(FEED, log);
     }
     patchWeb(l.id, w.id, { fed: Math.max(upTo, w.fed || 0) });

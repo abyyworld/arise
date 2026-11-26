@@ -74,7 +74,33 @@ describe('a quick one', () => {
     const out = questions({ ...base, loose, now });
     expect(out.map((q) => q.id)).toEqual(['loose:l1']);
     expect(out[0].text).toBe('You wrote "Email Eyal about the reference". Did it happen?');
-    expect(out[0].choices.map((c) => c.act)).toEqual(['q-loose-done', 'q-loose-todo', 'q-skip']);
+    expect(out[0].choices.map((c) => c.act)).toEqual(['q-loose-done', 'q-loose-todo', 'q-loose-habit', 'q-loose-hold', 'q-skip']);
+    // On hold: not asked again for 2 weeks.
+    expect(questions({ ...base, loose, now, dismissed: { ...base.dismissed, 'q:hold:l1': now - 3 * 86_400_000 } })).toEqual([]);
+    expect(questions({ ...base, loose, now, dismissed: { ...base.dismissed, 'q:hold:l1': now - 15 * 86_400_000 } }).map((q) => q.id)).toEqual(['loose:l1']);
+  });
+
+  it('asks about a fact on its check day, and which of two facts is right', () => {
+    const out = questions({
+      ...base,
+      checks: [{ id: 'fa1', text: 'You live in Leeds.', due: '2026-11-25' }],
+      clashes: [{ a: { id: 'fb1', text: 'You drink coffee.' }, b: { id: 'fb2', text: "You don't drink coffee." } }],
+    });
+    expect(out.map((q) => q.id)).toEqual(['check:fa1:2026-11-25', 'clash:fb1:fb2']);
+    expect(out[0].text).toBe('Is this still true? "You live in Leeds."');
+    expect(out[0].choices.map((c) => [c.act, c.v])).toEqual([
+      ['q-fact-ok', 'fa1'],
+      ['q-fact-old', 'fa1'],
+      ['q-skip', undefined],
+    ]);
+    expect(out[1].hint).toBe('"You drink coffee." or "You don\'t drink coffee."');
+    expect(out[1].choices.map((c) => [c.label, c.act, c.v])).toEqual([
+      ['You drink coffee.', 'q-fact-right', 'fb1|fb2'],
+      ["You don't drink coffee.", 'q-fact-right', 'fb2|fb1'],
+      ['Both are true', 'q-fact-both', 'fb1|fb2'],
+    ]);
+    // Put away: not asked again.
+    expect(questions({ ...base, checks: [{ id: 'fa1', text: 'x', due: '2026-11-25' }], dismissed: { ...base.dismissed, 'q:check:fa1:2026-11-25': 1 } })).toEqual([]);
   });
 
   it('reads the 3 things from a few lines', () => {

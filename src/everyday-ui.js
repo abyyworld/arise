@@ -5,11 +5,13 @@
 import * as S from './store';
 import * as AI from './ai.js';
 import { classify, asKind } from './lib/capture';
-import { questions, threeThings } from './lib/questions';
+import { questions, questionsLeft, threeThings } from './lib/questions';
 import { looseEnds } from './lib/loose';
 import * as BRIEF from './brief';
+import * as VP from './lib/voice-profile';
+import * as G from './lib/goals';
 import * as REVIEW from './review';
-import { balanceText, money, totals } from './lib/everyday';
+import { balanceText, later, leftOf, money, totals } from './lib/everyday';
 import { noteWithFile } from './life/quick-note';
 import { hasLifeStore, lifeStore } from './life/store-port';
 import { esc, icon, openSheet, closeSheet, toast } from './ui.js';
@@ -115,16 +117,31 @@ function repaintTodos() {
   if (el) el.outerHTML = todoCard();
 }
 
+// The next whole hour today with nothing on the calendar or the to-do list, before 22:00. '' if none.
+function nextFreeSlot(now = new Date()) {
+  const k = S.todayKey();
+  const busy = new Set(Object.values(S.state.todos).filter((t) => !t.gone && !t.done && t.day === k && t.time).map((t) => t.time.slice(0, 2)));
+  const from = new Date(now);
+  from.setMinutes(0, 0, 0);
+  for (let h = now.getHours() + 1; h < 22; h++) {
+    const start = new Date(from).setHours(h);
+    if (busy.has(String(h).padStart(2, '0'))) continue;
+    if (S.eventsBetween(start, start + 3_600_000).some((o) => !o.allDay)) continue;
+    return `${String(h).padStart(2, '0')}:00`;
+  }
+  return '';
+}
+
 let saving = false;
 async function saveNote(text, file) {
   if (!hasLifeStore()) {
     toast('Notes go in the life log, which this version of Arise does not have.');
-    return false;
+    return '';
   }
   const event = await noteWithFile({ text, at: Date.now() }, file);
-  if (!event) return false;
+  if (!event) return '';
   const n = await (await lifeStore()).addEvents([event]);
-  return n > 0;
+  return n > 0 ? event.id : '';
 }
 
 async function capture() {
@@ -138,23 +155,56 @@ async function capture() {
   }
   saving = true;
   try {
+    const undoWith = (fn) => () => {
+      fn();
+      const box = $('#captureIn');
+      if (box && c?.text) {
+        box.value = c.text;
+        preview();
+      }
+    };
     if (file || c.kind === 'note') {
-      if (!(await saveNote(c?.text || '', file))) throw new Error("That couldn't be saved.");
-      toast('Added to your day.');
+      const id = await saveNote(c?.text || '', file);
+      if (!id) throw new Error("That couldn't be saved.");
+      toast('Added to your day.', undoWith(() => void lifeStore().then((L) => L.removeIds?.([id]))));
       void refreshLoose();
     } else if (c.kind === 'todo') {
-      if (!S.addTodo({ title: c.title, day: c.day, time: c.time })) throw new Error("That couldn't be added.");
+      let { day, time } = c;
+      let moved = '';
+      if (day && time && day === S.todayKey()) {
+        const [h, m] = time.split(':').map(Number);
+        const at = new Date();
+        at.setHours(h, m, 0, 0);
+        if (at.getTime() < Date.now()) {
+          time = nextFreeSlot();
+          moved = time ? ` That time had passed, so it's at ${time}, your next free hour.` : '';
+          if (!time) day = S.addDays(day, 1);
+        }
+      }
+      const t = S.addTodo({ title: c.title, day, time });
+      if (!t) throw new Error("That couldn't be added.");
       repaintTodos();
-      toast(`Added to your to-dos${c.day ? ` for ${dayText(c.day).toLowerCase() === 'today' ? 'today' : dayText(c.day)}` : ''}.`);
+      toast(`Added to your to-dos${day ? ` for ${dayText(day).toLowerCase() === 'today' ? 'today' : dayText(day)}` : ''}.${moved}`, undoWith(() => {
+        S.removeTodo(t.id);
+        repaintTodos();
+      }));
     } else if (c.kind === 'grocery') {
+      const before = new Set(S.groceriesList().filter((g) => !g.got).map((g) => g.id));
       const n = S.addGroceries(c.items);
+      const added = S.groceriesList().filter((g) => !g.got && !before.has(g.id)).map((g) => g.id);
       setTab('groceries');
-      toast(n ? `Added ${n === 1 ? c.items[0].name : `${n} things`} to groceries.` : 'Already on the list.');
+      toast(n ? `Added ${n === 1 ? c.items[0].name : `${n} things`} to groceries.` : 'Already on the list.', added.length ? undoWith(() => {
+        S.removeGroceries(added);
+        repaint();
+      }) : undefined);
     } else if (c.kind === 'debt') {
       if (c.who && c.amount) {
-        S.addDebt({ who: c.who, amount: c.amount, cur: c.cur, dir: c.dir, what: c.what, due: c.day });
+        const d = S.addDebt({ who: c.who, amount: c.amount, cur: c.cur, dir: c.dir, what: c.what, due: c.day });
         setTab('money');
-        toast('Saved.');
+        toast('Saved.', d ? undoWith(() => {
+          S.removeDebt(d.id);
+          repaint();
+        }) : undefined);
       } else {
         debtSheet({ text: c.text });
         clear();
@@ -189,15 +239,18 @@ function moneyPane() {
   return `${sum.length ? `<p class="muted small">In all: ${esc(sum.join('; '))}.</p>` : ''}
     ${
       list.length
-        ? `<ul class="qlist money-list">${list
-            .map((b) => {
+        ? (() => {
+            const row = (b) => {
               const late = b.due && b.due < today;
               return `<li><button class="money-row ${b.net > 0 ? 'in' : 'out'}" data-act="money-person" data-v="${esc(b.who)}" data-cur="${esc(b.cur)}">
               <span class="money-who">${esc(balanceText(b))}</span>
               <span class="qmeta${late ? ' late' : ''}">${esc([b.items.length > 1 ? `${b.items.length} things` : b.items[0].what || '', b.due ? `${late ? 'Was due' : 'Due'} ${dayText(b.due, today)}` : ''].filter(Boolean).join(' · '))}</span>
             </button></li>`;
-            })
-            .join('')}</ul>`
+            };
+            const now = list.filter((b) => !later(b, today));
+            const after = list.filter((b) => later(b, today));
+            return `${now.length ? `<ul class="qlist money-list">${now.map(row).join('')}</ul>` : ''}${after.length ? `<details class="money-later"><summary>Due later (${after.length})</summary><ul class="qlist money-list">${after.map(row).join('')}</ul></details>` : ''}`;
+          })()
         : '<p class="muted small">No one owes anyone. Write "Sam owes me 10 for lunch" in the box above, or add it here.</p>'
     }
     <div class="row"><button class="btn small" data-act="money-add">${icon('up')} Add</button></div>`;
@@ -287,13 +340,15 @@ function personSheet(who, cur) {
       .map(
         (x) => `<li class="qrow">
       <button class="qcheck" data-act="debt-settle" data-id="${esc(x.id)}" aria-label="Paid back: ${esc(x.what || money(x.amount, x.cur))}">${icon('check')}</button>
-      <span class="qbody"><span class="qtitle">${esc(`${x.dir === 'owed' ? `${b.who} owes you` : `You owe ${b.who}`} ${money(x.amount, x.cur)}`)}</span>
+      <span class="qbody"><span class="qtitle">${esc(`${x.dir === 'owed' ? `${b.who} owes you` : `You owe ${b.who}`} ${money(leftOf(x), x.cur)}`)}${x.paid ? ` <small class="muted">${esc(`of ${money(x.amount, x.cur)}, ${money(x.paid, x.cur)} paid`)}</small>` : ''}</span>
       <span class="qmeta">${esc([x.what, x.due ? `${x.due < today ? 'Was due' : 'Due'} ${dayText(x.due, today)}` : '', `Added ${new Date(x.created).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`].filter(Boolean).join(' · '))}</span></span>
+      <button class="btn small ghost" data-act="debt-part" data-id="${esc(x.id)}">Part paid</button>
       <button class="icon-btn small" data-act="debt-del" data-id="${esc(x.id)}" aria-label="Delete">${icon('close')}</button>
-    </li>`,
+    </li>
+    <li class="debt-part-row" data-for="${esc(x.id)}" hidden><form class="debt-part" data-form="debt-part" data-id="${esc(x.id)}"><label class="sr-only" for="part-${esc(x.id)}">How much was paid back</label><input id="part-${esc(x.id)}" type="number" inputmode="decimal" min="0" step="0.01" placeholder="How much"><button class="btn small primary" type="submit">Save</button></form></li>`,
       )
       .join('')}</ul>
-    <p class="muted small">Tick one when it's paid back.</p>
+    <p class="muted small">Tick one when it's paid back, or say how much came back so far.</p>
     <div class="row">
       <button class="btn primary small" data-act="debt-settle-all">All paid back</button>
       <button class="btn small" data-act="money-add" data-v="${esc(b.who)}">Add more</button>
@@ -393,20 +448,48 @@ function questionInput(now = new Date()) {
     goals: S.activeGoals().map((g) => ({ id: g.id, title: g.title, quests: g.quests.filter((q) => !q.archived).length, lastTick: lastTick(g), created: g.created })),
     owed: Object.values(st.debts)
       .filter((d) => !d.gone && !d.settled && d.dir === 'owed')
-      .map((d) => ({ id: d.id, who: d.who, text: `${money(d.amount, d.cur)}${d.what ? ` for ${d.what}` : ''}`, due: d.due })),
+      .map((d) => ({ id: d.id, who: d.who, text: `${money(leftOf(d), d.cur)}${d.what ? ` for ${d.what}` : ''}`, due: d.due })),
     bestTime: st.settings.bestTime,
     weekBig: Object.values(st.todos).filter((t) => !t.gone && !t.done && t.big && (!t.day || t.day <= sunday)).length,
     dismissed: st.dismissed,
     loose: looseCache.filter((l) => st.dismissed[`q:loose:${l.id}`] == null),
+    checks: factCache.checks,
+    clashes: factCache.clashes,
     now: now.getTime(),
+    dayStart: S.parseKey(today).getTime(),
   };
 }
+
+// Facts to check again today, and facts that disagree (life/know.ts), read from the memory with
+// the loose ends.
+let factCache = { checks: [], clashes: [] };
+async function refreshFacts() {
+  try {
+    const M = await import('./life/memory');
+    await M.load();
+    factCache = { checks: M.checksDue(S.todayKey()), clashes: M.factPairs().clashes.map(({ a, b }) => ({ a: { id: a.id, text: a.text }, b: { id: b.id, text: b.text } })) };
+  } catch {}
+}
+
+async function answerFact(act, v) {
+  const M = await import('./life/memory');
+  const [a, b] = (v || '').split('|');
+  if (act === 'q-fact-ok') await M.confirmFact(a);
+  else if (act === 'q-fact-old') await M.retireFact(a);
+  else if (act === 'q-fact-right') await M.pickRight(a, b);
+  else if (act === 'q-fact-both') await M.keepApart(a, b);
+  await refreshFacts();
+}
+const FACT_TOASTS = { 'q-fact-ok': 'Good. Arise keeps it.', 'q-fact-old': 'Kept as no longer true.', 'q-fact-right': "Thanks. The other one is gone, and Arise won't learn it again.", 'q-fact-both': "Got it. Arise won't ask about these two again." };
+// How many quick ones are left today, counting the one on screen (at most 6 a day: lib/questions.ts).
+export const questionsLeftToday = () => questionsLeft(S.state.dismissed, S.parseKey(S.todayKey()).getTime());
 
 // Loose ends in the last 2 weeks of their own notes (lib/loose.ts), read from the life log now
 // and then: on opening, and after a note is added here.
 let looseCache = [];
 export async function refreshLoose(now = Date.now()) {
   if (!hasLifeStore()) return [];
+  const facts = refreshFacts();
   try {
     const L = await import('./life/log');
     const notes = (await L.eventsBetween(now - 14 * 86_400_000, now + 60_000, { sources: ['manual'] }))
@@ -414,8 +497,10 @@ export async function refreshLoose(now = Date.now()) {
       .map((e) => ({ id: e.id, text: e.detail, at: e.at }));
     looseCache = looseEnds(notes, Object.values(S.state.todos).filter((t) => !t.gone), S.state.dismissed);
   } catch {
+    await facts;
     return looseCache;
   }
+  await facts;
   const el = $('#askCard');
   if (el) el.outerHTML = questionCard();
   return looseCache;
@@ -424,15 +509,17 @@ export async function refreshLoose(now = Date.now()) {
 export function questionCard() {
   const q = questions(questionInput())[0];
   if (!q) return '<div id="askCard"></div>';
+  const more = questionsLeftToday() - 1;
   return `<div id="askCard"><section class="panel ask" data-q="${esc(q.id)}">
     <div class="panel-title">${icon('chat')}<span>A quick one</span><button class="icon-btn small ask-x" data-act="q-skip" aria-label="Not now">${icon('close')}</button></div>
     <p class="ask-text">${esc(q.text)}</p>
     ${q.hint ? `<p class="muted small">${esc(q.hint)}</p>` : ''}
     ${
       q.write
-        ? `<form data-form="q-write" data-act="${esc(q.write.act)}"><label class="sr-only" for="askIn">${esc(q.text)}</label><textarea id="askIn" class="log-text" rows="3" maxlength="400" placeholder="${esc(q.write.placeholder)}"></textarea><div class="row"><button class="btn small primary" type="submit">Save</button><button class="btn small ghost" type="button" data-act="q-skip">Not now</button></div></form>`
+        ? `<form data-form="q-write" data-act="${esc(q.write.act)}"><label class="sr-only" for="askIn">${esc(q.text)}</label><textarea id="askIn" class="log-text" rows="3" maxlength="400" placeholder="${esc(q.write.placeholder)}"></textarea>${q.write.act === 'q-know' ? `<label class="btn ghost small capture-file">${icon('note')} <span id="askFileName">Or a photo</span><input id="askFile" type="file" accept="image/*" hidden></label>` : ''}<div class="row"><button class="btn small primary" type="submit">Save</button><button class="btn small ghost" type="button" data-act="q-skip">Not now</button></div></form>`
         : `<div class="row wrap">${q.choices.map((c, i) => `<button class="btn small${i === 0 ? ' primary' : ''}" data-act="${esc(c.act)}"${c.v ? ` data-v="${esc(c.v)}"` : ''}>${esc(c.label)}</button>`).join('')}</div>`
     }
+    <p class="muted small ask-left">${more > 0 ? `Up to ${more} more today.` : 'Last one for today.'}</p>
   </section></div>`;
 }
 
@@ -454,11 +541,12 @@ function answered() {
 async function answerKnow() {
   const text = ($('#askIn')?.value || '').trim();
   const q = $('#askCard .ask-text')?.textContent || '';
-  if (!text) {
-    toast('Write a few words, or tap Not now.');
+  const photo = $('#askFile')?.files?.[0] || null;
+  if (!text && !photo) {
+    toast('Write a few words or add a photo, or tap Not now.');
     return;
   }
-  if (!(await saveNote(text ? `${q}\n${text}` : '', null))) {
+  if (!(await saveNote(`${q}\n${text}`.trim(), photo))) {
     toast("That couldn't be saved.");
     return;
   }
@@ -494,6 +582,22 @@ function answer(act, v) {
       S.addTodo({ title: v });
       toast('Added to your to-dos.');
       break;
+    case 'q-loose-hold':
+      // Not put away: asked again in 2 weeks (lib/questions.ts).
+      S.dismissWarning(`q:hold:${v}`);
+      repaintAll();
+      toast("On hold. Arise asks again in 2 weeks.");
+      return true;
+    case 'q-loose-habit': {
+      // Something they keep doing: a weekly quest on their Habits goal (made if there isn't one).
+      const quest = { id: G.newId(), title: v, schedule: { kind: 'weekly', times: 1 }, created: S.todayKey() };
+      const habits = S.state.goals.find((g) => g.category === 'habits' && g.status === 'active');
+      const goal = habits
+        ? S.saveGoal({ ...habits, quests: [...habits.quests, quest] })
+        : S.saveGoal({ id: G.newId(), title: 'Habits', category: 'habits', why: '', by: '', created: S.todayKey(), status: 'active', quests: [quest], measures: [], milestones: [] });
+      toast(goal ? `Added to ${goal.title}, once a week. Change it in Goals.` : "That couldn't be added.");
+      break;
+    }
     case 'q-paid':
       S.settleDebt(v);
       toast('Marked as paid back.');
@@ -517,6 +621,16 @@ function answer(act, v) {
       S.save();
       toast('Saved. Your plan uses it from now on.');
       break;
+    case 'q-fact-ok':
+    case 'q-fact-old':
+    case 'q-fact-right':
+    case 'q-fact-both':
+      answered();
+      void answerFact(act, v)
+        .then(() => toast(FACT_TOASTS[act]))
+        .catch(() => toast("That couldn't be saved."))
+        .finally(repaintAll);
+      return true;
     default:
       return false;
   }
@@ -542,6 +656,7 @@ const WRITE_LABELS = [
   ['comment', 'Comment'],
 ];
 let writeKind = 'message';
+let drafted = ''; // the AI's last draft, to tell their own changes from it
 let writing = null; // AbortController while the AI writes
 
 function writeSheet() {
@@ -553,8 +668,13 @@ function writeSheet() {
       <label class="field"><span class="k">Your rough notes</span><textarea id="writeNotes" class="log-text" rows="5" maxlength="4000" placeholder="tell sam cant make fri, ill bring the book sat, sorry"></textarea></label>
       <label class="field"><span class="k">To <span class="muted">· if you like</span></span><input id="writeTo" type="text" maxlength="80" placeholder="My manager, a friend, a group chat" autocomplete="off"></label>
       <details class="write-voice"${voice ? '' : ' open'}><summary>How you write${voice ? ' (saved)' : ''}</summary>
-        <label class="field"><span class="k">Paste a few messages you wrote yourself</span><textarea id="writeVoice" class="log-text" rows="4" maxlength="3000">${esc(voice)}</textarea></label>
-        <p class="muted small">Arise copies how you sound from this, not what it says. Kept with the rest of your Arise.</p>
+        <label class="field"><span class="k">Paste messages you wrote yourself, a blank line between each</span><textarea id="writeVoice" class="log-text" rows="4" maxlength="3000">${esc(voice)}</textarea></label>
+        ${(() => {
+          const t = VP.traits(voice);
+          const lines = VP.traitsText(t);
+          return `<p class="muted small">${t.samples} of ${VP.GOOD_SAMPLES} messages${t.samples < VP.GOOD_SAMPLES ? ': more makes it sound more like you' : ''}.</p>${lines.length ? `<ul class="brief-list small">${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}`;
+        })()}
+        <p class="muted small">Arise copies how you sound from this, not what it says. When you change a draft and copy it, your version is added here. Kept with the rest of your Arise.</p>
       </details>
       <button class="btn primary block" type="submit" id="writeGo">Write it</button>
       <div id="writeOut" aria-live="polite"></div>
@@ -590,7 +710,8 @@ async function writeGo() {
   }
   try {
     const text = await AI.writeMyWay(notes, writeKind, { to: ($('#writeTo')?.value || '').trim(), signal: writing.signal });
-    if (out) out.innerHTML = `<div class="write-out" id="writeText">${esc(text)}</div><div class="row"><button class="btn small primary" type="button" data-act="write-copy">Copy</button><button class="btn small ghost" type="button" data-act="write-again">Write it again</button></div>`;
+    drafted = text;
+    if (out) out.innerHTML = `<label class="sr-only" for="writeText">The draft, yours to change</label><textarea class="write-out log-text" id="writeText" rows="6">${esc(text)}</textarea><div class="row"><button class="btn small primary" type="button" data-act="write-copy">Copy</button><button class="btn small ghost" type="button" data-act="write-again">Write it again</button></div>`;
   } catch (err) {
     if (out) out.innerHTML = `<p class="muted small">${esc(err?.message || "That didn't work. Try again.")}</p>`;
   } finally {
@@ -615,11 +736,17 @@ export function handleAction(act, el) {
     case 'q-skip':
     case 'q-loose-done':
     case 'q-loose-todo':
+    case 'q-loose-hold':
+    case 'q-loose-habit':
     case 'q-paid':
     case 'q-todo-day':
     case 'q-todo-drop':
     case 'q-goal-pause':
     case 'q-best':
+    case 'q-fact-ok':
+    case 'q-fact-old':
+    case 'q-fact-right':
+    case 'q-fact-both':
       return answer(act, v);
     case 'review-done': {
       const w = $('#reviewCard [data-week]')?.dataset.week;
@@ -643,7 +770,13 @@ export function handleAction(act, el) {
       writeGo();
       return true;
     case 'write-copy': {
-      const text = $('#writeText')?.textContent || '';
+      const text = ($('#writeText')?.value ?? $('#writeText')?.textContent ?? '').trim();
+      // Their own changes teach the next draft.
+      if (text && drafted && text !== drafted.trim()) {
+        S.state.settings.voice = VP.addSample(S.state.settings.voice || '', text);
+        S.save();
+        drafted = text;
+      }
       globalThis.navigator?.clipboard?.writeText(text).then(
         () => toast('Copied.'),
         () => toast("Couldn't copy. Select the text and copy it."),
@@ -665,6 +798,14 @@ export function handleAction(act, el) {
         b.setAttribute('aria-pressed', String(b === el));
       });
       return true;
+    case 'debt-part': {
+      const row = $(`.debt-part-row[data-for="${id}"]`);
+      if (row) {
+        row.hidden = !row.hidden;
+        row.querySelector('input')?.focus();
+      }
+      return true;
+    }
     case 'debt-settle':
     case 'debt-del': {
       const d = S.state.debts[id];
@@ -723,6 +864,24 @@ globalThis.document?.addEventListener('submit', (e) => {
   } else if (form === 'grocery-add') {
     e.preventDefault();
     addGroceries();
+  } else if (form === 'debt-part') {
+    e.preventDefault();
+    const id = e.target.dataset.id;
+    const d = S.state.debts[id];
+    const amount = Number(e.target.querySelector('input')?.value);
+    if (!d || !(amount > 0)) {
+      toast('Say how much came back.');
+      return;
+    }
+    S.payDebt(id, amount);
+    repaint();
+    if (S.state.debts[id]?.settled) {
+      closeSheet();
+      toast('All paid back now.');
+    } else {
+      personSheet(d.who, d.cur);
+      toast(`Saved. ${money(leftOf(S.state.debts[id]), d.cur)} still to go.`);
+    }
   } else if (form === 'debt-save') {
     e.preventDefault();
     saveDebt();
@@ -743,6 +902,11 @@ globalThis.document?.addEventListener('input', (e) => {
   }
 });
 globalThis.document?.addEventListener('change', (e) => {
+  if (e.target?.id === 'askFile') {
+    const name = $('#askFileName');
+    if (name) name.textContent = e.target.files?.[0]?.name || 'Or a photo';
+    return;
+  }
   if (e.target?.id === 'captureFile') {
     const f = e.target.files?.[0];
     const name = $('#captureFileName');

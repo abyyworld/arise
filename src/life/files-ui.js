@@ -3,12 +3,18 @@
 // "Photos and files" in Setup and connections: a file manager with folders (a folder can be a
 // goal's project folder, shown on that goal), search, sorting, a grid or a list, choosing several
 // files to move or delete, the trash, and finding copies. The storage is files.ts; the rules for
-// folders, sorting and copies are files-tree.ts.
+// folders, sorting and copies are files-tree.ts. A file's sheet also has its versions
+// (files-versions.ts), a better name when its own says nothing (files-names.ts), a note on how to
+// keep it up to date, and a preview made from its bytes (files-preview.ts). Folders can be marked
+// "Working on" or "Finished"; finished ones are tucked below.
 
 import '../styles/files.css';
-import { esc, icon, openSheet, closeSheet, toast } from '../ui.js';
+import { esc, icon, md, openSheet, closeSheet, toast } from '../ui.js';
 import * as READUI from './reads-ui.js';
-import { hasWords } from './reads';
+import { fileText, getRead, hasWords } from './reads';
+import * as V from './files-versions';
+import * as NAMES from './files-names';
+import * as PV from './files-preview';
 import * as N from '../native.js';
 import * as F from './files';
 import * as FS from './files-sync';
@@ -49,18 +55,19 @@ function whereLine() {
 // One file in a grid: its preview, or its name. `act` is what a tap does.
 function tile(where, f, act = 'myfiles-file', picked) {
   const u = thumbURL(where, f);
-  const label = `${isImage(f) ? 'Photo' : f.name}, ${longDay(f.day)}`;
+  const label = `${isImage(f) ? 'Photo' : f.name}, ${longDay(f.day)}${f.upkeep ? `. To keep it up to date: ${f.upkeep}` : ''}`;
   const pick = picked === undefined ? '' : ` aria-pressed="${picked}"`;
-  return `<button class="file-tile${u ? '' : ' plain'}${picked ? ' picked' : ''}" data-act="${act}" data-id="${esc(f.id)}" aria-label="${esc(label)}"${pick}>${u ? `<img src="${esc(u)}" alt="" loading="lazy">` : `<span class="file-name">${icon('note')}<small>${esc(f.name)}</small></span>`}${picked ? `<span class="file-check">${icon('check')}</span>` : ''}</button>`;
+  const mark = f.upkeep ? `<span class="file-upkeep-mark" title="${esc(f.upkeep)}">${icon('refresh')}</span>` : '';
+  return `<button class="file-tile${u ? '' : ' plain'}${picked ? ' picked' : ''}" data-act="${act}" data-id="${esc(f.id)}" aria-label="${esc(label)}"${pick}>${u ? `<img src="${esc(u)}" alt="" loading="lazy">` : `<span class="file-name">${icon('note')}<small>${esc(f.name)}</small></span>`}${mark}${picked ? `<span class="file-check">${icon('check')}</span>` : ''}</button>`;
 }
 
-// One file in a list: preview, name, and a line under it.
+// One file in a list: preview, name, a line under it, and its note on keeping it up to date.
 function row(where, f, act, more, picked) {
   const u = thumbURL(where, f);
   const pick = picked === undefined ? '' : ` aria-pressed="${picked}"`;
   return `<button class="file-row${picked ? ' picked' : ''}" data-act="${act}" data-id="${esc(f.id)}"${pick}>
     <span class="file-row-pic">${picked ? icon('check') : u ? `<img src="${esc(u)}" alt="" loading="lazy">` : icon('note')}</span>
-    <span class="file-row-text"><b>${esc(f.name)}</b><small>${esc(more)}</small></span>
+    <span class="file-row-text"><b>${esc(f.name)}</b><small>${esc(more)}</small>${f.upkeep ? `<small class="file-upkeep">${icon('refresh')} ${esc(f.upkeep)}</small>` : ''}</span>
   </button>`;
 }
 
@@ -99,17 +106,36 @@ export async function saveNoteFiles(noteId, day) {
 
 // ---------- adding
 
-async function addFiles(list, opts) {
+// Says how many were kept (`versions`: how many of them as a new version of a file already here).
+async function addFiles(list, opts, out = {}) {
   let n = 0;
+  out.versions = [];
   for (const file of list) {
     try {
-      await F.putFile(file, opts);
+      const f = await F.putFile(file, opts);
+      if (f.vg) out.versions.push(f.name);
       n++;
     } catch (err) {
       toast(err?.message || `${file.name} couldn't be kept.`);
     }
   }
   return n;
+}
+
+// What adding files in the file manager says.
+function keptText(n, versions) {
+  if (!versions.length) return n === 1 ? 'Kept.' : `${n} kept.`;
+  if (n === 1) return `Kept as a new version of ${versions[0]}. The old one is in its versions.`;
+  return `${n} kept, ${versions.length} of them as new versions.`;
+}
+
+async function addVersion(t) {
+  const file = t.files?.[0];
+  const of = t.dataset.id || '';
+  t.value = '';
+  if (!file || !of) return;
+  const f = await run(() => F.putFile(file, { versionOf: of }), 'New version kept. The old one is in its versions.');
+  if (f) await openFile(f.id);
 }
 
 globalThis.document?.addEventListener('change', async (e) => {
@@ -128,13 +154,19 @@ globalThis.document?.addEventListener('change', async (e) => {
     await run(() => F.moveFiles([shown], to), 'Moved.');
     return;
   }
+  if (t?.id === 'myfilesVersion') {
+    await addVersion(t);
+    return;
+  }
   if (t?.id !== 'myfilesDay' && t?.id !== 'myfilesPlace') return;
   const list = [...(t.files || [])];
   if (!list.length) return;
   const day = /^\d{4}-\d{2}-\d{2}$/.test(t.dataset.day || '') ? t.dataset.day : dayKey(Date.now());
-  const n = await addFiles(list, { day, ...(t.dataset.dir ? { dir: t.dataset.dir } : {}) });
+  const said = {};
+  // In the file manager, a file with the same name in the same folder becomes a new version.
+  const n = await addFiles(list, { day, ...(t.dataset.dir ? { dir: t.dataset.dir } : {}), ...(t.id === 'myfilesPlace' ? { sameName: true } : {}) }, said);
   t.value = '';
-  if (n) toast(n === 1 ? 'Kept.' : `${n} kept.`);
+  if (n) toast(keptText(n, said.versions));
 });
 
 globalThis.document?.addEventListener('input', (e) => {
@@ -171,8 +203,32 @@ function folderOptions(dirs, current, skip) {
   );
 }
 
+// When a version became the current one, with the time (two can be on one day).
+const whenText = (t) => new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+// A file's older versions, with Restore and Delete, and a way to add a new one.
+function versionsHTML(f, older) {
+  const rows = older
+    .map((v) => {
+      const u = thumbURL('sheet', v);
+      const more = [F.sizeText(v.size), ...(v.name !== f.name ? [v.name] : [])].join(' · ');
+      return `<div class="file-bin-row"><button class="file-row" data-act="myfiles-file" data-id="${esc(v.id)}">
+        <span class="file-row-pic">${u ? `<img src="${esc(u)}" alt="" loading="lazy">` : icon('note')}</span>
+        <span class="file-row-text"><b>${esc(whenText(V.rankOf(v)))}</b><small>${esc(more)}</small></span>
+      </button><button class="btn ghost small" data-act="myfiles-v-restore" data-id="${esc(v.id)}">Restore</button><button class="btn ghost small danger" data-act="myfiles-v-del" data-id="${esc(v.id)}">Delete</button></div>`;
+    })
+    .join('');
+  return `<section class="file-versions" id="myfilesVersions">
+    <p class="label">Versions</p>
+    ${older.length ? `<p class="muted small">This one is from ${esc(whenText(V.rankOf(f)))}. Older versions:</p><div class="file-list">${rows}</div>` : '<p class="muted small">No older versions.</p>'}
+    <div class="row"><label class="btn ghost small file-add">Upload a new version<input type="file" id="myfilesVersion" data-id="${esc(f.id)}" hidden></label></div>
+    <p class="muted small">Adding a file with the same name to the same folder keeps the old one here too. Up to ${F.MAX_VERSIONS} older versions are kept; past that, the oldest go to the trash.</p>
+  </section>`;
+}
+
 async function openFile(id) {
   letGo('sheet');
+  pdfURL = '';
   const [list, tree] = await Promise.all([F.listFiles({ trash: 'all' }).catch(() => []), F.listFolders().catch(() => T.emptyFolders())]);
   const f = list.find((x) => x.id === id);
   if (!f) {
@@ -181,28 +237,53 @@ async function openFile(id) {
   }
   shown = id;
   const stays = F.staysHere(f);
+  const cur = V.currentOf(list, id);
+  const older = f.bin ? [] : V.olderOf(list, id);
+  const isVersion = !f.bin && !!cur && cur.id !== id;
+  const dir = T.dirOf(tree.dirs, f);
+  const kind = PV.previewKind(f);
   const preview = f.thumb ? `<img class="file-full" id="myfilesImg" src="${esc(thumbURL('sheet', f))}" alt="${esc(f.name)}">` : '';
+  const bundle = f.bin ? V.bundleOf(list, id).length - 1 : 0;
   const bin = f.bin
-    ? `<p class="small">In the trash. It goes for good in ${T.daysLeft(f)} ${T.daysLeft(f) === 1 ? 'day' : 'days'}.</p>
+    ? `<p class="small">In the trash${bundle ? `, with ${bundle} older ${bundle === 1 ? 'version' : 'versions'}` : ''}. It goes for good in ${T.daysLeft(f)} ${T.daysLeft(f) === 1 ? 'day' : 'days'}.</p>
     <div class="row"><button class="btn primary small" data-act="myfiles-restore" data-id="${esc(f.id)}">Put it back</button><button class="btn ghost small danger" data-act="myfiles-forget" data-id="${esc(f.id)}">Delete for good</button></div>`
-    : `<label class="field"><span class="k">Folder</span><select id="myfilesFileDir">${folderOptions(tree.dirs, T.dirOf(tree.dirs, f))}</select></label>
+    : isVersion
+      ? `<div class="row"><button class="btn primary small" data-act="myfiles-v-restore" data-id="${esc(f.id)}">Restore this version</button><button class="btn ghost small danger" data-act="myfiles-v-del" data-id="${esc(f.id)}">Delete this version</button></div>
+    <button class="link small" data-act="myfiles-file" data-id="${esc(cur.id)}">Back to the current one</button>`
+      : `<details class="file-edit"><summary class="small">Rename</summary>
+      <label class="field"><span class="k">Name</span><input id="myfilesFileName" autocomplete="off" maxlength="200" value="${esc(f.name)}"></label>
+      <div class="row"><button class="btn primary small" data-act="myfiles-rename-file" data-id="${esc(f.id)}">Rename</button></div>
+    </details>
+    <details class="file-edit"><summary class="small">${f.upkeep ? 'Change the note on keeping it up to date' : 'Add a note on keeping it up to date'}</summary>
+      <label class="field"><span class="k">How to keep it up to date</span><input id="myfilesUpkeep" autocomplete="off" maxlength="200" placeholder="Update the CV after each new job" value="${esc(f.upkeep || '')}"></label>
+      <div class="row"><button class="btn primary small" data-act="myfiles-upkeep" data-id="${esc(f.id)}">Save the note</button></div>
+    </details>
+    <label class="field"><span class="k">Folder</span><select id="myfilesFileDir">${folderOptions(tree.dirs, dir)}</select></label>
+    ${T.inFinished(tree.dirs, dir) ? '' : `<div class="row"><button class="btn ghost small" data-act="myfiles-finish" data-id="${esc(f.id)}">${icon('check')} Move to Finished</button></div>`}
+    ${versionsHTML(f, older)}
     <button class="btn ghost block danger" data-act="myfiles-del" data-id="${esc(f.id)}">Delete from all your devices</button>
-    <p class="muted small">It goes to the trash first, on all your devices. You can put it back for ${F.TRASH_DAYS} days.</p>`;
-  openSheet(`<p class="kicker">${esc(longDay(f.day))}</p>
+    <p class="muted small">It goes to the trash first${older.length ? ', with its older versions' : ''}, on all your devices. You can put it back for ${F.TRASH_DAYS} days.</p>`;
+  openSheet(`<p class="kicker">${esc(isVersion ? `An older version, from ${whenText(V.rankOf(f))}` : longDay(f.day))}</p>
     <h2 class="display sheet-title file-title">${esc(f.name)}</h2>
-    ${preview}
+    ${isVersion ? `<p class="small">An older version of <b>${esc(cur.name)}</b>.</p>` : ''}
+    ${f.upkeep && !isVersion ? `<p class="file-upkeep-note small">${icon('refresh')} <span>${esc(f.upkeep)}</span></p>` : ''}
+    <div class="file-suggest" id="myfilesSuggest" hidden></div>
+    <div class="file-preview" id="myfilesPreview">${preview}</div>
     <p class="muted small">${esc(F.sizeText(f.size))}${f.w && f.h ? ` · ${f.w} × ${f.h}` : ''} · ${esc(stays || (f.up ? 'Synced, end-to-end encrypted.' : CLOUD.signedIn() ? 'Syncs soon, end-to-end encrypted.' : 'Syncs once you sign in.'))}</p>
     <p class="muted small" id="myfilesState">${f.here ? '' : 'Getting it from your other devices…'}</p>
     ${hasWords(f) ? READUI.slot(`f:${f.id}`) : ''}
     <div class="row">
       <button class="btn ghost small" data-act="myfiles-save" data-id="${esc(f.id)}">${icon('share')} Save a copy</button>
-      ${f.size <= F.SYNC_FILE_MAX ? `<button class="btn ghost small" data-act="myfiles-sync" data-id="${esc(f.id)}" data-on="${!f.sync}">${f.sync ? 'Keep only on this device' : 'Sync it'}</button>` : ''}
+      ${f.size <= F.SYNC_FILE_MAX && !isVersion ? `<button class="btn ghost small" data-act="myfiles-sync" data-id="${esc(f.id)}" data-on="${!f.sync}">${f.sync ? 'Keep only on this device' : 'Sync it'}</button>` : ''}
     </div>
     ${bin}
     <button class="link small" data-act="myfiles-open">Back to Photos and files</button>`);
   if (hasWords(f)) void READUI.fillSlot();
-  // The whole picture (or the bytes, for the Save button) once they're here.
-  if (isImage(f) || !f.here) {
+  const suggest = !f.bin && !isVersion && !f.renamed && NAMES.unhelpful(f.name);
+  if (suggest && !(f.here && hasWords(f))) void fillSuggest(f, null);
+  // The bytes, for the preview (and the Save button, and a heading for a better name), once
+  // they're here.
+  if (kind || !f.here || suggest) {
     const got = await F.getFile(id).catch(() => null);
     if (shown !== id) return;
     const state = $('#myfilesState');
@@ -215,9 +296,92 @@ async function openFile(id) {
       return;
     }
     if (state) state.textContent = '';
-    const img = $('#myfilesImg');
-    if (img && isImage(f)) img.src = urlFor('sheet', got.blob);
+    if (suggest && hasWords(f)) void fillSuggest(f, got.blob);
+    if (kind) await fillPreview(f, got.blob, kind);
   }
+}
+
+// A clearer name for a file whose own says nothing (files-names.ts), with Rename and Keep.
+async function fillSuggest(f, blob) {
+  const read = await getRead(`f:${f.id}`).catch(() => null);
+  let words = '';
+  if (blob) {
+    try {
+      words = (await fileText(f, new Uint8Array(await blob.arrayBuffer()))).slice(0, 20000);
+    } catch {
+      words = '';
+    }
+  }
+  const s = NAMES.suggestName(f, { heading: words, desc: read?.desc });
+  const el = $('#myfilesSuggest');
+  if (!s || !el || shown !== f.id) return;
+  el.hidden = false;
+  el.innerHTML = `<p class="small">A clearer name: <b>${esc(s.name)}</b></p>
+    <p class="muted small">${esc(NAMES.SUGGESTION_FROM[s.from])}</p>
+    <div class="row"><button class="btn primary small" data-act="myfiles-name-use" data-id="${esc(f.id)}" data-name="${esc(s.name)}">Rename</button><button class="btn ghost small" data-act="myfiles-name-keep" data-id="${esc(f.id)}">Keep</button></div>`;
+}
+
+// What the sheet shows of a file, from its bytes, on this device (files-preview.ts).
+let pdfURL = ''; // the PDF on screen, for the browser's own viewer
+async function fillPreview(f, blob, kind) {
+  const el = $('#myfilesPreview');
+  if (!el || shown !== f.id) return;
+  if (kind === 'image') {
+    el.innerHTML = `<img class="file-full" id="myfilesImg" src="${esc(urlFor('sheet', blob))}" alt="${esc(f.name)}">`;
+    return;
+  }
+  if (kind === 'audio') {
+    el.innerHTML = `<audio class="file-player" controls preload="metadata" src="${esc(urlFor('sheet', blob))}"></audio>`;
+    return;
+  }
+  if (kind === 'video') {
+    el.innerHTML = `<video class="file-full file-player" controls playsinline preload="metadata" src="${esc(urlFor('sheet', blob))}"></video>`;
+    return;
+  }
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  if (shown !== f.id) return;
+  if (kind === 'text' || kind === 'markdown') {
+    const { text, more } = PV.textOf(bytes);
+    el.innerHTML = `${kind === 'markdown' ? `<div class="file-text file-md">${md(text)}</div>` : `<pre class="file-text">${esc(text)}</pre>`}${more ? '<p class="muted small">Only the start is shown. Save a copy to see all of it.</p>' : ''}`;
+    return;
+  }
+  // A PDF: its first page as a picture (a scanned page is one), else the browser draws it where it
+  // can, else the first words. Tapped, the browser's own viewer opens.
+  pdfURL = urlFor('sheet', new Blob([bytes], { type: 'application/pdf' }));
+  let pic = null;
+  if (bytes.length <= PV.PDF_PICTURE_MAX) {
+    try {
+      pic = (await import('./import/pdf')).firstPagePicture(bytes);
+    } catch {
+      pic = null;
+    }
+  }
+  if (shown !== f.id) return;
+  el.innerHTML = `<button class="file-pdf" data-act="myfiles-pdf" data-id="${esc(f.id)}" aria-label="Open ${esc(f.name)}"><img class="file-full" id="myfilesPdfPage" src="${esc(pic ? urlFor('sheet', new Blob([pic], { type: 'image/jpeg' })) : pdfURL)}" alt="The first page of ${esc(f.name)}"></button>
+    <p class="muted small">The first page. Tap it to open the whole PDF.</p>`;
+  if (pic) return;
+  $('#myfilesPdfPage')?.addEventListener(
+    'error',
+    async () => {
+      const text = await fileText(f, bytes).catch(() => '');
+      const img = $('#myfilesPdfPage');
+      if (!img || shown !== f.id) return;
+      const pre = document.createElement('pre');
+      pre.className = 'file-text';
+      pre.textContent = text.trim().slice(0, 1500) || 'PDF';
+      img.replaceWith(pre);
+    },
+    { once: true },
+  );
+}
+
+// The browser's own PDF viewer, in a new tab (in the app: the share sheet, which can show it).
+async function viewPdf(id) {
+  if (N.isNative || !pdfURL) {
+    await saveCopy(id);
+    return;
+  }
+  globalThis.open?.(pdfURL, '_blank');
 }
 
 // To the share sheet or a download, like a backup.
@@ -370,7 +534,9 @@ function folderTools(tree) {
   const goals = S.state.goals || [];
   const goalOpts = `<option value="">Not a project</option>${goals.map((g) => `<option value="${esc(g.id)}"${d.g === g.id ? ' selected' : ''}>${esc(g.title)}</option>`).join('')}`;
   const goal = d.g ? goals.find((g) => g.id === d.g) : null;
+  const state = (s, label) => `<button class="${d.s === s ? 'on' : ''}" data-act="myfiles-folder-state" data-s="${s}" aria-pressed="${d.s === s}">${label}</button>`;
   return `${goal ? `<p class="small files-project">${icon('target')} The project folder of <b>${esc(goal.title)}</b>.</p>` : ''}
+  <div class="seg files-state" role="group" aria-label="This folder is">${state('w', T.STATE_LABEL.w)}${state('f', T.STATE_LABEL.f)}</div>
   <details class="files-folder-tools"><summary class="small">This folder</summary>
     <div class="row"><button class="btn ghost small" data-act="myfiles-rename">Rename</button><button class="btn ghost small danger" data-act="myfiles-rmdir">Delete the folder</button></div>
     <label class="field"><span class="k">Move it into</span><select id="myfilesFolderTo">${folderOptions(tree.dirs, T.parentOf(tree.dirs, place.dir), place.dir)}</select></label>
@@ -380,15 +546,19 @@ function folderTools(tree) {
 }
 
 function filesHTML(all, tree) {
-  const live = all.filter((f) => !f.bin);
-  const binned = all.length - live.length;
+  // Each file once: its current version (its older ones are in its sheet).
+  const live = V.currentOnly(all.filter((f) => !f.bin));
+  const binned = V.trashBundles(all).length;
   const q = place.q.trim();
   const counts = new Map();
   for (const f of live) {
     const d = T.dirOf(tree.dirs, f) || '';
     counts.set(d, (counts.get(d) || 0) + 1);
   }
-  const shownFolders = q ? Object.keys(tree.dirs).filter((id) => T.nameMatches(tree.dirs[id].name, q)) : T.foldersIn(tree.dirs, place.dir || undefined);
+  // Folders being worked on first; finished ones tucked below.
+  const byState = T.foldersByState(tree.dirs, place.dir || undefined);
+  const shownFolders = q ? Object.keys(tree.dirs).filter((id) => T.nameMatches(tree.dirs[id].name, q)) : byState.open;
+  const finished = q ? [] : byState.finished;
   const list = T.sortFiles(q ? live.filter((f) => T.nameMatches(f.name, q)) : live.filter((f) => (T.dirOf(tree.dirs, f) || '') === place.dir), place.sort);
   const pathText = (f) => {
     const p = T.pathOf(tree.dirs, T.dirOf(tree.dirs, f));
@@ -397,23 +567,26 @@ function filesHTML(all, tree) {
   const act = place.picking ? 'myfiles-pick' : 'myfiles-file';
   const picked = (f) => (place.picking ? place.picked.has(f.id) : undefined);
   const more = (f) => [F.sizeText(f.size), shortDay(f.day), ...(q ? [pathText(f)] : place.sort === 'kind' ? [T.kindOf(f.type)] : [])].join(' · ');
-  const folderHTML = shownFolders
-    .map((id) => {
-      const n = counts.get(id) || 0;
-      const inner = T.foldersIn(tree.dirs, id).length;
-      const sub = [files(n), ...(inner ? [`${inner} ${inner === 1 ? 'folder' : 'folders'}`] : []), ...(tree.dirs[id].g ? ['project'] : [])].join(' · ');
-      return `<button class="${place.grid ? 'folder-tile' : 'folder-row'}" data-act="myfiles-dir" data-id="${esc(id)}"><span class="folder-pic">${icon('days')}</span><span class="file-row-text"><b>${esc(q ? pathText({ dir: id }) || tree.dirs[id].name : tree.dirs[id].name)}</b><small>${esc(sub)}</small></span></button>`;
-    })
-    .join('');
+  const folderButton = (id) => {
+    const n = counts.get(id) || 0;
+    const inner = T.foldersIn(tree.dirs, id).length;
+    const s = tree.dirs[id].s;
+    const sub = [...(s ? [T.STATE_LABEL[s]] : []), files(n), ...(inner ? [`${inner} ${inner === 1 ? 'folder' : 'folders'}`] : []), ...(tree.dirs[id].g ? ['project'] : [])].join(' · ');
+    return `<button class="${place.grid ? 'folder-tile' : 'folder-row'}${s === 'w' ? ' working' : ''}" data-act="myfiles-dir" data-id="${esc(id)}"><span class="folder-pic">${icon(s === 'f' ? 'check' : 'days')}</span><span class="file-row-text"><b>${esc(q ? pathText({ dir: id }) || tree.dirs[id].name : tree.dirs[id].name)}</b><small>${esc(sub)}</small></span></button>`;
+  };
+  const folderHTML = shownFolders.map(folderButton).join('');
+  const finishedHTML = finished.length
+    ? `<details class="files-finished"><summary class="small">Finished (${finished.length})</summary><div class="${place.grid ? 'folder-grid' : 'file-list'}">${finished.map(folderButton).join('')}</div></details>`
+    : '';
   const fileHTML = place.grid ? `<div class="file-grid">${list.map((f) => tile('place', f, act, picked(f))).join('')}</div>` : `<div class="file-list">${list.map((f) => row('place', f, act, more(f), picked(f))).join('')}</div>`;
   const pickBar = place.picking
     ? `<div class="files-pickbar" role="region" aria-label="Chosen files">
         <p class="small"><b>${place.picked.size}</b> chosen. <button class="link small" data-act="myfiles-pick-all">Choose all ${list.length}</button></p>
         <label class="field"><span class="k">Move them to</span><select id="myfilesMoveTo">${folderOptions(tree.dirs, place.dir || undefined)}</select></label>
-        <div class="row"><button class="btn primary small" data-act="myfiles-move"${place.picked.size ? '' : ' disabled'}>Move</button><button class="btn ghost small danger" data-act="myfiles-trash"${place.picked.size ? '' : ' disabled'}>Move to the trash</button><button class="btn ghost small" data-act="myfiles-pick-stop">Done</button></div>
+        <div class="row"><button class="btn primary small" data-act="myfiles-move"${place.picked.size ? '' : ' disabled'}>Move</button>${T.inFinished(tree.dirs, place.dir || undefined) ? '' : `<button class="btn ghost small" data-act="myfiles-finish-picked"${place.picked.size ? '' : ' disabled'}>Move to Finished</button>`}<button class="btn ghost small danger" data-act="myfiles-trash"${place.picked.size ? '' : ' disabled'}>Move to the trash</button><button class="btn ghost small" data-act="myfiles-pick-stop">Done</button></div>
       </div>`
     : '';
-  const empty = !shownFolders.length && !list.length ? `<p class="muted small">${q ? 'Nothing has that name.' : place.dir ? 'This folder is empty.' : 'Nothing kept yet.'}</p>` : '';
+  const empty = !shownFolders.length && !finished.length && !list.length ? `<p class="muted small">${q ? 'Nothing has that name.' : place.dir ? 'This folder is empty.' : 'Nothing kept yet.'}</p>` : '';
   return `${toolbar()}
     ${q ? `<p class="small">Search results for <b>${esc(q)}</b> in all your folders.</p>` : crumbs(tree)}
     ${q ? '' : folderTools(tree)}
@@ -422,19 +595,20 @@ function filesHTML(all, tree) {
     ${pickBar}
     ${folderHTML ? `<div class="${place.grid ? 'folder-grid' : 'file-list'}">${folderHTML}</div>` : ''}
     ${list.length ? fileHTML : ''}
+    ${finishedHTML}
     ${empty}
     <div class="row files-more"><button class="btn ghost small" data-act="myfiles-bin">${icon('del')} Trash${binned ? ` (${binned})` : ''}</button><button class="btn ghost small" data-act="myfiles-copies">Find copies</button></div>`;
 }
 
 function trashHTML(all) {
-  const list = T.sortFiles(
-    all.filter((f) => f.bin),
-    'date',
-  ).sort((a, b) => b.bin - a.bin);
+  // What went there together shows once: a file with the versions trashed with it.
+  const list = V.trashBundles(all).sort((a, b) => b[0].bin - a[0].bin || b[0].at - a[0].at);
   const rows = list
-    .map((f) => {
+    .map((b) => {
+      const f = b[0];
       const left = T.daysLeft(f);
-      return `<div class="file-bin-row">${row('place', f, 'myfiles-file', `${F.sizeText(f.size)} · goes for good in ${left} ${left === 1 ? 'day' : 'days'}`)}<button class="btn ghost small" data-act="myfiles-restore" data-id="${esc(f.id)}">Put back</button></div>`;
+      const withOld = b.length > 1 ? ` · with ${b.length - 1} older ${b.length === 2 ? 'version' : 'versions'}` : '';
+      return `<div class="file-bin-row">${row('place', f, 'myfiles-file', `${F.sizeText(f.size)}${withOld} · goes for good in ${left} ${left === 1 ? 'day' : 'days'}`)}<button class="btn ghost small" data-act="myfiles-restore" data-id="${esc(f.id)}">Put back</button></div>`;
     })
     .join('');
   return `${crumbs({ dirs: {} }, 'Trash')}
@@ -641,8 +815,66 @@ export async function handleAction(act, el) {
       return true;
     case 'myfiles-forget':
       if (!globalThis.confirm?.("Delete this file for good, from all your devices? This can't be undone.")) return true;
-      await run(() => F.deleteFile(id), 'Deleted for good.');
+      await run(() => F.deleteForGood(id), 'Deleted for good.');
       await backToPlace();
+      return true;
+
+    // ---- a file's versions, name, note, and Finished
+    case 'myfiles-v-restore': {
+      const ok = await run(() => F.restoreVersion(id), 'Restored. The one it replaced is in its versions.');
+      if (ok) await openFile(id);
+      return true;
+    }
+    case 'myfiles-v-del': {
+      if (!globalThis.confirm?.(`Delete this version? It waits in the trash for ${F.TRASH_DAYS} days first.`)) return true;
+      const cur = await F.currentVersion(id).catch(() => null);
+      await run(() => F.deleteVersion(id), 'Version moved to the trash.');
+      if (cur && cur.id !== id) await openFile(cur.id);
+      else await backToPlace();
+      return true;
+    }
+    case 'myfiles-rename-file': {
+      const ok = await run(async () => (await F.renameFile(id, $('#myfilesFileName')?.value || ''), true), 'Renamed.');
+      if (ok) await openFile(id);
+      return true;
+    }
+    case 'myfiles-name-use': {
+      const ok = await run(async () => (await F.renameFile(id, el.dataset.name || ''), true), 'Renamed.');
+      if (ok) await openFile(id);
+      return true;
+    }
+    case 'myfiles-name-keep':
+      await run(() => F.keepName(id));
+      if ($('#myfilesSuggest')) $('#myfilesSuggest').hidden = true;
+      return true;
+    case 'myfiles-upkeep': {
+      const text = $('#myfilesUpkeep')?.value || '';
+      const ok = await run(async () => (await F.setUpkeep(id, text), true), text.trim() ? 'Note saved.' : 'Note taken off.');
+      if (ok) await openFile(id);
+      return true;
+    }
+    case 'myfiles-finish': {
+      const n = await run(() => F.finishFiles([id]), (k) => (k ? 'Moved to Finished.' : 'It was already there.'));
+      if (n !== undefined) await openFile(id);
+      return true;
+    }
+    case 'myfiles-finish-picked': {
+      const ids = [...place.picked];
+      const n = await run(() => F.finishFiles(ids), (k) => (k === 1 ? '1 file moved to Finished.' : `${k} files moved to Finished.`));
+      if (n !== undefined) resetPick();
+      await drawPlace();
+      return true;
+    }
+    case 'myfiles-folder-state': {
+      const tree = await F.listFolders().catch(() => T.emptyFolders());
+      const s = el.dataset.s === 'w' || el.dataset.s === 'f' ? el.dataset.s : undefined;
+      const next = tree.dirs[place.dir]?.s === s ? undefined : s;
+      await run(() => F.setFolderState(place.dir, next), next === 'f' ? 'Marked finished. It sits below the others now.' : next === 'w' ? 'Marked as working on. It shows first.' : 'Not marked any more.');
+      await drawPlace();
+      return true;
+    }
+    case 'myfiles-pdf':
+      await viewPdf(id);
       return true;
     case 'myfiles-empty': {
       const n = (await F.listFiles({ trash: true }).catch(() => [])).length;

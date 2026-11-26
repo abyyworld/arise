@@ -4,6 +4,21 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.39.0',
+    notes: [
+      'Plan it with someone: send a private link to an event and see who is in. Change or cancel it, and their copy updates.',
+      'Each day starts with a short story of what happened, and Look back tells the story of each month and year.',
+      'Photos and files keep their older versions (up to 20), suggest clearer names, preview PDFs, sound and video, and tuck finished folders away.',
+      'Your life areas: add notes and projects with dates, labels and links, and mark the key ones. Keep any fact from every AI, check it again on a day, and settle facts that clash.',
+      'See exactly what Arise sent to an AI, and when. Arise shows how often it gets things right first time, and asks at most 6 quick questions a day.',
+      'AI apps on the web get four switches: Read, Add, Read files and Save files, with one folder you share with them.',
+      'Money owed: say part of it was paid back. Debts due later are folded away until close to the day.',
+      'Undo on everything the box on Today saves. A time that has passed moves to your next free hour.',
+      'Write it my way learns your style from your own messages and from your edits. Your coach has four more ways to ask how you are doing.',
+      'Loose ends can be ongoing (a weekly habit) or on hold. Answer a getting-to-know-you question with a photo.',
+    ],
+  },
+  {
     version: '1.38.0',
     notes: [
       'Your website: write a few pages and posts in Arise, pick a look, and publish them to GitHub Pages in your own GitHub account. With ideas to write about, and an optional visit counter that counts pages, not people.',

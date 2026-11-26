@@ -9,6 +9,8 @@
 // token's SHA-256, and the connector checks against that. So the app can't read or wipe the log of
 // what it did. On its own (no app imports), so the connector Worker uses the same code.
 
+import { cleanSaved, type SavedFile } from './me-files';
+
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 const subtle = () => globalThis.crypto.subtle;
@@ -24,10 +26,11 @@ const unb64url = (s: string) => unb64(s.replace(/-/g, '+').replace(/_/g, '/') + 
 
 // 'ask' is a request: the app wanted to add a note or a to-do (`want`) that the Player's rules say
 // to ask them about first. Arise only adds it once they allow it. (An Arise from before rules
-// doesn't know 'ask', so it leaves such an entry alone rather than add it.)
-export const FEED_TOOLS = ['about_me', 'my_goals', 'recent_days', 'search', 'fetch', 'add_note', 'add_todo', 'ask'] as const;
+// doesn't know 'ask', so it leaves such an entry alone rather than add it.) 'save_file' carries the
+// file the app saved, for the folder the Player shares with it.
+export const FEED_TOOLS = ['about_me', 'my_goals', 'recent_days', 'search', 'fetch', 'add_note', 'add_todo', 'ask', 'list_files', 'read_file', 'save_file'] as const;
 export type FeedTool = (typeof FEED_TOOLS)[number];
-export const ASK_WANTS = ['add_note', 'add_todo'] as const;
+export const ASK_WANTS = ['add_note', 'add_todo', 'save_file'] as const;
 export type AskWant = (typeof ASK_WANTS)[number];
 
 // One thing an app did. `note`: the words of a note it added (add_note only).
@@ -39,6 +42,7 @@ export interface FeedEntry {
   note?: string; // the words of a note or a to-do it added or asked to add (add_note, add_todo, ask)
   day?: string; // the day of a to-do, if it has one
   want?: AskWant; // what a request (ask) wants to add
+  file?: SavedFile | { name: string; type: string }; // a file it saved or asked to save (the bytes only until Arise keeps it)
 }
 
 // As the connector keeps it: n counts up from 1 for each link (the connector numbers them once
@@ -106,6 +110,17 @@ export function cleanEntry(raw: unknown): FeedEntry | null {
     if (note) out.note = note;
   }
   if ((out.tool === 'add_todo' || out.want === 'add_todo') && typeof r.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.day)) out.day = r.day;
+  if (out.tool === 'save_file' || out.want === 'save_file') {
+    const f = r.file && typeof r.file === 'object' ? (r.file as Record<string, unknown>) : null;
+    const saved = f && typeof f.data === 'string' ? cleanSaved(f) : null;
+    if (saved) out.file = saved;
+    else if (f) {
+      // What the log keeps of it: its name and type.
+      const name = cleanSaved({ ...f, data: '' })?.name;
+      if (name) out.file = { name, type: cleanSaved({ ...f, data: '' })!.type };
+    }
+    if (out.want === 'save_file' && !out.file) return null;
+  }
   return out;
 }
 
@@ -128,4 +143,10 @@ export const TOOL_WORDS: Record<FeedTool, string> = {
   add_note: 'added a note',
   add_todo: 'added a to-do',
   ask: 'asked to add something',
+  list_files: 'listed your shared files',
+  read_file: 'read a file',
+  save_file: 'saved a file',
 };
+
+// A request in a few words: "add a to-do", "save a file".
+export const WANT_WORDS: Record<AskWant, string> = { add_note: 'add a note', add_todo: 'add a to-do', save_file: 'save a file' };

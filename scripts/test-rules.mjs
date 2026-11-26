@@ -147,5 +147,42 @@ await expectDenied('someone else adds a passkey wrap', setDoc(arise(bob, 'alice'
 await expectDenied('nobody signed in writes the keys', setDoc(arise(nobody, 'alice', 'keys'), keysDoc()));
 await expectAllowed('the owner deletes the keys (with the account)', deleteDoc(arise(alice, 'alice', 'keys')));
 
+console.log('Answers to a plan (shares/{id}/replies/{rid})');
+const PLAN = 'P'.repeat(20) + '_-'; // 22 characters of base64url
+const OTHER = 'Q'.repeat(20) + '_-';
+const OFF = 'R'.repeat(20) + '_-';
+const RID = 'r'.repeat(20) + '-_';
+const page = (owner, extra = {}) => ({ owner, iv: b64(16), ct: `${b64(100)}==`, v: 1, updated: Date.now(), ...extra });
+const answer = (extra = {}) => ({ v: 1, iv: b64(16), ct: `${b64(200)}==`, updated: Date.now(), ...extra });
+const reply = (db, id, rid = RID) => doc(db, 'shares', id, 'replies', rid);
+await expectAllowed("alice's plan page goes up", setDoc(doc(alice, 'shares', PLAN), page('alice')));
+await expectAllowed('a page that is turned off', setDoc(doc(alice, 'shares', OFF), { v: 1, off: true }));
+await expectAllowed('someone not signed in answers', setDoc(reply(nobody, PLAN), answer()));
+await expectAllowed('they answer again (the same answer changes)', setDoc(reply(nobody, PLAN), answer({ ct: b64(300) })));
+await expectAllowed('someone signed in answers too', setDoc(reply(bob, PLAN, 's'.repeat(22)), answer()));
+await expectAllowed('an answer of exactly 2,000 characters', setDoc(reply(nobody, PLAN, 't'.repeat(22)), answer({ ct: b64(2000) })));
+await expectAllowed('anyone with the link reads an answer', getDoc(reply(nobody, PLAN)));
+await expectAllowed('anyone with the link lists the answers', getDocs(collection(nobody, 'shares', PLAN, 'replies')));
+await expectDenied('an answer to a page that is not there', setDoc(reply(nobody, OTHER), answer()));
+await expectDenied('an answer to a page that is turned off', setDoc(reply(nobody, OFF), answer()));
+await expectDenied('plain data', setDoc(reply(nobody, PLAN), { name: 'Sam', says: 'yes' }));
+await expectDenied('an extra field', setDoc(reply(nobody, PLAN), answer({ name: 'Sam' })));
+await expectDenied('an owner on an answer', setDoc(reply(nobody, PLAN), answer({ owner: 'bob' })));
+await expectDenied('no updated', setDoc(reply(nobody, PLAN), { v: 1, iv: b64(16), ct: b64(100) }));
+await expectDenied('another version', setDoc(reply(nobody, PLAN), answer({ v: 2 })));
+await expectDenied('an IV of the wrong length', setDoc(reply(nobody, PLAN), answer({ iv: b64(24) })));
+await expectDenied('ciphertext that is not base64', setDoc(reply(nobody, PLAN), answer({ ct: 'I can come!' })));
+await expectDenied('empty ciphertext', setDoc(reply(nobody, PLAN), answer({ ct: '' })));
+await expectDenied('an answer over 2,000 characters', setDoc(reply(nobody, PLAN), answer({ ct: b64(2001) })));
+for (const bad of ['short', 'r'.repeat(23), 'r'.repeat(21) + '.']) {
+  await expectDenied(`an answer named "${bad}"`, setDoc(reply(nobody, PLAN, bad), answer()));
+}
+await expectDenied('nobody signed in deletes an answer', deleteDoc(reply(nobody, PLAN)));
+await expectDenied('someone else deletes an answer', deleteDoc(reply(bob, PLAN)));
+await expectAllowed("the page's account deletes an answer", deleteDoc(reply(alice, PLAN)));
+await expectAllowed('the page is turned off', setDoc(doc(alice, 'shares', PLAN), { v: 1, off: true }));
+await expectDenied('an answer once the page is off', setDoc(reply(nobody, PLAN), answer()));
+await expectDenied('a goal page is still never deleted', deleteDoc(doc(alice, 'shares', PLAN)));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

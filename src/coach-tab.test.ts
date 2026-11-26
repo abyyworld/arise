@@ -291,6 +291,22 @@ describe('chats on the Coach tab', () => {
     expect(question).not.toMatch(/\u2014/);
   });
 
+  it('offers more ways in: where I stand, the one thing, my values, what I avoid', async () => {
+    const { AI } = await boot('coach', CHATS);
+    const S = await import('./store');
+    const chat = vi.spyOn(AI, 'chat').mockResolvedValue('Here is where you stand.');
+    expect([...document.querySelectorAll('.quick [data-act="ai-mirror"]')].map((b) => b.textContent!.replace(' new chat', '').trim())).toEqual(['Where do I really stand?', 'The one thing', 'Am I living by my values?', 'What am I avoiding?']);
+    await tap('.quick [data-act="ai-mirror"][data-i="1"]');
+    expect(chat.mock.lastCall![0]).toContain('If I changed one thing this week');
+    expect(chat.mock.lastCall![1]).toEqual(expect.objectContaining({ recallAs: 'the last 4 weeks' }));
+    // Values: asks for them first, then checks the weeks against each.
+    await tap('.quick [data-act="ai-mirror"][data-i="2"]');
+    expect(text('#toast')).toContain('Pick your values first');
+    S.state.profile = { ...(S.state.profile || {}), life: { at: 1, areas: {}, grow: [], values: ['Family', 'Faith'], hope: '' } } as never;
+    await tap('.quick [data-act="ai-mirror"][data-i="2"]');
+    expect(chat.mock.lastCall![0]).toContain('My values: Family, Faith.');
+  });
+
   it('starts a chat of its own for a question from another screen', async () => {
     const { AI, SYS } = await boot('today', CHATS);
     const chat = vi.spyOn(AI, 'chat').mockResolvedValue('Noted.');

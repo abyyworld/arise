@@ -5,7 +5,7 @@
   <!-- Only the app's own scripts run. connect-src stays open to https: because people can bring
        any AI service they like; script-src is what stops injected code. The street map's tiles
        (OpenStreetMap) are images only, and load only once the street map is turned on. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://raw.githubusercontent.com https://i.ytimg.com https://tile.openstreetmap.org; font-src 'self'; frame-src https://www.youtube-nocookie.com; worker-src 'self'; manifest-src 'self'; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://raw.githubusercontent.com https://i.ytimg.com https://tile.openstreetmap.org; font-src 'self'; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; worker-src 'self'; manifest-src 'self'; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Arise</title>
