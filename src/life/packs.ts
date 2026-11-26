@@ -20,14 +20,20 @@
 // The memory's pack also carries the Player's corrections and the snapshots of what Arise knew
 // (fixes.ts): for each, the newest wins. A correction changes or deletes its event in every month's
 // pack too, whichever device's copy comes in, so a fixed event never comes back the way it was.
+// Since LIFE_SCHEMA 6 it also carries the flags on facts (know.ts: each part of a fact's flags
+// from the copy that changed it last) and the notes under the parts of life (area-notes.ts: for
+// each, the newest, with tombstones of their own).
 
 import { cleanLifeEvent, cleanLifeFact, cleanLifePrefs, cleanLifeSummary, cleanLifeTombs, cleanLifeWipe, type LifeFact, type LifeSummary, type LifeWipe } from '../lib/validate';
 import type { LifeEvent } from './types';
 import { applyFix, cleanFixes, cleanKnew, fixMap, mergeFixes, mergeKnew } from './fixes';
 import type { LifeFix, LifeKnew } from '../lib/validate';
 import { cleanLifeRead, type LifeRead } from '../lib/validate';
+import type { LifeAreaNote, LifeFactFlag } from '../lib/validate';
+import { cleanFlags, mergeFlags } from './know';
+import { cleanNotes, mergeNotes } from './area-notes';
 
-export const LIFE_SCHEMA = 5; // bump when a pack's shape changes in a way an older app would lose (2: the chat app sources; 3: the AI app sources; 4: corrections and what Arise knew, in mem; 5: the r: packs, what an AI wrote about notes and files)
+export const LIFE_SCHEMA = 6; // bump when a pack's shape changes in a way an older app would lose (2: the chat app sources; 3: the AI app sources; 4: corrections and what Arise knew, in mem; 5: the r: packs, what an AI wrote about notes and files; 6: flags on facts, notes under the parts of life and facts marked as imported, in mem)
 export const MEM = 'mem';
 export const TOMB_KEEP = 400 * 864e5;
 const MAX_WIPES = 500;
@@ -79,10 +85,12 @@ export interface Content {
   fixes: LifeFix[]; // mem: the Player's corrections
   knew: LifeKnew[]; // mem: what Arise knew, day by day
   reads: LifeRead[]; // r: packs: what an AI wrote about notes and files
+  flags: LifeFactFlag[]; // mem: what the Player said about facts (know.ts)
+  notes: LifeAreaNote[]; // mem: notes under the parts of life (area-notes.ts)
 }
 
-export const emptyContent = (): Content => ({ events: [], sums: [], facts: [], tombs: {}, prefs: { paused: false, at: 0 }, wipes: [], fixes: [], knew: [], reads: [] });
-export const isEmpty = (c: Content) => !c.events.length && !c.sums.length && !c.facts.length && !Object.keys(c.tombs).length && !c.prefs.at && !c.wipes.length && !c.fixes.length && !c.knew.length && !c.reads.length;
+export const emptyContent = (): Content => ({ events: [], sums: [], facts: [], tombs: {}, prefs: { paused: false, at: 0 }, wipes: [], fixes: [], knew: [], reads: [], flags: [], notes: [] });
+export const isEmpty = (c: Content) => !c.events.length && !c.sums.length && !c.facts.length && !Object.keys(c.tombs).length && !c.prefs.at && !c.wipes.length && !c.fixes.length && !c.knew.length && !c.reads.length && !c.flags.length && !c.notes.length;
 
 const clock = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 8.64e15 ? v : 0);
 
@@ -109,6 +117,8 @@ export function cleanContent(key: string, raw: unknown): Content {
     c.wipes = list(r.wipes).map(cleanLifeWipe).filter((w): w is LifeWipe => !!w);
     c.fixes = cleanFixes(r.fixes);
     c.knew = cleanKnew(r.knew);
+    c.flags = cleanFlags(r.flags);
+    c.notes = cleanNotes(r.notes);
   }
   return c;
 }
@@ -130,6 +140,8 @@ export function canonical(key: string, c: Content): string {
     // (Only when there are some, so a pack from before them looks the same as it did.)
     if (c.fixes.length) body.fixes = [...c.fixes].sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
     if (c.knew.length) body.knew = [...c.knew].sort((a, b) => (a.day < b.day ? -1 : 1));
+    if (c.flags.length) body.flags = byId(c.flags);
+    if (c.notes.length) body.notes = byId(c.notes);
   }
   return JSON.stringify(body);
 }
@@ -263,6 +275,8 @@ export function mergeContent(key: string, here: Content, there: Content, { now, 
     out.prefs = p.at !== q.at ? (p.at > q.at ? p : q) : { paused: p.paused || q.paused, at: p.at };
     out.fixes = mergeFixes(here.fixes, there.fixes, out.wipes);
     out.knew = mergeKnew(here.knew, there.knew, now, out.wipes);
+    out.flags = mergeFlags(here.flags, there.flags, out.wipes);
+    out.notes = mergeNotes(here.notes, there.notes, now, out.wipes);
   }
   return out;
 }

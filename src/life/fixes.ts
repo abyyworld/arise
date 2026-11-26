@@ -80,7 +80,7 @@ function stem(w: string) {
 
 // Words that say something, for telling whether two facts say the same.
 const STOP = new Set('you your the a an and or of to in on at for with is are was were be been it its that this they them their he she his her have has had do does did not no very really often usually every each most some about from by as up out'.split(' '));
-const keyWords = (t: string) =>
+export const keyWords = (t: string) =>
   new Set(
     t
       .toLowerCase()

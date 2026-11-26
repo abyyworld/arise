@@ -75,7 +75,7 @@ describe('a correction', () => {
   });
 
   it('syncs in the memory pack, which looks the same as before when there are none', () => {
-    expect(LIFE_SCHEMA).toBe(5); // 4 brought these; 5 the r: packs (reads.ts)
+    expect(LIFE_SCHEMA).toBe(6); // 4 brought these; 5 the r: packs (reads.ts); 6 flags on facts and notes in the parts of life (know.ts, area-notes.ts)
     const plain = content({ facts: [] });
     expect(canonical(MEM, plain)).toBe(JSON.stringify({ v: 1, k: MEM, tombs: {}, facts: [], prefs: { paused: false, at: 0 }, wipes: [] }));
     const fixes: LifeFix[] = [{ id: 'fact:fa1', at: 5, wrong: 'You run.' }];

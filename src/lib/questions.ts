@@ -30,6 +30,8 @@ export interface QInput {
   weekBig: number; // to-dos marked as mattering a lot, not done, due this week
   dismissed: Record<string, unknown>;
   loose?: { id: string; text: string; at: number }[]; // loose ends in their notes (lib/loose.ts)
+  checks?: { id: string; text: string; due: string }[]; // facts they asked to check again, due now (life/know.ts)
+  clashes?: { a: { id: string; text: string }; b: { id: string; text: string } }[]; // facts that disagree (life/know.ts)
   now?: number;
 }
 
@@ -112,6 +114,34 @@ export function questions(q: QInput): Question[] {
         { label: "It's ongoing", act: 'q-loose-habit', v: l.text },
         { label: 'On hold', act: 'q-loose-hold', v: l.id },
         { label: 'Not a thing', act: 'q-skip' },
+      ],
+    });
+  }
+
+  // A fact they asked Arise to check again, on its day.
+  for (const c of q.checks || []) {
+    add({
+      id: `check:${c.id}:${c.due}`,
+      text: `Is this still true? "${short(c.text, 90)}"`,
+      hint: 'You asked Arise to check it today.',
+      choices: [
+        { label: 'Still true', act: 'q-fact-ok', v: c.id },
+        { label: 'Not any more', act: 'q-fact-old', v: c.id },
+        { label: 'Not now', act: 'q-skip' },
+      ],
+    });
+  }
+
+  // Two things Arise knows that can't both be true.
+  for (const c of q.clashes || []) {
+    add({
+      id: `clash:${c.a.id}:${c.b.id}`,
+      text: 'Which is right?',
+      hint: `"${short(c.a.text, 90)}" or "${short(c.b.text, 90)}"`,
+      choices: [
+        { label: short(c.a.text, 40), act: 'q-fact-right', v: `${c.a.id}|${c.b.id}` },
+        { label: short(c.b.text, 40), act: 'q-fact-right', v: `${c.b.id}|${c.a.id}` },
+        { label: 'Both are true', act: 'q-fact-both', v: `${c.a.id}|${c.b.id}` },
       ],
     });
   }

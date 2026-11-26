@@ -10,7 +10,8 @@
 // An event the Player corrected ("Not quite? Fix it": fixEvent) stays as they left it: what comes
 // in again with its id is corrected the same way first, or left out if they deleted it (fixes.ts).
 
-import { cleanLifeEvent, cleanLifeFact, cleanLifeSummary, type LifeFact, type LifeSummary, type LifeWipe } from '../lib/validate';
+import { cleanLifeEvent, cleanLifeFact, cleanLifeSummary, type LifeAreaNote, type LifeFact, type LifeSummary, type LifeWipe } from '../lib/validate';
+import { cleanNotes } from './area-notes';
 import type { LifeEvent, LifeKind, LifeSource } from './types';
 import { LIFE_SOURCES } from './tiers';
 import { addDays, dayEnd, dayKey, dayStart } from './dates';
@@ -672,13 +673,14 @@ export interface LifeExport {
   events: LifeEvent[];
   summaries: LifeSummary[];
   facts: LifeFact[];
+  areaNotes: LifeAreaNote[]; // their notes under the parts of life (area-notes.ts)
 }
 
 // Everything in the life log and the memory, oldest first, for a download (What Arise knows).
 export async function exportAll(): Promise<LifeExport> {
   const db = await open();
-  const tx = db.transaction(['events', 'summaries', 'facts']);
-  const [ev, summaries, facts] = await Promise.all([req(tx.objectStore('events').index('at').getAll()), req(tx.objectStore('summaries').getAll()), req(tx.objectStore('facts').getAll())]);
+  const tx = db.transaction(['events', 'summaries', 'facts', 'kv']);
+  const [ev, summaries, facts, notes] = await Promise.all([req(tx.objectStore('events').index('at').getAll()), req(tx.objectStore('summaries').getAll()), req(tx.objectStore('facts').getAll()), req(tx.objectStore('kv').get('areaNotes'))]);
   return {
     app: 'arise-life',
     version: 1,
@@ -686,5 +688,6 @@ export async function exportAll(): Promise<LifeExport> {
     events: rows(ev),
     summaries: summaries.map(cleanLifeSummary).filter((s): s is LifeSummary => !!s),
     facts: facts.map(cleanLifeFact).filter((f): f is LifeFact => !!f),
+    areaNotes: cleanNotes((notes as { v?: unknown } | undefined)?.v).filter((n) => !n.gone),
   };
 }
