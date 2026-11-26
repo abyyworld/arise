@@ -21,7 +21,10 @@ export const emptyFolders = (): Folders => ({ dirs: {}, gone: {} });
 
 // ---------- two devices' folders together
 
-const later = (x: FolderRec, y: FolderRec) => (y.e !== x.e ? y.e > x.e : JSON.stringify(y) > JSON.stringify(x));
+// At the same time, the one with more set wins: an app from before "Working on" and "Finished"
+// writes a folder back without them, with the same time.
+const size = (x: FolderRec) => Object.keys(x).length;
+const later = (x: FolderRec, y: FolderRec) => (y.e !== x.e ? y.e > x.e : size(y) !== size(x) ? size(y) > size(x) : JSON.stringify(y) > JSON.stringify(x));
 
 export function mergeFolders(a: Folders, b: Folders, now = Date.now()): Folders {
   const gone: Record<string, number> = { ...a.gone };
@@ -97,6 +100,32 @@ export function foldersIn(dirs: Record<string, FolderRec>, parent?: string): str
     .sort((a, b) => byName(dirs[a].name, dirs[b].name) || (a < b ? -1 : 1));
 }
 
+// ---------- working on, and finished
+
+export type FolderState = 'w' | 'f';
+export const STATE_LABEL: Record<FolderState, string> = { w: 'Working on', f: 'Finished' };
+export const FINISHED_NAME = 'Finished';
+
+// The folders right inside one, split: the ones being worked on first, then the rest, and the
+// finished ones apart (the screen tucks them below).
+export function foldersByState(dirs: Record<string, FolderRec>, parent?: string): { open: string[]; finished: string[] } {
+  const all = foldersIn(dirs, parent);
+  return {
+    open: [...all.filter((id) => dirs[id].s === 'w'), ...all.filter((id) => !dirs[id].s)],
+    finished: all.filter((id) => dirs[id].s === 'f'),
+  };
+}
+
+// Whether a folder is finished, or inside a finished one.
+export const inFinished = (dirs: Record<string, FolderRec>, id: string | undefined) => !!id && pathOf(dirs, id).some((x) => dirs[x].s === 'f');
+
+// Where "Finished" sends a file in `dir` (none: the top): the finished folder right inside it
+// (one called Finished first), or '' when there isn't one yet.
+export function finishedFolderIn(dirs: Record<string, FolderRec>, dir?: string): string {
+  const done = foldersIn(dirs, dir).filter((id) => dirs[id].s === 'f');
+  return done.find((id) => byName(dirs[id].name, FINISHED_NAME) === 0) || done[0] || '';
+}
+
 // Every folder with its path in words ("Trips / 2026"), in the order a list shows them.
 export function folderChoices(dirs: Record<string, FolderRec>): { id: string; label: string; depth: number }[] {
   const out: { id: string; label: string; depth: number }[] = [];
@@ -116,16 +145,41 @@ export const dirOf = (dirs: Record<string, FolderRec>, f: Pick<FileMeta, 'dir'>)
 
 // ---------- where a file is, as the tree keeps it
 
-export function placeOf(f: Pick<FileMeta, 'dir' | 'bin' | 'moved' | 'hash'>): FilePlaceRec {
+// Where it sits (d, t, m) and its SHA-256 (h); and, with the time they last changed (k), the
+// name the Player gave it (n), its note on keeping it up to date (u) and its versions (v, c).
+// Apps from 1.35 to 1.38 keep only d, t, m and h when they write the tree back.
+export function placeOf(f: Pick<FileMeta, 'dir' | 'bin' | 'moved' | 'hash' | 'name' | 'renamed' | 'upkeep' | 'vg' | 'cur' | 'edited'>): FilePlaceRec {
   const out: FilePlaceRec = {};
   if (f.dir) out.d = f.dir;
   if (f.bin) out.t = f.bin;
   if (f.moved) out.m = f.moved;
   if (f.hash) out.h = f.hash;
+  // Only what this device knows the time of (a file it heard of from an older app has none yet).
+  if (f.edited) {
+    out.k = f.edited;
+    if (f.renamed && f.name) out.n = f.name;
+    if (f.upkeep) out.u = f.upkeep;
+    if (f.vg) out.v = f.vg;
+    if (f.cur) out.c = f.cur;
+  }
   return out;
 }
-// The same, as a file's own fields (undefined: none).
-export const fieldsOf = (p: FilePlaceRec) => ({ dir: p.d, bin: p.t, moved: p.m });
+
+type FileFields = Partial<Pick<FileMeta, 'dir' | 'bin' | 'moved' | 'name' | 'renamed' | 'upkeep' | 'vg' | 'cur' | 'edited'>>;
+
+// What to change in a file here from its record in the tree: where it sits when the record was
+// moved later (m), and its name, note and versions when they were changed later (k). A record from
+// an older app has no k, so it never changes those: what this device knows stays.
+export function takeFrom(p: FilePlaceRec, f: Pick<FileMeta, 'moved' | 'edited' | 'renamed'>): FileFields {
+  const out: FileFields = {};
+  if ((p.m || 0) > (f.moved || 0)) Object.assign(out, { dir: p.d, bin: p.t, moved: p.m });
+  if ((p.k || 0) > (f.edited || 0)) {
+    Object.assign(out, { upkeep: p.u, vg: p.v, cur: p.c, edited: p.k });
+    // (A name the Player gave stays when the other device didn't know of it.)
+    if (p.n) Object.assign(out, { name: p.n, renamed: f.renamed || p.k });
+  }
+  return out;
+}
 
 // ---------- the trash
 

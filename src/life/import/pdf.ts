@@ -695,6 +695,30 @@ export function pdfText(bytes: Uint8Array): PdfRead {
   return out;
 }
 
+// The biggest JPEG picture drawn on the first page, its bytes as they are in the file: what a
+// scanned page is. Null when the page has none (words only, or pictures kept another way), or the
+// file is locked. For a file's preview (life/files-preview.ts), on the device.
+export function firstPagePicture(bytes: Uint8Array): Uint8Array | null {
+  const s = latin1(bytes);
+  if (/\/Encrypt\s+(\d+\s+\d+\s+R|<<)/.test(s)) return null;
+  const pdf = new Pdf(bytes, s);
+  const first = pages(pdf)[0];
+  const xobjects = pdf.dict(first?.resources?.get('XObject'));
+  let best: [number, number] | null = null;
+  for (const ref of Object.values(xobjects?.v || {})) {
+    const o = pdf.streamOf(ref);
+    if (!o?.stream || !(o.val instanceof Dict) || !isName(o.val.get('Subtype'), 'Image')) continue;
+    const f = pdf.get(o.val.get('Filter'));
+    const only = Array.isArray(f) ? (f.length === 1 ? f[0] : undefined) : f;
+    if (!isName(only, 'DCTDecode') && !isName(only, 'DCT')) continue;
+    const [a, b] = o.stream;
+    if (!best || b - a > best[1] - best[0]) best = [a, b];
+  }
+  if (!best) return null;
+  const out = new Uint8Array(bytes.subarray(best[0], best[1]));
+  return out.length > 2 && out[0] === 0xff && out[1] === 0xd8 ? out : null;
+}
+
 // Enough letters or numbers to be words, not a stray mark or two.
 export const readable = (text: string): boolean => (text.match(/[\p{L}\p{N}]/gu)?.length ?? 0) >= 4;
 

@@ -1029,6 +1029,12 @@ export interface FileMeta {
   bin?: number; // when it went to the trash
   moved?: number; // when it was last moved, put in the trash or taken out
   hash?: string; // SHA-256 of its bytes, in hex: how copies are found
+  // Also synced in the tree, never in its details (life/files-versions.ts, files-names.ts):
+  renamed?: number; // when the Player gave it the name it has (then the tree carries the name)
+  upkeep?: string; // how to keep it up to date, in their words ("Update the CV after each new job")
+  vg?: string; // the file whose versions it's one of (none: its own id)
+  cur?: number; // when it became the current version (none: when it was added)
+  edited?: number; // when its name, note or versions last changed here or on another device
 }
 export const MAX_FILE_BYTES = 200 * 1024 * 1024;
 const FILE_ID = /^[A-Za-z0-9_-]{22}$/;
@@ -1051,7 +1057,7 @@ export function cleanFileMeta(raw: unknown): FileMeta | null {
   const size = typeof d.size === 'number' && Number.isInteger(d.size) && d.size >= 0 && d.size <= MAX_FILE_BYTES ? d.size : -1;
   const at = time(d.at);
   if (size < 0 || !at) return null;
-  const name = str(d.name, 200).replace(/[\u0000-\u001f\u007f/\\]/g, ' ').trim() || 'File';
+  const name = fileName(d.name) || 'File';
   const type = typeof d.type === 'string' && MIME.test(d.type.toLowerCase()) ? d.type.toLowerCase() : 'application/octet-stream';
   const out: FileMeta = { id: d.id, name, type, size, at, day: d.day as string, sync: d.sync !== false };
   if (typeof d.note === 'string' && d.note.length > 0 && d.note.length <= 120) out.note = d.note;
@@ -1065,8 +1071,23 @@ export function cleanFileMeta(raw: unknown): FileMeta | null {
   if (time(d.bin)) out.bin = time(d.bin);
   if (time(d.moved)) out.moved = time(d.moved);
   if (typeof d.hash === 'string' && HASH.test(d.hash)) out.hash = d.hash;
+  if (time(d.renamed)) out.renamed = time(d.renamed);
+  const upkeep = upkeepText(d.upkeep);
+  if (upkeep) out.upkeep = upkeep;
+  if (typeof d.vg === 'string' && FILE_ID.test(d.vg) && d.vg !== d.id) out.vg = d.vg;
+  if (time(d.cur)) out.cur = time(d.cur);
+  if (time(d.edited)) out.edited = time(d.edited);
   return out;
 }
+// A file's name as it's kept: no slashes or control characters, at most 200 characters.
+export const fileName = (v: unknown) => str(v, 200).replace(/[\u0000-\u001f\u007f/\\]/g, ' ').trim();
+export const UPKEEP_MAX = 200;
+export const upkeepText = (v: unknown) =>
+  str(v, UPKEEP_MAX * 2)
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, UPKEEP_MAX);
 const HASH = /^[0-9a-f]{64}$/;
 
 // The list of synced files (life/files-sync.ts): each file's number of parts and size, and the
@@ -1119,13 +1140,20 @@ export interface FolderRec {
   name: string;
   p?: string; // the folder it's in (none: the top)
   g?: string; // the goal it's the project folder of
+  s?: 'w' | 'f'; // "Working on" or "Finished"
   e: number; // when it was made or last changed
 }
 export interface FilePlaceRec {
   d?: string; // folder
   t?: number; // in the trash since
-  m?: number; // when it was last moved
+  m?: number; // when it was last moved or changed
   h?: string; // SHA-256 of its bytes
+  // Apps from before these ignore them (and write the record back without them, with the same m):
+  n?: string; // the name the Player gave it
+  u?: string; // how to keep it up to date
+  v?: string; // the file whose versions it's one of
+  c?: number; // when it became the current version
+  k?: number; // when n, u, v or c last changed: the later k wins them (none of them then means none)
 }
 export interface FilesTree {
   dirs: Record<string, FolderRec>;
@@ -1152,6 +1180,7 @@ export function cleanFilesTree(raw: unknown): FilesTree {
     const rec: FolderRec = { name, e };
     if (typeof x.p === 'string' && FILE_ID.test(x.p) && x.p !== id) rec.p = x.p;
     if (typeof x.g === 'string' && GOAL_ID.test(x.g)) rec.g = x.g;
+    if (x.s === 'w' || x.s === 'f') rec.s = x.s;
     dirs[id] = rec;
   }
   for (const [id, v] of Object.entries(obj(d.gone)).slice(0, 5000)) if (FILE_ID.test(id) && time(v)) gone[id] = time(v);
@@ -1163,6 +1192,13 @@ export function cleanFilesTree(raw: unknown): FilesTree {
     if (time(x.t)) rec.t = time(x.t);
     if (time(x.m)) rec.m = time(x.m);
     if (typeof x.h === 'string' && HASH.test(x.h)) rec.h = x.h;
+    const n = fileName(x.n);
+    if (n) rec.n = n;
+    const u = upkeepText(x.u);
+    if (u) rec.u = u;
+    if (typeof x.v === 'string' && FILE_ID.test(x.v) && x.v !== id) rec.v = x.v;
+    if (time(x.c)) rec.c = time(x.c);
+    if (time(x.k)) rec.k = time(x.k);
     if (Object.keys(rec).length) files[id] = rec;
   }
   return { dirs, gone, files };
