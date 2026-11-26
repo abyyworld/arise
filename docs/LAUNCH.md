@@ -129,6 +129,11 @@ Until then the passkey button stays hidden and the AI apps screen says "Needs th
 1. Run the one command in CLAUDE.md again. It redeploys the calendar helper (`worker/calendar`) with its new `POST /page` route for Keep a copy. Until then Keep a copy says it needs the helper.
 2. The browser extension is 1.1.0 (notifications, right-click save). People who loaded it by hand load the new copy once (Settings, Your life: browser, Download the extension); Chrome and Edge then ask once to allow notifications.
 
+## For 1.38: the visit counter and extension 1.2.0
+
+1. Run the one command in CLAUDE.md again: it deploys the visit counter (`worker/visits`, new) and fills its address. Until then the Visitors switch on Your website stays hidden.
+2. The browser extension is 1.2.0 (Gemini in your browser). People who loaded it by hand load the new copy once.
+
 ## For 1.37: reinstall the phone apps once
 
 Voice notes need the microphone, so the iPhone app (NSMicrophoneUsageDescription, native key arise-ios@3) and the Android app (RECORD_AUDIO) changed. Install the new Arise.ipa and Arise.apk by hand once; until then the phone apps don't take further updates.

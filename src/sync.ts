@@ -64,7 +64,8 @@ const TIMEOUT = 45_000;
 // stamps.chat), which 1.35 would merge into one chat and could bring back.
 // 16: People (who to keep in touch with, their dates) and your own money categories (moneyCats),
 // which 1.36 would drop.
-export const SCHEMA = 16;
+// 17: Your website's pages and look (site), which 1.37 would drop.
+export const SCHEMA = 17;
 
 interface Meta {
   uid?: string;
