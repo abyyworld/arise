@@ -61,6 +61,9 @@ import * as TOP from './life/top-sites.js';
 import * as FILES from './files-folder.js';
 import * as GHB from './github-backup';
 import * as GHB_UI from './github-backup-ui.js';
+import * as ODB from './own-db';
+import * as ODB_UI from './own-db-ui.js';
+import * as GHFILES from './life/files-github';
 import { initInsight } from './life/insight';
 import * as PLACES from './life/map-ui.js';
 import * as LINKS from './life/links-ui.js';
@@ -68,6 +71,7 @@ import * as WORLD from './life/world-ui.js';
 import * as PEOPLE from './people-ui.js';
 import { initPeople, nudges as peopleNudges } from './people';
 import * as MONEY from './life/money-ui.js';
+import * as SITEUI from './site-ui.js';
 import * as HABITS from './habits-ui.js';
 import { initHabits } from './life/habits';
 import { initMoney } from './life/money';
@@ -161,6 +165,7 @@ const VIEWS = {
   [WORLD.VIEW]: () => WORLD.renderWorld(app),
   [PEOPLE.VIEW]: () => PEOPLE.renderPeople(app),
   [MONEY.VIEW]: () => MONEY.renderMoney(app),
+  [SITEUI.VIEW]: () => SITEUI.renderSite(app),
   [IMPORT.VIEW]: () => IMPORT.renderImport(app, { store: loadLifeStore, back: importBack }),
 };
 
@@ -188,7 +193,7 @@ function render() {
   if (applyLook()) buildNav();
   document.body.dataset.view = view;
   // Screens without a tab of their own light up the one they open from.
-  const tab = (view === 'plan' || view === 'training' || view === 'goals') && !TABS.isShown('goals') ? 'progress' : view === 'coach' && !TABS.isShown('coach') ? 'progress' : view === 'plan' || view === 'training' ? 'goals' : view === WORLD.VIEW || view === PEOPLE.VIEW || view === MONEY.VIEW ? 'progress' : view === 'knows' || view === HUB.VIEW || view === PLACES.VIEW || view === LINKS.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
+  const tab = (view === 'plan' || view === 'training' || view === 'goals') && !TABS.isShown('goals') ? 'progress' : view === 'coach' && !TABS.isShown('coach') ? 'progress' : view === 'plan' || view === 'training' ? 'goals' : view === WORLD.VIEW || view === PEOPLE.VIEW || view === MONEY.VIEW || view === SITEUI.VIEW ? 'progress' : view === 'knows' || view === HUB.VIEW || view === PLACES.VIEW || view === LINKS.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
   for (const b of document.querySelectorAll('#tabs [data-v]')) {
     b.classList.toggle('on', b.dataset.v === tab);
     if (b.dataset.v === tab) b.setAttribute('aria-current', 'page');
@@ -1377,6 +1382,7 @@ function renderProgress() {
         ${PEOPLE.entryCard()}
         ${WORLD.entryCard()}
         ${MONEY.entryCard()}
+        ${SITEUI.entryCard()}
         ${TABS.moreCard()}
         ${sys ? '' : gameLine()}
       </div>
@@ -1833,6 +1839,7 @@ function renderSettings() {
           ${FILES.state().error ? `<p class="error small">${esc(FILES.state().error)}</p>` : ''}
           <div class="row"><button class="btn primary" data-act="export">Save backup</button><button class="btn ghost" data-act="import">Load backup</button></div>
         </section>
+        ${ODB_UI.panel()}
         <section class="panel">
           <div class="panel-title"><span>Your history</span></div>
           <p>Bring in years of your life from Google, Spotify, Netflix, Apple Health, WhatsApp and other chat apps, or your bank. Arise reads the file on this device. Nothing is uploaded.</p>
@@ -1904,6 +1911,7 @@ function privacyHTML() {
     <p><b>Your computer's AI</b> (Ollama or LM Studio, if you set it up) runs on your own computer too: nothing leaves it.</p>
     <p><b>Free AI</b> is less private. It runs on Cloudflare's servers, which can read what the coach sends while they answer. Cloudflare says it doesn't use it to train AI. Arise's server passes it on and keeps none of it. The app only uses it if you pick it and say yes.${AI.engine() === 'free' ? " You're using it right now." : ''}</p>
     <p><b>Your AI keys</b> (free ones like Gemini and Groq, or paid ones like Claude) are less private: the company behind each key can read what the coach sends it, and some free plans keep it or use it to train AI. The app only uses a service if you pick it and say yes. Your keys stay on this device.${own ? ` You're using ${esc(AI.ownCompanies().length > 1 ? AI.ownCompanies().join(', ') : own.name)} right now.` : ''}</p>
+    <p><b>Gemini in your browser</b> is less private: Arise types the coach's question into Gemini in a tab of your browser, through the Arise extension, so Google sees it and keeps it in your Gemini activity. The app only uses it if you pick it, say yes and allow gemini.google.com in the extension.${AI.engine() === 'tab' ? " You're using it right now." : ''}</p>
     <h3 class="sub">Sharing a goal</h3>
     <p>Only if you share one (Goals, then Share progress on the goal, with an account). Its page shows that goal's name and area, your first name if you choose, your streak, its quests and their streaks, its last 28 days, the latest number and target of each measure, the milestones you reached, and when it was updated. Never your journal, your chats with the coach, your other goals, your weigh-ins, your email or your account code.</p>
     <p>The page is <b>end-to-end encrypted</b> with a key that's only in the link. Anyone who has the link can see it, so send it only to people you choose. Nobody else can: not the people who run Arise, not Google. The server only sees that there is a page, which account keeps it up to date, and when. Anyone with the link can see that too: a random ID for your account (not your email or account code), and when the page was updated. So anyone with two of your links can tell they're both yours. <b>Stop sharing</b> deletes the page, and <b>New link</b> makes the old link stop working. Either way, that link never works again.</p>
@@ -2389,6 +2397,8 @@ document.addEventListener('click', async (e) => {
       if (YOU.handleAction(d.act, el)) break;
       if (HABITS.handleAction(d.act, el)) break;
       if (MONEY.handleAction(d.act, el)) break;
+      // (Only its own taps wait for it, so every other button acts straight away.)
+      if (d.act.startsWith('site-') && (await SITEUI.handleAction(d.act, el))) break;
       if (await LIFE.handleAction(d.act, el)) break;
       if (PAUSEUI.handleAction(d.act, el)) break;
       if (SKIPUI.handleAction(d.act, el)) break;
@@ -2419,6 +2429,9 @@ async function eraseDevice(signedIn) {
   if (WR.isOn()) await WR.turnOff(); // like the iPhone app's, the reminders stop
   await CONNECT.forgetAll(); // linked accounts' sign-ins go too (the reset started it: this waits until it's done)
   await GHB.forget(); // the GitHub backup's key and backup password (its backups stay on GitHub)
+  ODB.forget(); // your own database's connection (what's in it stays there)
+  GHFILES.forget(); // the GitHub token for photos and files (the files stay on GitHub)
+  await SITEUI.forgetDevice(); // Your website's GitHub key and its visit counter's read key (the website stays up)
   await SENSE.forget(); // the iPhone stops noting places, and every source is off again
   if (!N.isNative) await BROWSER.forgetAll().catch(() => {}); // linked browsers' keys go too
   forgetAIKey('');
@@ -2678,6 +2691,7 @@ WR.initWebReminders();
 ATMO.initAtmosphere();
 FILES.initFiles();
 GHB.initGitHubBackup();
+ODB.initOwnDb();
 // The atmosphere menu closes with a tap anywhere else, or Escape.
 document.addEventListener('click', (e) => {
   if (!atmoOpen || e.target?.closest?.('.hero-tools')) return;

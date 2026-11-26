@@ -16,6 +16,7 @@ import * as DC from './lib/decisions';
 import * as OS from './lib/own-storage';
 import * as PN from './lib/place-names';
 import { mergePeople } from './lib/people';
+import { cleanSite, mergeSite, type Site } from './lib/site';
 import * as MN from './lib/money';
 import * as CH from './lib/chats';
 
@@ -1346,6 +1347,7 @@ export function importData(raw: unknown): number {
   state.placeNames = PN.mergePlaceNames(state.placeNames, data.placeNames);
   state.people = mergePeople(state.people, data.people);
   state.moneyCats = MN.mergeMoneyCats(state.moneyCats, data.moneyCats);
+  state.site = mergeSite(state.site, data.site);
   state.events = EV.mergeEvents(state.events, data.events);
   state.decisions = DC.mergeDecisions(state.decisions, data.decisions);
   state.dismissed = DC.mergeDismissed(state.dismissed, data.dismissed);
@@ -1470,6 +1472,15 @@ export function setMoneyCat(key: string, cat: MN.Cat | null): boolean {
   state.moneyCats = next;
   save();
   return true;
+}
+
+// ---------- Your website (lib/site.ts), synced with the rest
+
+export const site = () => state.site;
+export function saveSite(next: Site) {
+  if (next === state.site) return;
+  state.site = cleanSite(next);
+  save();
 }
 
 // ---------- money owed and groceries (lib/everyday.ts)

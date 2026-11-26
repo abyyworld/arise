@@ -101,7 +101,7 @@ export const READ_SCHEMA = {
 } as const;
 
 // Characters of a record sent to each AI (the AI on this device has a small context).
-export const INPUT: Record<Engine, number> = { private: 12000, device: 2500, local: 8000, free: 8000, own: 8000 };
+export const INPUT: Record<Engine, number> = { private: 12000, device: 2500, local: 8000, free: 8000, own: 8000, tab: 8000 };
 
 export function readPrompt(c: Pick<Candidate, 'kind' | 'title' | 'text'>, e: Engine): string {
   const what = c.kind === 'file' ? 'file' : 'note';

@@ -4,6 +4,15 @@
 
 export const CHANGES: { version: string; notes: string[] }[] = [
   {
+    version: '1.38.0',
+    notes: [
+      'Your website: write a few pages and posts in Arise, pick a look, and publish them to GitHub Pages in your own GitHub account. With ideas to write about, and an optional visit counter that counts pages, not people.',
+      'New AI choice: Gemini in your browser. With the Arise extension linked, your coach can ask Gemini in a tab, signed in with your own Google account. Less private: Google sees what is sent.',
+      'Your own database: keep a readable copy of the parts you pick in a Turso database you own, as tables you can look into. Less private, and off until you turn it on.',
+      'Photos and files can now live in your own private GitHub repositories too, locked on your device first. When one nears 1 GB, Arise asks you to add another.',
+    ],
+  },
+  {
     version: '1.37.0',
     notes: [
       'Your week: on Sunday afternoon and Monday morning, Today looks back at your week, with one thing to try next week.',

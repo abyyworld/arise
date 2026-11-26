@@ -13,9 +13,11 @@ describe('the manifest', () => {
     for (const t of TARGETS) {
       const m = manifestFor(base, t);
       expect(m.manifest_version).toBe(3);
-      expect([...m.permissions].sort()).toEqual(['alarms', 'contextMenus', 'history', 'idle', 'notifications', 'storage', 'tabs', 'unlimitedStorage']);
+      expect([...m.permissions].sort()).toEqual(['alarms', 'contextMenus', 'history', 'idle', 'notifications', 'scripting', 'storage', 'tabs', 'unlimitedStorage']);
       expect(m.host_permissions).toBeUndefined();
       expect(m.optional_permissions).toBeUndefined();
+      // Gemini in your browser: one site, asked for only when the person turns it on (allow.html).
+      expect(m.optional_host_permissions).toEqual(['https://gemini.google.com/*']);
       expect(m.web_accessible_resources).toBeUndefined();
       expect(m.externally_connectable).toBeUndefined();
       expect(JSON.stringify(m)).not.toContain('<all_urls>');
@@ -53,9 +55,11 @@ describe('the manifest', () => {
 
   it('allows only its own scripts on its pages', () => {
     expect(base.content_security_policy.extension_pages).toBe("script-src 'self'; object-src 'none'; base-uri 'none'");
-    const html = readFileSync(new URL('../popup.html', import.meta.url), 'utf8');
-    expect(html).not.toMatch(/<script>(?!<)/); // no inline script
-    expect(html).not.toMatch(/https?:\/\//);
+    for (const page of ['../popup.html', '../allow.html']) {
+      const html = readFileSync(new URL(page, import.meta.url), 'utf8');
+      expect(html).not.toMatch(/<script>(?!<)/); // no inline script
+      expect(html).not.toMatch(/https?:\/\//);
+    }
   });
 
   it("has a version of its own (the app's isn't touched)", () => {

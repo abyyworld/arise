@@ -207,6 +207,21 @@ export function here(): { id: string; ask: Transport['ask'] } | null {
   return t && id && status.links.some((r) => r.id === id && r.state === 'linked') ? { id, ask: (m, timeout) => t.ask(m, timeout) } : null;
 }
 
+// Opens something this browser's extension sealed for this Arise (an answer from Gemini in your
+// browser: gemini-tab.ts). Null when it can't be: no link here, or the key needs the account.
+export async function openHere(b: SealedBatch): Promise<unknown | null> {
+  const id = status.hello?.linked;
+  const r = id ? status.links.find((x) => x.id === id && x.state === 'linked') : null;
+  if (!r || b.link !== r.id) return null;
+  const key = await unlock(r);
+  if (!key) return null;
+  try {
+    return await openBatch(key, b);
+  } catch {
+    return null;
+  }
+}
+
 // The screen is being drawn: whether the account's key is here may have changed (signed in or
 // out), so that's checked again, at most once a second.
 let lastCheck = 0;

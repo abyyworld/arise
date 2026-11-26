@@ -26,6 +26,7 @@ import { cleanOwnStorage, type OwnStorage } from './own-storage';
 import { cleanPlaceNames, type PlaceNames } from './place-names';
 import { cleanPeople, type People } from './people';
 import { cleanMoneyCats, type MoneyCats } from './money';
+import { cleanSite, type Site } from './site';
 import { CHAT_MAX, FIRST, cleanChatNames, isChatId, type ChatMsg } from './chats';
 
 export { DATE, isDate } from './clean';
@@ -74,7 +75,7 @@ export interface Settings {
   aiProvider: string;
   aiModel: string;
   aiBase: string;
-  aiEngine: '' | 'private' | 'device' | 'local' | 'free' | 'own';
+  aiEngine: '' | 'private' | 'device' | 'local' | 'free' | 'own' | 'tab'; // on this device only (never synced)
   bar: 'home' | 'nearby' | 'none';
   dayOff: boolean;
   privateModel: string; // the private AI's model, picked by the Player; '' is the recommended one
@@ -120,7 +121,7 @@ export function cleanSettings(raw: unknown, d: Settings): Settings {
     aiProvider: pick(s.aiProvider, (x) => AI_PROVIDERS.includes(x as string), d.aiProvider),
     aiModel: pick(s.aiModel, isModel, d.aiModel),
     aiBase: pick(s.aiBase, (x) => typeof x === 'string' && (x === '' || AI_BASE.test(x)), d.aiBase),
-    aiEngine: pick(s.aiEngine, (x) => ['', 'private', 'device', 'local', 'free', 'own'].includes(x as string), d.aiEngine),
+    aiEngine: pick(s.aiEngine, (x) => ['', 'private', 'device', 'local', 'free', 'own', 'tab'].includes(x as string), d.aiEngine),
     bar: pick(s.bar, (x) => ['home', 'nearby', 'none'].includes(x as string), d.bar),
     dayOff: pick(s.dayOff, isBool, d.dayOff),
     privateModel: pick(s.privateModel, isModel, d.privateModel),
@@ -492,6 +493,7 @@ export interface State {
   placeNames: PlaceNames; // their names for places, by a rounded spot (lib/place-names.ts)
   people: People; // who to keep in touch with, their dates, who to hide (lib/people.ts)
   moneyCats: MoneyCats; // their own categories for merchants on the Money screen (lib/money.ts)
+  site: Site; // Your website: its pages and look (lib/site.ts)
   stamps: Stamps;
   updatedAt?: number;
 }
@@ -538,6 +540,7 @@ export function cleanState(raw: unknown, defaults: Settings): State {
     placeNames: cleanPlaceNames(d.placeNames),
     people: cleanPeople(d.people),
     moneyCats: cleanMoneyCats(d.moneyCats),
+    site: cleanSite(d.site),
     stamps: cleanStamps(d.stamps),
   };
   if (time(d.updatedAt)) state.updatedAt = time(d.updatedAt);
@@ -1018,7 +1021,9 @@ export interface FileMeta {
   h?: number;
   thumb?: Uint8Array;
   sync: boolean; // goes to the Player's other devices with their account
-  where?: 'own'; // its parts are in the Player's own storage (lib/own-storage.ts), not the database
+  // Its parts are in the Player's own storage, not the database: 'own' their R2 bucket
+  // (lib/own-storage.ts), 'gh' one of their GitHub repositories (life/files-github.ts).
+  where?: 'own' | 'gh';
   // Where it sits (life/files-tree.ts), synced in the files index's tree, never in its details:
   dir?: string; // the folder it's in (none: the top)
   bin?: number; // when it went to the trash
@@ -1055,7 +1060,7 @@ export function cleanFileMeta(raw: unknown): FileMeta | null {
   if (w && h) Object.assign(out, { w, h });
   const thumb = bytesOf(d.thumb);
   if (thumb && thumb.length > 0 && thumb.length <= THUMB_MAX) out.thumb = thumb;
-  if (d.where === 'own') out.where = 'own';
+  if (d.where === 'own' || d.where === 'gh') out.where = d.where;
   if (typeof d.dir === 'string' && FILE_ID.test(d.dir)) out.dir = d.dir;
   if (time(d.bin)) out.bin = time(d.bin);
   if (time(d.moved)) out.moved = time(d.moved);
@@ -1066,28 +1071,46 @@ const HASH = /^[0-9a-f]{64}$/;
 
 // The list of synced files (life/files-sync.ts): each file's number of parts and size, and the
 // files deleted, with when, kept a while so a device that still has one deletes it too.
+// Where a file's parts are: the database (no `o`), o: 1 the Player's own R2 bucket, o: 2 one of
+// their GitHub repositories (`repos[r]`, in the folder for month `m`: life/files-github.ts).
+export interface FileSpot {
+  o?: 1 | 2;
+  r?: number;
+  m?: string; // 2026-11
+}
 export interface FilesIndex {
   schema: number;
   seq: number;
-  files: Record<string, { n: number; size: number; o?: 1 }>; // o: in the Player's own storage
-  gone: Record<string, { at: number; n: number; o?: 1 }>;
+  files: Record<string, { n: number; size: number } & FileSpot>;
+  gone: Record<string, { at: number; n: number } & FileSpot>;
+  // The GitHub repositories o: 2 points into (owner/name). One that doesn't read right is '', so
+  // the others keep their places.
+  repos?: string[];
+}
+const GH_REPO = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
+function spotOf(x: Record<string, unknown>, repos: readonly string[]): FileSpot {
+  if (x.o === 1) return { o: 1 };
+  if (x.o !== 2) return {};
+  const r = int(x.r, 0, 99, -1);
+  return { o: 2, ...(r >= 0 && r < repos.length && repos[r] ? { r } : {}), ...(typeof x.m === 'string' && MONTH.test(x.m) ? { m: x.m } : {}) };
 }
 export function cleanFilesIndex(raw: unknown): FilesIndex {
   const d = obj(raw);
   const files: FilesIndex['files'] = {};
   const gone: FilesIndex['gone'] = {};
+  const repos = (Array.isArray(d.repos) ? d.repos : []).slice(0, 100).map((v: unknown) => (typeof v === 'string' && GH_REPO.test(v) ? v : ''));
   for (const [id, v] of Object.entries(obj(d.files)).slice(0, 100000)) {
     const x = obj(v);
     const n = int(x.n, 1, 1000, 0);
     const size = int(x.size, 0, MAX_FILE_BYTES, -1);
-    if (FILE_ID.test(id) && n && size >= 0) files[id] = x.o === 1 ? { n, size, o: 1 } : { n, size };
+    if (FILE_ID.test(id) && n && size >= 0) files[id] = { n, size, ...spotOf(x, repos) };
   }
   for (const [id, v] of Object.entries(obj(d.gone)).slice(0, 100000)) {
     const x = obj(v);
     const at = time(x.at);
-    if (FILE_ID.test(id) && at && !files[id]) gone[id] = x.o === 1 ? { at, n: int(x.n, 0, 1000, 0), o: 1 } : { at, n: int(x.n, 0, 1000, 0) };
+    if (FILE_ID.test(id) && at && !files[id]) gone[id] = { at, n: int(x.n, 0, 1000, 0), ...spotOf(x, repos) };
   }
-  return { schema: int(d.schema, 1, 1000, 1), seq: int(d.seq, 0, Number.MAX_SAFE_INTEGER, 0), files, gone };
+  return { schema: int(d.schema, 1, 1000, 1), seq: int(d.seq, 0, Number.MAX_SAFE_INTEGER, 0), files, gone, ...(repos.length ? { repos } : {}) };
 }
 
 // The files index's tree (life/files-tree.ts): folders, folders deleted and when, and where each

@@ -231,6 +231,10 @@ The original weekly split (four workouts over six fixed weekdays, Thursday off) 
 - Morning brief: your day in a few lines, on Today and as a notification at the time you pick.
 - Invite people to an event: add who's coming, then send the invite file yourself.
 - Rules for each AI app (Me, AI apps): may just do, ask me first, never, and house rules.
+- Your website (Me): write pages and posts and publish them to GitHub Pages in your own account, with an optional visit counter.
+- Gemini in your browser (Settings, AI coach; less private): your coach asks Gemini in your own browser tab through the Arise extension.
+- Your own database (Setup and connections; less private): a readable copy of what you pick in a Turso database you own (docs/OWN-DATABASE.md).
+- Photos and files in your own private GitHub repositories, locked first, next to Cloudflare R2.
 - Your week (Today, Sunday afternoon and Monday morning) and Focus (Start on a block of your plan).
 - People (Me): who to reach out to, people you mark close, birthdays and dates with reminders.
 - Habits that learn (Me) and Money (Me): what came with your best days, and where your money went, from bank statements, on your device.
