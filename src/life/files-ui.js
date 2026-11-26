@@ -15,6 +15,8 @@ import * as FS from './files-sync';
 import * as T from './files-tree';
 import * as S from '../store';
 import { CORS, readOwnStorage } from '../lib/own-storage';
+import * as GHUI from './files-github-ui.js';
+import * as GH from './files-github';
 import * as CLOUD from './cloud';
 import { dayKey } from './dates';
 
@@ -205,7 +207,11 @@ async function openFile(id) {
     if (shown !== id) return;
     const state = $('#myfilesState');
     if (!got) {
-      if (state) state.textContent = "It couldn't be fetched right now. Check you're online and signed in.";
+      if (state)
+        state.textContent =
+          f.where === 'gh' && !GH.isOn()
+            ? "It's kept in your GitHub. To open it here, connect your GitHub on this device in Photos and files."
+            : "It couldn't be fetched right now. Check you're online and signed in.";
       return;
     }
     if (state) state.textContent = '';
@@ -299,7 +305,7 @@ async function openPlace() {
     ${note ? `<p class="muted small">${esc(note)}</p>` : ''}
     <div class="files-find"><input type="search" id="myfilesFind" placeholder="Search by name" aria-label="Search by name" autocomplete="off" value="${esc(place.q)}"></div>
     <div id="myfilesMain" class="files-main"></div>
-    ${CLOUD.signedIn() ? ownPart() : ''}`);
+    ${CLOUD.signedIn() ? ownPart() + GHUI.ghPart() : ''}`);
   await drawPlace();
 }
 
@@ -568,6 +574,7 @@ async function backToPlace() {
 
 export async function handleAction(act, el) {
   if (!act.startsWith('myfiles-')) return false;
+  if (act.startsWith('myfiles-gh-')) return GHUI.handleAction(act, el);
   const id = el?.dataset?.id || '';
   switch (act) {
     case 'myfiles-open':

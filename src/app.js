@@ -63,6 +63,7 @@ import * as GHB from './github-backup';
 import * as GHB_UI from './github-backup-ui.js';
 import * as ODB from './own-db';
 import * as ODB_UI from './own-db-ui.js';
+import * as GHFILES from './life/files-github';
 import { initInsight } from './life/insight';
 import * as PLACES from './life/map-ui.js';
 import * as LINKS from './life/links-ui.js';
@@ -2423,6 +2424,7 @@ async function eraseDevice(signedIn) {
   await CONNECT.forgetAll(); // linked accounts' sign-ins go too (the reset started it: this waits until it's done)
   await GHB.forget(); // the GitHub backup's key and backup password (its backups stay on GitHub)
   ODB.forget(); // your own database's connection (what's in it stays there)
+  GHFILES.forget(); // the GitHub token for photos and files (the files stay on GitHub)
   await SENSE.forget(); // the iPhone stops noting places, and every source is off again
   if (!N.isNative) await BROWSER.forgetAll().catch(() => {}); // linked browsers' keys go too
   forgetAIKey('');
