@@ -785,6 +785,9 @@ let journalApp: { voice: () => Voice; own: (k: string) => Partial<Own> | null } 
 export function useJournal(hooks: Partial<typeof journalApp>) {
   journalApp = { ...journalApp, ...hooks };
 }
+// The same for a day's story (story-read.ts).
+export const journalVoice = (): Voice => journalApp.voice();
+export const journalOwn = (k: string): Partial<Own> | null => journalApp.own(k);
 
 // The events a day's journal is made from: that day's, and the night's sleep that ended in it.
 // The most of one day a journal reads. Notifications aren't read (the journal leaves them out). A

@@ -566,3 +566,11 @@ describe('screens and places, from what the sources really send', () => {
     expect(byDay(signalsFrom([...evs, visit(4, T(k, 7), T(k, 8), 51.509, -0.1, 'At the gym')], k, k, st()))[k]).toMatchObject({ places: 1, outside: true });
   });
 });
+
+describe("Android's unlocks", () => {
+  it('count how often the phone was picked up, not a whole day on screens', () => {
+    const unlocks = ev({ id: 'android:unlocks:2026-10-14', source: 'android', kind: 'app', at: T('2026-10-14', 0, 0, 0), end: T('2026-10-15', 0, 0, 0), title: 'Unlocked the phone 54 times', value: 54, unit: 'unlocks', tier: 2, meta: { via: 'unlocks' } });
+    const [day] = signalsFrom([unlocks, macApp('2026-10-14', 9, 0, 50, 'Code', 'com.microsoft.VSCode')], '2026-10-14', '2026-10-14', st());
+    expect(day.screenMin).toBe(50);
+  });
+});

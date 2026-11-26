@@ -514,4 +514,27 @@ describe('putting things right', () => {
     await vi.waitFor(() => expect(document.querySelector('#lookPick')?.getAttribute('type')).toBe('date'));
     expect(document.querySelector('#lookBack [data-act="lookback-span"][data-v="day"]')?.getAttribute('aria-pressed')).toBe('true');
   });
+
+  it('tells the story of a month and of a day', async () => {
+    await boot('days');
+    click('[data-act="lookback-open"]');
+    await vi.waitFor(() => expect(text('#lookBody .lookback-story')).toBe('The busiest days were Friday 16 October and Monday 12 October.'));
+    click('#lookBack [data-act="lookback-span"][data-v="day"]');
+    await vi.waitFor(() => expect(document.querySelector('#lookPick')?.getAttribute('type')).toBe('date'));
+    const pick = (day: string) => {
+      const el = document.querySelector('#lookPick') as HTMLInputElement;
+      el.value = day;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    pick('2026-10-12');
+    await vi.waitFor(() => expect(text('#lookBody .lookback-story')).toBe('I watched Dark.'));
+    // A day with nothing for its story (two songs far apart, a search) has the start of its journal.
+    pick('2026-10-16');
+    await vi.waitFor(() => expect(text('#lookBody .lookback-story')).toBe('I looked up 1 thing.'));
+    // A month with nothing in it has no story.
+    click('#lookBack [data-act="lookback-span"][data-v="month"]');
+    click('#lookBack [data-act="lookback-step"][data-d="-1"]');
+    await vi.waitFor(() => expect(text('#lookBody')).toContain('Nothing in your log for this month.'));
+    expect(document.querySelector('#lookBody .lookback-story')).toBeNull();
+  });
 });

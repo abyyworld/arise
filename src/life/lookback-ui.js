@@ -1,5 +1,5 @@
 // Look back, from Your days: a day, a month or a year, with arrows to step back and forward. What
-// happened (counted on this device: lookback.ts), the journal for a day, and what Arise knew about
+// happened (counted on this device: lookback.ts) with its story (story.ts), and what Arise knew about
 // the Player then, with what changed since (the snapshots: fixes.ts). No AI unless they tap "Ask
 // the coach", which goes through the coach's own rules for what each AI may read.
 
@@ -9,6 +9,7 @@ import * as M from './memory';
 import { readKnew } from './fix-store';
 import { dayKey } from './dates';
 import { daysOf, keyOf, kindText, knewThen, rangeOf, step, tally } from './lookback';
+import { dayStoryOf, spanStoryOf } from './story-read';
 
 const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
 const today = () => dayKey(Date.now());
@@ -81,8 +82,9 @@ const counted = (list, one) => listHTML(list.map(([name, n]) => `${esc(name)} <s
 function happenedHTML(t, journal) {
   const { span, key } = look;
   if (!t.total) return `<p class="muted">Nothing in your log for ${thisOne(span)}.</p>${journal}`;
-  const parts = [`<p>${t.total.toLocaleString()} ${t.total === 1 ? 'thing' : 'things'} in your log.</p>`, listHTML(t.kinds.slice(0, SHOW).map(([k, n]) => esc(kindText(k, n))))];
+  const parts = [];
   if (journal) parts.push(journal);
+  parts.push(`<p>${t.total.toLocaleString()} ${t.total === 1 ? 'thing' : 'things'} in your log.</p>`, listHTML(t.kinds.slice(0, SHOW).map(([k, n]) => esc(kindText(k, n)))));
   if (span !== 'day') {
     if (t.days.length)
       parts.push(
@@ -120,10 +122,16 @@ function knewHTML(then) {
   return `${head}${shown}${more}<p class="kicker lookback-changed">What changed since then</p>${diff}`;
 }
 
-async function journalOf(k) {
+// The story of the day (story.ts), else the start of its journal; of a month or a year, its own.
+async function storyOf(span, key, t) {
   try {
-    const intro = (await M.builtJournal(k)).intro.trim();
-    return intro ? `<p class="journal-intro">${esc(intro)}</p>` : '';
+    if (span === 'day') {
+      const text = (await dayStoryOf(key)).text || (await M.builtJournal(key)).intro.trim();
+      return text ? `<p class="journal-intro lookback-story">${esc(text)}</p>` : '';
+    }
+    if (!t.total) return '';
+    const text = await spanStoryOf(span, key, t, { before: titleOf(span, step(span, key, -1)) });
+    return text ? `<p class="journal-intro lookback-story">${esc(text)}</p>` : '';
   } catch {
     return '';
   }
@@ -136,7 +144,8 @@ async function fill() {
   try {
     const [from, to] = rangeOf(span, key);
     await M.load().catch(() => {});
-    const [t, list, journal] = await Promise.all([tally(from, to), readKnew(), span === 'day' ? journalOf(key) : '']);
+    const [t, list] = await Promise.all([tally(from, to), readKnew()]);
+    const journal = await storyOf(span, key, t);
     const then = knewThen(list, span, key, M.knewNow());
     const ask = `<button class="btn ghost small" data-act="lookback-ask">${icon('system')} Ask the coach about ${thisOne(span)}</button>`;
     html = `<section class="lookback-part"><p class="kicker">What happened</p>${happenedHTML(t, journal)}</section>

@@ -33,6 +33,8 @@ import * as FILES from './files';
 import * as FIX from './fix-ui.js';
 import * as LOOK from './lookback-ui.js';
 import * as READUI from './reads-ui.js';
+import * as STORYUI from './story-ui.js';
+import { dayStoryOf } from './story-read';
 import { isNote } from './reads';
 
 // (Parts of these screens fill in after reading the log; by then a test may have gone.)
@@ -300,9 +302,10 @@ async function fillDay() {
   void FUI.fillDay(k);
   let events = [];
   let journal = null;
+  let story = null;
   try {
     await M.load().catch(() => {});
-    [events, journal] = await Promise.all([L.eventsBetween(dayStart(k), dayEnd(k), { limit: 5000 }), M.journalView(k).catch(() => null)]);
+    [events, journal, story] = await Promise.all([L.eventsBetween(dayStart(k), dayEnd(k), { limit: 5000 }), M.journalView(k).catch(() => null), dayStoryOf(k).catch(() => null)]);
     events = withPlaceNames(events, S.placeNames()); // "At Home for 2 h", with the names they gave places
   } catch (err) {
     const box = el();
@@ -311,6 +314,8 @@ async function fillDay() {
   }
   const box = el();
   if (!box) return;
+  // The day's story at the top of its journal (story-ui.js).
+  journal = STORYUI.withStory(k, journal, story);
   if (journal) journals.set(k, journal);
   box.innerHTML = `<div data-pane="journal" ${ui.pane === 'journal' ? '' : 'hidden'}>${journal ? journalHTML(k, journal) : ''}</div>
     <div data-pane="events" ${ui.pane === 'events' ? '' : 'hidden'}>${summaryHTML(k, events) + timelineHTML(events) + placesHTML(k, events)}</div>`;
@@ -484,10 +489,11 @@ function journalHTML(k, v) {
       : !isToday && !empty && AI.ready() && !memoryWaits()
         ? `<button class="btn ghost small" data-act="life-j-again" data-day="${esc(k)}">${icon('system')} Write it with AI</button>`
         : '';
-  const acts = empty && !own ? again : `<button class="btn ghost small" data-act="life-j-edit" data-day="${esc(k)}">Edit</button><button class="btn ghost small" data-act="life-j-copy" data-day="${esc(k)}">Copy</button>${canShare() ? `<button class="btn ghost small" data-act="life-j-share" data-day="${esc(k)}">${icon('share')} Share</button>` : ''}${again}`;
+  const acts = empty && !own ? again : `<button class="btn ghost small" data-act="life-j-edit" data-day="${esc(k)}">Edit</button><button class="btn ghost small" data-act="life-j-copy" data-day="${esc(k)}">Copy</button>${canShare() ? `<button class="btn ghost small" data-act="life-j-share" data-day="${esc(k)}">${icon('share')} Share</button>` : ''}${STORYUI.betterButton(k)}${again}`;
   return `<article class="journal" aria-label="Your journal for ${esc(journalTitle(k))}">
     ${ask}
     ${empty ? `<p class="muted journal-empty">${isToday ? 'Nothing in your journal yet today. It fills in as the day goes.' : 'Nothing in your journal for this day.'}</p>` : doc.intro ? `<p class="journal-intro">${esc(doc.intro)}</p>` : ''}
+    ${STORYUI.sawHTML(k)}
     ${ownHTML}
     ${parts}
     ${empty ? '' : `<p class="muted small journal-by">${esc(by)}</p>`}
@@ -948,6 +954,7 @@ export async function handleAction(act, el) {
   if (act.startsWith('fix-')) return FIX.handleAction(act, el);
   if (act.startsWith('lookback-')) return LOOK.handleAction(act, el);
   if (act.startsWith('reads-')) return READUI.handleAction(act, el);
+  if (act.startsWith('story-')) return STORYUI.handleAction(act, el, { refresh: () => app.view() === 'days' && fillDay() });
   const d = el.dataset;
   switch (act) {
     case 'life-day': {
