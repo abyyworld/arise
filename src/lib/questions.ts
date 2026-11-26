@@ -31,7 +31,24 @@ export interface QInput {
   dismissed: Record<string, unknown>;
   loose?: { id: string; text: string; at: number }[]; // loose ends in their notes (lib/loose.ts)
   now?: number;
+  dayStart?: number; // the start of today: with it, no more than DAILY_QUESTIONS a day
 }
+
+// At most this many quick ones a day, of every kind together, so it never nags. A question counts
+// once it's answered or put away (each goes in `dismissed` under 'q:<id>' with the time, on every
+// device), so the one on screen is never cut off half way.
+export const DAILY_QUESTIONS = 6;
+
+export function askedSince(dismissed: Record<string, unknown>, from: number): number {
+  let n = 0;
+  for (const [k, v] of Object.entries(dismissed || {})) {
+    // (The marker for "one getting-to-know-you question a day" isn't a question.)
+    if (k.startsWith('q:') && !k.startsWith('q:know-day:') && typeof v === 'number' && v >= from) n++;
+  }
+  return n;
+}
+
+export const questionsLeft = (dismissed: Record<string, unknown>, from: number, max = DAILY_QUESTIONS) => Math.max(0, max - askedSince(dismissed, from));
 
 // Getting to know you: one of these on a quiet day, answered in a few words, kept as a note in
 // the life log so the coach and the memory learn it.
@@ -147,6 +164,8 @@ export function questions(q: QInput): Question[] {
     }
   }
 
+  // Today's are used up: nothing more until tomorrow. (The order above stays as it is.)
+  if (q.dayStart != null && !questionsLeft(q.dismissed, q.dayStart)) return [];
   return out;
 }
 

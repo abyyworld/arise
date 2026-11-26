@@ -641,7 +641,7 @@ const tooWeak = () => Object.assign(new Error('Learning waits for a strong AI.')
 // write the memory (the Player may pick a smaller model meanwhile). Then only to that AI, and only
 // a strong model of it (ai.js checks both too), and nothing of an answer that comes back after a
 // wipe is kept. `by`: the engine and model that answered.
-async function request<T>(o: { instructions: string; prompt: string; schema: object; maxTokens: number }, { engine, cap, gen = generation, signal }: Job): Promise<{ json: T | undefined; by: string }> {
+async function request<T>(o: { instructions: string; prompt: string; schema: object; maxTokens: number; for?: string }, { engine, cap, gen = generation, signal }: Job): Promise<{ json: T | undefined; by: string }> {
   if (signal?.aborted || gen !== generation || learner() !== engine || P.cap() < cap) throw stopped();
   if (learnerStrength() === 'weak') throw tooWeak();
   asked++;
@@ -907,7 +907,7 @@ export async function writeJournal(k: string, { engine, cap, signal, gen = gener
   let json: unknown;
   let by = '';
   try {
-    ({ json, by } = await request<unknown>({ instructions: JOURNAL_RULES(voice), prompt, schema: JOURNAL_SCHEMA, maxTokens: 6000 }, { engine, cap, gen, signal }));
+    ({ json, by } = await request<unknown>({ instructions: JOURNAL_RULES(voice), prompt, schema: JOURNAL_SCHEMA, maxTokens: 6000, for: 'story' }, { engine, cap, gen, signal }));
   } catch (err) {
     if (RETRY_LATER.has((err as { code?: string })?.code || '')) return skipIt();
     throw err;

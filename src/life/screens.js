@@ -34,6 +34,8 @@ import * as FIX from './fix-ui.js';
 import * as LOOK from './lookback-ui.js';
 import * as READUI from './reads-ui.js';
 import { isNote } from './reads';
+import * as KY from './knows-you-ui.js'; // How well Arise knows you
+import * as SENTUI from '../sent-ui.js'; // What was sent to an AI
 
 // (Parts of these screens fill in after reading the log; by then a test may have gone.)
 const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
@@ -785,6 +787,8 @@ export function renderKnows(root) {
           <button class="toggle-row" data-act="life-less-private" data-on="${!pr.lessPrivate}" aria-pressed="${pr.lessPrivate}"><span><b>Let less private AIs read my life log</b><small>Off: the free AI and your own AI service only see your goals and quests in Arise. On: they can read your notes and everything you bring in, like searches, places and messages. Those companies can read what they're sent. Gemini's free tier also says not to send it personal information.</small></span><span class="switch ${pr.lessPrivate ? 'on' : ''}"></span></button>
         </section>
         ${READUI.knowsPanel()}
+        ${KY.panel()}
+        ${SENTUI.knowsPanel()}
         <section class="panel">
           <div class="panel-title"><span>What's in your log</span></div>
           <div id="lifeSources">${sourcesHTML()}</div>
@@ -889,6 +893,8 @@ async function fillKnows() {
   MEUI.fillMe();
   void FIX.fillAreas();
   READUI.fillStatus();
+  void KY.fill();
+  SENTUI.fillPanel();
 }
 
 function showWhy(id) {
@@ -948,6 +954,7 @@ export async function handleAction(act, el) {
   if (act.startsWith('fix-')) return FIX.handleAction(act, el);
   if (act.startsWith('lookback-')) return LOOK.handleAction(act, el);
   if (act.startsWith('reads-')) return READUI.handleAction(act, el);
+  if (act.startsWith('knowsyou-')) return KY.handleAction(act, el);
   const d = el.dataset;
   switch (act) {
     case 'life-day': {

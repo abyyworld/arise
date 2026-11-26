@@ -40,6 +40,7 @@ import { isSystem } from './words';
 import { WAITS, classify, makeBy } from './life/strength';
 import * as STUDY from './study.js';
 import * as CH from './lib/chats';
+import * as SENT from './ai-log'; // what was sent to an AI, on this device (see sentTo)
 
 export { plain };
 
@@ -800,7 +801,7 @@ export function usageCost() {
 //   onText:   streams the answer; called with the full text so far
 //   bare:     no system prompt or Player data (used for the key test)
 
-async function ask(raw) {
+async function askAny(raw) {
   const e = engine({ background: raw.background });
   if (!e) throw new AIError('no-ai', raw.background && engine() ? (engine() === 'tab' ? TAB_WAITS : PLAN_WAITS) : 'Turn on the AI coach in Settings first.');
   if (e === 'own') return askKeys(raw);
@@ -824,6 +825,61 @@ async function ask(raw) {
     if (err.code !== 'plan' || raw.strong || Device.lastKnown() !== 'available') throw err;
     return askDevice(made('device'));
   }
+}
+
+// ---------- what was sent to an AI (src/ai-log.ts)
+//
+// Every request goes through `ask`, and `ask` through `sentTo` (the Try and Test buttons too), so
+// the log on this device misses nothing: which AI, what for, how much went and in which parts, and
+// whether an answer came back. `for` on each request says what it was for.
+
+async function ask(raw) {
+  const e = engine({ background: raw.background });
+  if (!e) return askAny(raw); // says why nothing can answer; nothing leaves the device
+  return sentTo(e, raw, askAny);
+}
+
+// Who answered, past the engine: the service for the Player's own keys, the model on their computer.
+function sentWho(e) {
+  try {
+    if (e === 'local') return Local.label();
+    if (e !== 'own') return '';
+    const last = F.loadLast();
+    const p = (last?.provider && PROVIDERS[last.provider]) || provider();
+    return p ? (p.company && p.company !== p.name && p.company !== 'your AI service' ? `${p.name} (${p.company})` : p.name) : '';
+  } catch {
+    return '';
+  }
+}
+
+async function sentTo(e, raw, go) {
+  // What was made for the AI that answered (the last made, when a shorter version was needed).
+  const seen = { context: undefined, messages: undefined, compact: false };
+  const watched = {
+    ...raw,
+    context: typeof raw.context === 'function' ? (compact, x) => ((seen.compact = !!compact), (seen.context = raw.context(compact, x))) : raw.context,
+    messages: typeof raw.messages === 'function' ? (x) => (seen.messages = raw.messages(x)) : raw.messages,
+  };
+  const at = Date.now();
+  let out;
+  let error = null;
+  try {
+    out = await go(watched);
+  } catch (err) {
+    error = err || new AIError('unknown', 'Something went wrong.');
+  }
+  try {
+    // The private AI's free questions ran out and the AI on this device answered instead.
+    const ai = e === 'private' && out && !out.by ? 'device' : e;
+    const context = raw.bare ? '' : String((typeof raw.context === 'function' ? seen.context : raw.context) || '');
+    const all = (typeof raw.messages === 'function' ? seen.messages : raw.messages) || [];
+    const messages = ai === 'device' ? all.slice(-DEVICE_KEEP) : all;
+    // The short instructions go with the short version, on the AIs that take one.
+    const compact = ai === 'device' || ((ai === 'local' || ai === 'tab') && seen.compact);
+    SENT.noteSent({ at, ms: Date.now() - at, ai, who: sentWho(ai), for: raw.for, background: !!raw.background, instructions: raw.bare ? '' : compact ? SYSTEM_CORE() : SYSTEM_NOW(), context, messages, cap: memoryCap(ai), error });
+  } catch {}
+  if (error) throw error;
+  return out;
 }
 
 // What work nobody asked for says while it waits for Arise Private.
@@ -1002,7 +1058,7 @@ export function keyRows() {
 
 // Tests one key with the smallest possible request, whatever its rest says. Returns who answered.
 export async function testKeyEntry(id) {
-  await askKeys({ bare: true, effort: 'low', maxTokens: 1024, messages: [{ role: 'user', content: 'Reply with exactly: System online.' }] }, { only: id });
+  await sentTo('own', { for: 'test', bare: true, effort: 'low', maxTokens: 1024, messages: [{ role: 'user', content: 'Reply with exactly: System online.' }] }, (r) => askKeys(r, { only: id }));
   return answeredBy(id) || modelLabel(id);
 }
 
@@ -1211,7 +1267,7 @@ async function askTab(raw) {
 
 // The Try button in Settings: the smallest question. Returns the answer.
 export async function testTab() {
-  return (await askTab({ bare: true, messages: [{ role: 'user', content: 'Reply with exactly: System online.' }] })).text;
+  return (await sentTo('tab', { for: 'test', bare: true, messages: [{ role: 'user', content: 'Reply with exactly: System online.' }] }, askTab)).text;
 }
 
 // --- plain HTTPS services (Gemini and the OpenAI format)
@@ -2090,6 +2146,7 @@ export async function dailyBriefing({ force = false, background = false } = {}) 
   };
   const prompt = `Write today's ${isSystem() ? 'System message' : 'message from you, my coach,'} for the top of the Today screen. Speak to me directly. Before you write, look at my whole life, not only my goals: what Arise saw in my days (my sleep, movement, focus, people and screens) and how each part of my life is going next to my usual, the patterns Arise found, the last few days in my life log if they're there, what Arise knows about me, my own ratings and check-ins if I gave any, and then my goals and quests. Pick the one thing most worth saying today. It may not be a goal: a short night, a heavy week, someone I haven't been in touch with, a pattern worth knowing, something going well. If the last few days look hard, be gentle and make today lighter: that comes before any quest. Mention one real thing from my data, with its date if it's from the log. Never ask me to rate anything, check in or keep a diary. No pep talk, no guilt, no lecture, and don't nag about streaks.${S.workoutsOn() ? ' If today is a rest day from my workout plan, make it about recovery.' : ''}`;
   const { json: out } = await ask({
+    for: 'daily',
     context,
     background,
     effort: 'low',
@@ -2118,7 +2175,7 @@ export async function reflect(k, { onText, signal } = {}) {
   const content = LC.hasCheckin(log)
     ? `Here is my check-in for ${k}:\n"""\n${entry}\n"""\nReflect on it and my day in 2-4 short sentences, with what Arise saw and my life log for that day. ${notice} If I sound low or stressed, be kind first. Don't repeat my words back to me, and don't judge.`
     : `Reflect on my day (${k}) in 2-4 short sentences, from what Arise saw (my sleep, movement, focus, people and screens), my life log for that day and my goals. I didn't check in or write anything, and that's fine. ${notice} If the data shows little, say so in one line. If the day looks hard, be kind first. Don't judge, and never ask me to rate anything or keep a diary.`;
-  const { text } = await ask({ context, effort: 'low', onText, signal, messages: [{ role: 'user', content }] });
+  const { text } = await ask({ for: 'reflect', context, effort: 'low', onText, signal, messages: [{ role: 'user', content }] });
   S.setLog(k, { ai: text });
   return text;
 }
@@ -2181,7 +2238,7 @@ export async function chat(userText, { chat: id = '', full = false, recallAs = '
       tier = Math.max(tier, ok ? notes.tier : 1, contextTier(e, compact));
       return buildContext({ full, compact, e, recalled: ok ? notes.text : '' });
     };
-    const { text } = await ask({ context, effort: full ? 'high' : 'medium', messages: history, onText, signal, cacheLast: true });
+    const { text } = await ask({ for: 'chat', context, effort: full ? 'high' : 'medium', messages: history, onText, signal, cacheLast: true });
     keep({ role: 'assistant', text, at: Date.now(), ...(tier > 1 ? { tier } : {}) });
     return text;
   } catch (err) {
@@ -2255,6 +2312,7 @@ const PLAN_SCHEMA = {
 // Arise saw or the patterns goes in.
 export async function proposePlan(request) {
   const { json } = await ask({
+    for: 'plan',
     context: (compact, e) => buildContext({ compact, e, most: 1 }),
     effort: 'high',
     maxTokens: 16000,
@@ -2353,6 +2411,7 @@ export function normalizeQuests(raw) {
 export async function proposeQuests(goal, request = '') {
   const existing = (goal.quests || []).map((q) => `${q.title} (${G.scheduleText(q.schedule)})`).join('; ');
   const { json } = await ask({
+    for: 'quests',
     context: (compact, e) => buildContext({ compact, e, most: 1 }),
     effort: 'medium',
     maxTokens: 8000,
@@ -2402,6 +2461,7 @@ const DECISION_SCHEMA = {
 export async function adviseDecision(question, details = '', { signal } = {}) {
   const { context, tier } = await withNotes(`${question} ${details}`.trim());
   const { json } = await ask({
+    for: 'decision',
     context,
     effort: 'high',
     maxTokens: 8000,
@@ -2446,6 +2506,7 @@ export async function writeMyWay(notes, kind = 'message', { to = '', signal } = 
   const voice = (S.state.settings.voice || '').trim();
   const what = WRITE_KINDS[kind] || WRITE_KINDS.message;
   const { text } = await ask({
+    for: 'write',
     bare: true,
     effort: 'medium',
     maxTokens: 4000,
@@ -2491,6 +2552,7 @@ const IDEAS_SCHEMA = {
 export async function postIdeas({ signal } = {}) {
   const { context, tier } = await withNotes('projects I am working on, things I learned or made, my goals');
   const { json } = await ask({
+    for: 'ideas',
     context,
     effort: 'medium',
     maxTokens: 4000,
@@ -2525,6 +2587,7 @@ const NUDGE_SCHEMA = {
 // these texts show on the lock screen.
 export async function writeReminders() {
   const { json } = await ask({
+    for: 'reminders',
     context: (compact, e) => buildContext({ compact, e, saw: false }),
     effort: 'low',
     maxTokens: 8000,
@@ -2552,9 +2615,9 @@ export async function writeReminders() {
 // Only a strong model answers (life/strength.ts): with none, it fails with code 'weak' and nothing
 // is sent. `by` says which engine and model answered, which the memory records. Nobody asked for
 // it just now, so on the free plan it never uses the private AI (see engine).
-export async function askMemory({ instructions, prompt, schema, maxTokens = 6000, signal, engine: forEngine }) {
+export async function askMemory({ instructions, prompt, schema, maxTokens = 6000, signal, engine: forEngine, for: purpose = 'memory' }) {
   if (forEngine && engine({ background: true }) !== forEngine) throw new AIError('changed', 'The AI in use changed, so Arise stopped learning for now.');
-  const { text, json, by } = await ask({ bare: true, background: true, effort: 'low', maxTokens, schema, signal, strong: true, messages: [{ role: 'user', content: `${instructions}\n\n${prompt}` }] });
+  const { text, json, by } = await ask({ for: purpose === 'story' ? 'story' : 'memory', bare: true, background: true, effort: 'low', maxTokens, schema, signal, strong: true, messages: [{ role: 'user', content: `${instructions}\n\n${prompt}` }] });
   return { text, json, by: by || '' };
 }
 
@@ -2566,12 +2629,12 @@ export async function askMemory({ instructions, prompt, schema, maxTokens = 6000
 // private AI (see engine).
 export async function askRead({ prompt, schema, signal = undefined, engine: forEngine, maxTokens = 3000 }) {
   if (!forEngine || engine({ background: true }) !== forEngine) throw new AIError('changed', 'The AI in use changed, so Arise stopped reading for now.');
-  const { json, by } = await ask({ bare: true, background: true, effort: 'low', maxTokens, schema, signal, messages: [{ role: 'user', content: prompt }] });
+  const { json, by } = await ask({ for: 'reads', bare: true, background: true, effort: 'low', maxTokens, schema, signal, messages: [{ role: 'user', content: prompt }] });
   return { json, by: by || '' };
 }
 
 // Quick check that the key works, with the smallest possible request.
 export async function testKey() {
-  const { text } = await ask({ bare: true, effort: 'low', maxTokens: 1024, messages: [{ role: 'user', content: 'Reply with exactly: System online.' }] });
+  const { text } = await ask({ for: 'test', bare: true, effort: 'low', maxTokens: 1024, messages: [{ role: 'user', content: 'Reply with exactly: System online.' }] });
   return text;
 }
