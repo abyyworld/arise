@@ -83,13 +83,14 @@ export const setAboutChoice = (c: ME.MeChoice) => write(ABOUT, cleanAboutChoice(
 // facts (the best first, as in the profile), today's quests and the summaries of the last 7 days.
 // Facts and days carry how private they are to share (memory.ts shareOf), not the tier the AI
 // reads them at: to the AI, Arise's own journal, weigh-ins and coach questions are tier 1.
+// A fact the Player marked "Never send to an AI" never goes to any app (an app may be an AI).
 export function sourceNow(): ME.MeSource {
   const today = S.todayKey();
   const week = S.addDays(today, -7);
   return {
     name: firstName(),
     goals: S.activeGoals().map((g) => ({ title: g.title, why: g.why, streak: goalStreak(g, today) })),
-    facts: M.rankFacts(M.activeFacts()).map((f) => ({ text: f.text, since: f.since, tier: M.shareOf(f) })),
+    facts: M.rankFacts(M.forAI(M.activeFacts())).map((f) => ({ text: f.text, since: f.since, tier: M.shareOf(f) })),
     today: { day: today, quests: S.questsFor(today).map(({ quest, done }) => ({ title: quest.title, done })) },
     days: M.daySummaries()
       .filter((s) => s.key < today && s.key >= week)

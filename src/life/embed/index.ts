@@ -242,6 +242,32 @@ export async function byMeaning(query: string, { from = -Infinity, to = Infinity
   return out;
 }
 
+// Which of `texts` is closest in meaning to `query`, when one is at least `min` close (the same
+// subject, for a note that grows: area-ui.js). Null without the model.
+export async function closest(query: string, texts: readonly string[], min = 0.6): Promise<{ i: number; score: number } | null> {
+  const q = query.trim().slice(0, 300);
+  if (!ready() || !worthReading(q) || !texts.length) return null;
+  let emb: Embedder;
+  try {
+    emb = await embedder();
+  } catch {
+    return null;
+  }
+  const unit = (v: Float32Array) => {
+    let n = 0;
+    for (const x of v) n += x * x;
+    n = Math.sqrt(n) || 1;
+    return Array.from(v, (x) => x / n);
+  };
+  const [qv, ...vs] = (await emb.embed([q, ...texts.map((t) => t.slice(0, 300))])).map(unit);
+  let best: { i: number; score: number } | null = null;
+  vs.forEach((v, i) => {
+    const score = v.reduce((s, x, j) => s + x * qv[j], 0);
+    if (score >= min && (!best || score > best.score)) best = { i, score };
+  });
+  return best;
+}
+
 export interface Found {
   results: LifeEvent[];
   related: LifeEvent[];

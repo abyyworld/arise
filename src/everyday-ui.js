@@ -398,15 +398,40 @@ function questionInput(now = new Date()) {
     weekBig: Object.values(st.todos).filter((t) => !t.gone && !t.done && t.big && (!t.day || t.day <= sunday)).length,
     dismissed: st.dismissed,
     loose: looseCache.filter((l) => st.dismissed[`q:loose:${l.id}`] == null),
+    checks: factCache.checks,
+    clashes: factCache.clashes,
     now: now.getTime(),
   };
 }
+
+// Facts to check again today, and facts that disagree (life/know.ts), read from the memory with
+// the loose ends.
+let factCache = { checks: [], clashes: [] };
+async function refreshFacts() {
+  try {
+    const M = await import('./life/memory');
+    await M.load();
+    factCache = { checks: M.checksDue(S.todayKey()), clashes: M.factPairs().clashes.map(({ a, b }) => ({ a: { id: a.id, text: a.text }, b: { id: b.id, text: b.text } })) };
+  } catch {}
+}
+
+async function answerFact(act, v) {
+  const M = await import('./life/memory');
+  const [a, b] = (v || '').split('|');
+  if (act === 'q-fact-ok') await M.confirmFact(a);
+  else if (act === 'q-fact-old') await M.retireFact(a);
+  else if (act === 'q-fact-right') await M.pickRight(a, b);
+  else if (act === 'q-fact-both') await M.keepApart(a, b);
+  await refreshFacts();
+}
+const FACT_TOASTS = { 'q-fact-ok': 'Good. Arise keeps it.', 'q-fact-old': 'Kept as no longer true.', 'q-fact-right': "Thanks. The other one is gone, and Arise won't learn it again.", 'q-fact-both': "Got it. Arise won't ask about these two again." };
 
 // Loose ends in the last 2 weeks of their own notes (lib/loose.ts), read from the life log now
 // and then: on opening, and after a note is added here.
 let looseCache = [];
 export async function refreshLoose(now = Date.now()) {
   if (!hasLifeStore()) return [];
+  const facts = refreshFacts();
   try {
     const L = await import('./life/log');
     const notes = (await L.eventsBetween(now - 14 * 86_400_000, now + 60_000, { sources: ['manual'] }))
@@ -414,8 +439,10 @@ export async function refreshLoose(now = Date.now()) {
       .map((e) => ({ id: e.id, text: e.detail, at: e.at }));
     looseCache = looseEnds(notes, Object.values(S.state.todos).filter((t) => !t.gone), S.state.dismissed);
   } catch {
+    await facts;
     return looseCache;
   }
+  await facts;
   const el = $('#askCard');
   if (el) el.outerHTML = questionCard();
   return looseCache;
@@ -517,6 +544,16 @@ function answer(act, v) {
       S.save();
       toast('Saved. Your plan uses it from now on.');
       break;
+    case 'q-fact-ok':
+    case 'q-fact-old':
+    case 'q-fact-right':
+    case 'q-fact-both':
+      answered();
+      void answerFact(act, v)
+        .then(() => toast(FACT_TOASTS[act]))
+        .catch(() => toast("That couldn't be saved."))
+        .finally(repaintAll);
+      return true;
     default:
       return false;
   }
@@ -620,6 +657,10 @@ export function handleAction(act, el) {
     case 'q-todo-drop':
     case 'q-goal-pause':
     case 'q-best':
+    case 'q-fact-ok':
+    case 'q-fact-old':
+    case 'q-fact-right':
+    case 'q-fact-both':
       return answer(act, v);
     case 'review-done': {
       const w = $('#reviewCard [data-week]')?.dataset.week;

@@ -16,7 +16,7 @@ import { cleanPauses, type Pause } from './pause';
 import { cleanBy } from '../life/strength';
 import { ABOUT_DEFAULT, cleanChoice, cleanRules, LINK_DEFAULT, type MeChoice, type MeRules } from './me';
 import { ASK_WANTS, cleanEntry, type AskWant, type FeedEntry } from './feed';
-import { cleanLife, cleanLifeBefore } from './life-check';
+import { cleanLife, cleanLifeBefore, isArea, type AreaId } from './life-check';
 import { cleanStudy, type Study } from './study';
 import { cleanTodos, type Todos } from './todos';
 import { cleanDebts, cleanGroceries, type Debts, type Groceries } from './everyday';
@@ -622,6 +622,7 @@ export interface LifeFact {
   sources: string[]; // the days it came from or was confirmed by, oldest first
   at: number; // last changed
   by?: string; // the AI that last wrote or vouched for it (life/strength.ts); none for the Player's own
+  imp?: true; // learned from a day that came mostly from imports: "Imported, not confirmed" until they say it's right
 }
 
 const FACT_ID = /^f[a-z0-9]{1,24}$/;
@@ -639,6 +640,7 @@ export function cleanLifeFact(raw: unknown): LifeFact | null {
   if (isTier(f.share)) out.share = Math.max(f.share, out.tier) as LifeTier;
   const by = from === 'ai' ? cleanBy(f.by) : '';
   if (by) out.by = by;
+  if (f.imp === true) out.imp = true;
   return out;
 }
 
@@ -859,6 +861,91 @@ export function cleanLifeKnew(raw: unknown): LifeKnew | null {
     if (typeof f.id === 'string' && FACT_ID.test(f.id) && text) facts.push({ id: f.id, text });
   }
   return { day: k.day, at: time(k.at), facts };
+}
+
+// What the Player said about one fact on What Arise knows (life/know.ts). Synced in the memory's
+// pack. Each part has its own time, so changing one on a device never undoes another made
+// elsewhere: `ta` for noAI, `tc` for check, `to` for ok.
+export interface LifeFactFlag {
+  id: string; // the fact's id
+  at: number; // last changed
+  noAI?: true; // never sent to any AI, whatever the settings
+  check?: string; // the day to ask whether it's still true
+  ok?: true; // they said it's right (one that came from imports, or one they were asked about)
+  apart?: string[]; // facts they said aren't the same as this one and don't disagree with it
+  ta?: number;
+  tc?: number;
+  to?: number;
+}
+
+export function cleanLifeFactFlag(raw: unknown): LifeFactFlag | null {
+  const f = obj(raw);
+  const at = time(f.at);
+  if (typeof f.id !== 'string' || !FACT_ID.test(f.id) || !at) return null;
+  const out: LifeFactFlag = { id: f.id, at };
+  if (f.noAI === true) out.noAI = true;
+  if (isDate(f.check)) out.check = f.check;
+  if (f.ok === true) out.ok = true;
+  const apart = [...new Set(arr(f.apart).filter((x): x is string => typeof x === 'string' && FACT_ID.test(x) && x !== f.id))].sort().slice(0, 50);
+  if (apart.length) out.apart = apart;
+  for (const k of ['ta', 'tc', 'to'] as const) if (time(f[k])) out[k] = Math.min(time(f[k]), at);
+  return out;
+}
+
+// A note or a sub-branch the Player added under a part of their life ("Add here",
+// life/area-notes.ts), like Work > Drone EduTrain. Synced in the memory's pack. A deleted one
+// stays as a tombstone (its id and when), so it stays deleted on every device.
+export interface LifeAreaNote {
+  id: string;
+  at: number; // last changed
+  gone?: true;
+  areas: AreaId[]; // where it shows: one or more parts of life
+  title: string;
+  text?: string;
+  branch?: true; // a sub-branch, which holds notes
+  parent?: string; // the sub-branch it's under
+  day: string; // when it was written ('' for a tombstone)
+  from?: string; // the dates it covers, if they gave them
+  to?: string;
+  key?: true; // listed first, and given to the coach first
+  labels?: string[];
+  links?: string[]; // notes that go with it ("these go together"), shown on both
+  more?: { day: string; text: string }[]; // what they added to it later, oldest first
+  tier: LifeTier;
+}
+
+const NOTE_ID = /^n[a-z0-9]{1,24}$/;
+export const AREA_NOTE_MAX = 4000;
+export const AREA_LABEL_MAX = 30;
+
+export function cleanLifeAreaNote(raw: unknown): LifeAreaNote | null {
+  const n = obj(raw);
+  const at = time(n.at);
+  if (typeof n.id !== 'string' || !NOTE_ID.test(n.id) || !at) return null;
+  if (n.gone === true) return { id: n.id, at, gone: true, areas: [], title: '', day: '', tier: 2 };
+  const areas = [...new Set(arr(n.areas).filter(isArea))];
+  const title = oneLine(n.title, 120);
+  const text = manyLines(n.text, AREA_NOTE_MAX);
+  if (!areas.length || !isDate(n.day) || (!title && !text) || (n.branch === true && !title)) return null;
+  const out: LifeAreaNote = { id: n.id, at, areas, title, day: n.day, tier: isTier(n.tier) ? (Math.max(n.tier, 2) as LifeTier) : 2 };
+  if (text) out.text = text;
+  if (n.branch === true) out.branch = true;
+  if (typeof n.parent === 'string' && NOTE_ID.test(n.parent) && n.parent !== n.id) out.parent = n.parent;
+  if (isDate(n.from)) out.from = n.from;
+  if (isDate(n.to) && (!out.from || n.to >= out.from)) out.to = n.to;
+  if (n.key === true) out.key = true;
+  const labels = [...new Set(arr(n.labels).map((x) => oneLine(x, AREA_LABEL_MAX)).filter(Boolean))].slice(0, 8);
+  if (labels.length) out.labels = labels;
+  const links = [...new Set(arr(n.links).filter((x): x is string => typeof x === 'string' && NOTE_ID.test(x) && x !== n.id))].slice(0, 20);
+  if (links.length) out.links = links;
+  const more: { day: string; text: string }[] = [];
+  for (const x of arr(n.more).slice(0, 50)) {
+    const m = obj(x);
+    const t = manyLines(m.text, AREA_NOTE_MAX);
+    if (isDate(m.day) && t) more.push({ day: m.day, text: t });
+  }
+  if (more.length) out.more = more;
+  return out;
 }
 
 // ---------- Arise as "me" for other apps (me.ts, lib/me.ts). On this device only, like the

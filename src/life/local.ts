@@ -9,6 +9,9 @@ import { beforeClear, changedAt, deletedAt, emit, fromRow, toRow } from './log';
 import { addTomb, cleanWipes, clearNotes, markDirty } from './journal';
 import { applyFix, changes, cleanFixes, cleanKnew, isEventFix } from './fixes';
 import { FIXES, KNEW } from './fix-store';
+import { FLAGS, NOTES } from './know-store';
+import { cleanFlags } from './know';
+import { cleanNotes } from './area-notes';
 import { askedCoach, canonical, emptyContent, eventPack, isPackKey, MEM, mergeContent, monthSpan, packKind, READ_KV, READ_RANGE, readPack, summaryPack, syncable, syncedPrefs, tidy, wipesEvent, type Content, type SyncedEvent } from './packs';
 import { prefs, takePaused } from './prefs';
 import { dayKey } from './dates';
@@ -195,7 +198,9 @@ function readLocal(tx: IDBTransaction, key: string, then: (l: Local) => void) {
   const kv = kind === 's' || kind === 'r' ? null : tx.objectStore('kv');
   const fixes = kv?.get(FIXES);
   const knew = kind === 'mem' ? kv?.get(KNEW) : undefined;
-  for (const r of [fixes, knew]) if (r) reqs.push(r);
+  const flags = kind === 'mem' ? kv?.get(FLAGS) : undefined;
+  const notes = kind === 'mem' ? kv?.get(NOTES) : undefined;
+  for (const r of [fixes, knew, flags, notes]) if (r) reqs.push(r);
   let left = reqs.length;
   const fail = (err: unknown) => {
     failures.set(tx, err);
@@ -226,6 +231,8 @@ function readLocal(tx: IDBTransaction, key: string, then: (l: Local) => void) {
           c.wipes = w;
           c.fixes = fx;
           c.knew = cleanKnew((knew?.result as { v?: unknown } | undefined)?.v);
+          c.flags = cleanFlags((flags?.result as { v?: unknown } | undefined)?.v);
+          c.notes = cleanNotes((notes?.result as { v?: unknown } | undefined)?.v);
         }
         then({ content: c, wipes: w, fixes: fx });
       } catch (err) {
@@ -379,6 +386,14 @@ export async function applyPack(key: string, remote: Content, { now = Date.now()
         }
         if (!same(merged.knew, here.knew)) {
           tx.objectStore('kv').put({ k: KNEW, v: merged.knew });
+          result.changed++;
+        }
+        if (!same(merged.flags, here.flags)) {
+          tx.objectStore('kv').put({ k: FLAGS, v: merged.flags });
+          result.changed++;
+        }
+        if (!same(merged.notes, here.notes)) {
+          tx.objectStore('kv').put({ k: NOTES, v: merged.notes });
           result.changed++;
         }
         if (!same(merged.prefs, here.prefs)) {

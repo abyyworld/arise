@@ -33,6 +33,8 @@ import * as FILES from './files';
 import * as FIX from './fix-ui.js';
 import * as LOOK from './lookback-ui.js';
 import * as READUI from './reads-ui.js';
+import * as KNOW from './know-ui.js';
+import * as AREAUI from './area-ui.js';
 import { isNote } from './reads';
 
 // (Parts of these screens fill in after reading the log; by then a test may have gone.)
@@ -773,6 +775,8 @@ export function renderKnows(root) {
           </form>
           <div id="lifeFacts">${factsHTML()}</div>
         </section>
+        ${KNOW.checksPanel()}
+        ${AREAUI.areasPanel()}
         ${FIX.areasPanel()}
       </div>
       <div class="col">
@@ -812,12 +816,14 @@ const factMeta = (f) =>
     .join(' · ');
 
 function factRow(f) {
-  return `<li class="fact ${f.pinned ? 'pinned' : ''}">
+  return `<li class="fact ${f.pinned ? 'pinned' : ''}" data-fact="${esc(f.id)}">
     <p class="fact-text">${f.pinned ? `${icon('pin')} ` : ''}${esc(f.text)}</p>
     <p class="muted small">${esc(factMeta(f))}</p>
+    ${KNOW.flagTags(f)}
     <div class="fact-acts">
       ${f.until ? `<button class="link" data-act="life-fact-back" data-id="${esc(f.id)}">Still true</button>` : `<button class="link" data-act="life-pin" data-id="${esc(f.id)}">${f.pinned ? 'Unpin' : 'Pin'}</button><button class="link" data-act="life-fact-edit" data-id="${esc(f.id)}">Edit</button>`}
       ${f.from === 'ai' ? `<button class="link" data-act="life-why" data-id="${esc(f.id)}">Why?</button>` : ''}
+      ${KNOW.flagButtons(f)}
       ${FIX.teachLink(f.id)}
       <button class="link danger-link" data-act="life-fact-del" data-id="${esc(f.id)}">Delete</button>
     </div>
@@ -887,6 +893,8 @@ async function fillKnows() {
   const learn = $('#lifeLearn');
   if (learn) learn.innerHTML = learnText();
   MEUI.fillMe();
+  KNOW.fillChecks();
+  AREAUI.fillAreasPanel();
   void FIX.fillAreas();
   READUI.fillStatus();
 }
@@ -948,6 +956,8 @@ export async function handleAction(act, el) {
   if (act.startsWith('fix-')) return FIX.handleAction(act, el);
   if (act.startsWith('lookback-')) return LOOK.handleAction(act, el);
   if (act.startsWith('reads-')) return READUI.handleAction(act, el);
+  if (act.startsWith('know-')) return KNOW.handleAction(act, el);
+  if (act.startsWith('area-')) return AREAUI.handleAction(act, el);
   const d = el.dataset;
   switch (act) {
     case 'life-day': {
