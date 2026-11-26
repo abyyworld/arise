@@ -15,6 +15,8 @@ import { isMeHash } from './lib/me';
 import * as GOALS from './goals-ui.js';
 import * as STUDY from './study.js';
 import { isStudyHash } from './lib/study';
+import { isPlanHash } from './lib/plans';
+import * as PLANUI from './plans-ui.js';
 import * as AI from './ai.js';
 import * as LOCK from './app-lock.js';
 import * as IMPORT from './life/import-ui.js';
@@ -2589,6 +2591,13 @@ window.addEventListener('hashchange', () => {
     else go('today');
     return;
   }
+  // A plan someone shared (plans-ui.js): on the Calendar, to answer it.
+  if (isPlanHash(location.hash)) {
+    const hash = location.hash;
+    go(CAL.VIEW);
+    PLANUI.takeLink(hash);
+    return;
+  }
   const v = location.hash.slice(1);
   const journal = JOURNAL_HASH.exec(v);
   if (journal) LIFE.openJournal(journal[1] || S.todayKey());
@@ -2676,10 +2685,13 @@ S.onSave(() => {
 });
 // A study link opened from outside: kept (it syncs), and the Study page opens.
 const startStudy = isStudyHash(location.hash) && STUDY.takeLink(location.hash);
-const startView = startStudy ? 'study' : location.hash.slice(1);
+// A plan someone shared, opened in this browser's Arise: the Calendar, with the plan to answer.
+const startPlan = isPlanHash(location.hash) ? location.hash : '';
+const startView = startStudy ? 'study' : startPlan ? CAL.VIEW : location.hash.slice(1);
 const startJournal = JOURNAL_HASH.exec(startView);
 if (startJournal) LIFE.openJournal(startJournal[1] || S.todayKey());
 else go(VIEWS[startView] ? startView : S.state.active ? 'workout' : 'today', { scroll: false });
+if (startPlan) PLANUI.takeLink(startPlan);
 if (SYS.needsOnboarding() && !S.state.sessions.length && !SYNC.hasAccount()) SYS.startOnboarding();
 setInterval(tick, 250);
 

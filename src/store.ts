@@ -1604,7 +1604,15 @@ export function addEvent(input: Omit<Partial<EV.CalEvent>, 'created' | 'at' | 'g
 export function updateEvent(id: string, next: Omit<Partial<EV.CalEvent>, 'id' | 'created' | 'at' | 'gone'>): EV.CalEvent | null {
   const e = state.events[id];
   if (!e || e.gone) return null;
-  return putEvent({ ...next, id, created: e.created, from: e.from, at: Date.now() });
+  // A plan with someone (lib/plans.ts) stays, unless `next` says otherwise.
+  return putEvent({ plan: e.plan, ...next, id, created: e.created, from: e.from, at: Date.now() });
+}
+
+// The plan an event has with someone (lib/plan-link.ts), set or taken off. Nothing else changes.
+export function setEventPlan(id: string, plan: EV.CalEvent['plan']): EV.CalEvent | null {
+  const e = state.events[id];
+  if (!e || e.gone) return null;
+  return putEvent({ ...e, plan, at: Date.now() });
 }
 
 export function removeEvent(id: string) {

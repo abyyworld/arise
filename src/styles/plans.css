@@ -1,0 +1,9 @@
+/* Plans between people (plans-ui.js): the part of an event's sheet that plans it with someone, and
+   a plan opened from its link. */
+.ev-plan { border-top: 1px solid var(--line, rgba(255, 255, 255, 0.12)); margin-top: 12px; padding-top: 12px; display: grid; gap: 8px; }
+.ev-plan .label { display: flex; align-items: center; gap: 6px; margin: 0; }
+.plan-says { margin: 0; }
+.plan-says b { font-weight: 700; margin-right: 4px; }
+.plan-says.no b, .plan-says.left b { color: var(--text-2); }
+.plan-sheet .tag, .ev-plan .tag { margin-right: 6px; }
+.cal-item.cancelled .cal-what { text-decoration: line-through; }

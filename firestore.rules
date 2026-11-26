@@ -61,6 +61,17 @@ service cloud.firestore {
     function shareOff(d) {
       return d.keys().hasOnly(['v', 'off']) && d.v == 1 && d.off == true;
     }
+    // An answer to a plan shared by its link (src/lib/plans.ts): sealed with the link's key (a
+    // 12-byte IV and up to 2,000 characters of ciphertext, in base64), and when it was written.
+    // Nothing else, not even whose it is.
+    function planReply(d) {
+      return d.keys().hasOnly(['v', 'iv', 'ct', 'updated'])
+        && d.keys().hasAll(['v', 'iv', 'ct', 'updated'])
+        && d.v == 1
+        && d.iv is string && d.iv.matches('[A-Za-z0-9+/]{16}')
+        && d.ct is string && d.ct.size() >= 1 && d.ct.size() <= 2000 && d.ct.matches('[A-Za-z0-9+/]+={0,2}')
+        && d.updated is int;
+    }
     // The life log's documents: 'key' (the life key, sealed with the account's data key), 'index'
     // (which packs there are, sealed) and the parts of the packs, whose ids are 43 characters of
     // base64url (an HMAC, so they don't tell which months there's anything in).
@@ -175,6 +186,23 @@ service cloud.firestore {
         && resource.data.get('owner', null) == request.auth.uid
         && (shareOff(request.resource.data)
           || (sharePage(request.resource.data) && request.resource.data.owner == resource.data.owner));
+
+      // Answers to a plan (a page made by Plan it with someone, src/plans.ts). Whoever has the link
+      // knows the page's id (128 random bits) and the key, so they may read the answers and write
+      // one, without an account: the person they're answering may not use Arise. Only while the
+      // page is up: once it's turned off, nobody writes here again. The answer's id is 22
+      // characters of base64url (from the key and the name they gave). Only the page's account
+      // deletes them, when it stops sharing. Nobody can list answers across pages: there's no rule
+      // for a collection group.
+      match /replies/{rid} {
+        allow get, list: if true;
+        allow create, update: if rid.matches('[A-Za-z0-9_-]{22}')
+          && planReply(request.resource.data)
+          && exists(/databases/$(database)/documents/shares/$(id))
+          && get(/databases/$(database)/documents/shares/$(id)).data.get('off', false) != true;
+        allow delete: if request.auth != null
+          && get(/databases/$(database)/documents/shares/$(id)).data.get('owner', null) == request.auth.uid;
+      }
     }
   }
 }
