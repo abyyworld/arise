@@ -53,6 +53,8 @@ export interface Tally {
   places: [string, number][];
   people: [string, number][];
   sites: [string, number][];
+  goals: string[]; // goals set then, oldest first
+  milestones: string[]; // milestones reached then, oldest first
 }
 
 const TOP = 5;
@@ -68,10 +70,16 @@ export function placeOf(e: Pick<LifeEvent, 'kind' | 'title' | 'meta'>): string {
   return !name || GENERIC_PLACE.test(name) || /^a place for /i.test(name) ? '' : name;
 }
 
+// How a person is shown: by a name when the source kept one ("Sam", not "07700 900111").
+export const nameOf = (e: LifeEvent) => (typeof e.meta?.name === 'string' && e.meta.name.trim() ? e.meta.name.trim().slice(0, 60) : personName(e));
+export const isName = (t: string) => /\p{L}/u.test(t) && !t.includes('@');
+
 const bump = (m: Map<string, number>, k: string) => {
   if (k) m.set(k, (m.get(k) || 0) + 1);
 };
 const top = <K extends string>(m: Map<K, number>, n = TOP): [K, number][] => [...m.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, n);
+
+const oldest = (xs: [number, string][]) => [...new Set([...xs].sort((a, b) => a[0] - b[0]).map(([, t]) => t).filter(Boolean))].slice(0, 20);
 
 // Counts what's in a list of events (pure; tally() reads the log a little at a time instead).
 export class Counter {
@@ -82,16 +90,21 @@ export class Counter {
   private people = new Map<string, number>();
   private names = new Map<string, string>(); // a person's key -> how they're shown
   private sites = new Map<string, number>();
+  private goals: [number, string][] = [];
+  private milestones: [number, string][] = [];
 
   add(e: LifeEvent) {
     this.total++;
+    if (e.source === 'arise' && e.id.startsWith('arise:goal:')) this.goals.push([e.at, e.title.replace(/^New goal:\s*/i, '').trim()]);
+    if (e.source === 'arise' && e.id.startsWith('arise:milestone:')) this.milestones.push([e.at, e.title.replace(/^Milestone reached:\s*/i, '').trim()]);
     this.kinds.set(e.kind, (this.kinds.get(e.kind) || 0) + 1);
     bump(this.days, dayKey(e.at));
     bump(this.places, placeOf(e));
     const who = personOf(e);
     if (who) {
       bump(this.people, who);
-      if (!this.names.has(who)) this.names.set(who, personName(e) || who);
+      const had = this.names.get(who);
+      if (!had || (!isName(had) && isName(nameOf(e)))) this.names.set(who, nameOf(e) || who);
     }
     if (e.kind === 'visit' && (e.url || typeof e.meta?.site === 'string')) bump(this.sites, typeof e.meta?.site === 'string' && !e.url ? e.meta.site : siteOf(e));
   }
@@ -104,6 +117,8 @@ export class Counter {
       places: top(this.places),
       people: top(this.people).map(([k, n]) => [this.names.get(k) || k, n]),
       sites: top(this.sites),
+      goals: oldest(this.goals),
+      milestones: oldest(this.milestones),
     };
   }
 }

@@ -802,8 +802,9 @@ export function signalsFrom(events: readonly LifeEvent[], fromKey: string, toKey
     // rows.ts's "in touch with someone": a call or a message, not an email.
     if (typeof r.people === 'boolean') sig.talked = r.people;
 
-    // Screens: focused, fun, social and the rest.
-    const apps = day.filter((e) => e.kind === 'app' && minutesOf(e) > 0);
+    // Screens: focused, fun, social and the rest. (Not Android's count of unlocks: it covers the
+    // whole day, but isn't time on the phone.)
+    const apps = day.filter((e) => e.kind === 'app' && e.unit !== 'unlocks' && minutesOf(e) > 0);
     const screen = screenOf(
       apps,
       day.filter((e) => e.kind === 'visit' || e.kind === 'search'),

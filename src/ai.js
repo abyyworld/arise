@@ -2462,6 +2462,15 @@ export async function writeMyWay(notes, kind = 'message', { to = '', signal } = 
   return out;
 }
 
+// ---------- Write it better (life/story-ui.js, a day's story)
+
+// A day's story in warmer words. Only the prompt goes (life/story.ts: the day's facts and the
+// rules), none of the rest of their data; the screen asks only an AI that may read all of the day.
+export async function writeDayStory(prompt, { signal } = {}) {
+  const { text } = await ask({ bare: true, effort: 'low', maxTokens: 2000, signal, messages: [{ role: 'user', content: prompt }] });
+  return plain(text || '').trim();
+}
+
 // ---------- Ideas to write about (site-ui.js, Your website)
 
 const IDEAS_SCHEMA = {

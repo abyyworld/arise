@@ -338,44 +338,33 @@ const lineOf = (e: Entry) => `${clockOf(e.at)}${e.end && e.end > e.at ? ` to ${c
 
 // ---------- the paragraph at the top
 
-function intro(events: readonly LifeEvent[], day: string, own: Own | null, { voice = 'first', today = false }: { voice?: Voice; today?: boolean }): string {
+// The fun in a day, as words for a sentence: games (with how long), shows, and music.
+export function funOf(events: readonly LifeEvent[], day: string): string[] {
   const from = dayStart(day);
   const to = dayEnd(day);
-  const inDay = events.filter((e) => e.at >= from && e.at < to);
-  const of = (k: LifeEvent['kind']) => inDay.filter((e) => e.kind === k);
-  const sleep = events.filter((e) => e.kind === 'sleep' && e.end && e.end >= from && e.end < to && !/^napped/i.test(e.title) && minutesOf(e) >= 180);
-  const steps = of('steps').reduce((n, e) => n + (typeof e.value === 'number' ? e.value : 0), 0);
-  const workouts = of('workout');
-  const quests = of('quest');
+  const of = (k: LifeEvent['kind']) => events.filter((e) => e.kind === k && e.at >= from && e.at < to);
   const play = of('play').filter((e) => !spanOf(e));
   const playMin = play.reduce((n, e) => n + minutesOf(e), 0);
   const games = uniq(play.map(gameOf));
   const listenMin = runs(of('listen'), () => 'm').reduce((n, r) => n + (runEnd(r) - r[0].at) / 60000, 0);
   const shows = uniq(of('watch').filter((e) => e.source !== 'youtube').map((e) => showOf(e.title)));
-  // (Not the journal, and not the files read from the Player's GitHub repositories.)
-  const notes = inDay.filter((e) => e.kind === 'note' && !e.id.startsWith('arise:journal:') && !e.id.startsWith('other:github:doc:'));
-  const searches = of('search');
   const bits: string[] = [];
-  if (sleep.length) bits.push(`slept ${duration(minutesOf(sleep.at(-1)!))}`);
-  if (workouts.length) bits.push(workouts.length === 1 ? `did ${workouts[0].source === 'arise' ? 'a workout' : `a workout (${clip(workouts[0].title.split(',')[0], 30)})`}` : `did ${workouts.length} workouts`);
-  if (quests.length) bits.push(`finished ${plural(quests.length, 'quest')}`);
-  if (steps >= 100) bits.push(`walked ${Math.round(steps).toLocaleString('en-GB')} steps`);
   if (playMin >= 5) bits.push(games.length === 1 ? `played ${clip(games[0], 40)} for ${duration(playMin)}` : `played games for ${duration(playMin)}`);
   else if (play.length) bits.push(games.length === 1 ? `played ${clip(games[0], 40)}` : `played ${plural(games.length, 'game')}`);
   if (shows.length) bits.push(shows.length === 1 ? `watched ${clip(shows[0], 40)}` : `watched ${plural(shows.length, 'show')}`);
   if (listenMin >= 10) bits.push(`listened to music for ${duration(listenMin)}`);
-  if (notes.length) bits.push(`wrote ${plural(notes.length, 'note')}`);
-  if (searches.length && bits.length < 4) bits.push(`looked up ${plural(searches.length, 'thing')}`);
-  const I = voice === 'first' ? 'I' : 'you';
-  const my = voice === 'first' ? 'My' : 'Your';
+  return bits;
+}
+
+// What the day holds with no time to it (steps and shows are said elsewhere), and totals over a
+// longer stretch: "All day: …." and "Over the last two weeks: …." `story`: next to the day's story
+// (story.ts), which already says how often the phone was unlocked.
+export function asideOf(events: readonly LifeEvent[], day: string, { story = false } = {}): string {
+  const from = dayStart(day);
+  const to = dayEnd(day);
+  const inDay = events.filter((e) => e.at >= from && e.at < to);
   const out: string[] = [];
-  if (bits.length) {
-    const body = `${I} ${list(bits.slice(0, 5), 5)}.`;
-    out.push(today ? `So far today, ${body}` : body[0].toUpperCase() + body.slice(1));
-  } else if (inDay.length || sleep.length) out.push(today ? 'A few things so far today.' : 'A quiet day, with a few things in the log.');
-  // What the day holds with no time to it (steps and shows are in the sentence above), and totals
-  // over a longer stretch.
-  const allDay = uniq(inDay.filter((e) => wholeDay(e) && !['steps', 'watch', 'notification'].includes(e.kind)).map((e) => bare(e.source === 'health' ? lower(e.title) : e.title, 60)));
+  const allDay = uniq(inDay.filter((e) => wholeDay(e) && !['steps', 'watch', 'notification'].includes(e.kind) && !(story && e.unit === 'unlocks')).map((e) => bare(e.source === 'health' ? lower(e.title) : e.title, 60)));
   if (allDay.length) out.push(`All day: ${list(allDay, 4)}.`);
   const spans = new Map<string, string[]>();
   for (const e of inDay) {
@@ -385,6 +374,38 @@ function intro(events: readonly LifeEvent[], day: string, own: Own | null, { voi
     spans.set(span, [...(spans.get(span) || []), e.kind === 'play' ? `played ${clip(gameOf(e), 40)}${mins >= 1 ? ` for ${duration(mins)}` : ''}` : bare(lower(e.title), 60)]);
   }
   for (const [span, items] of spans) out.push(`Over ${span}: ${list(uniq(items), 4)}.`);
+  return out.join(' ');
+}
+
+function intro(events: readonly LifeEvent[], day: string, own: Own | null, { voice = 'first', today = false }: { voice?: Voice; today?: boolean }): string {
+  const from = dayStart(day);
+  const to = dayEnd(day);
+  const inDay = events.filter((e) => e.at >= from && e.at < to);
+  const of = (k: LifeEvent['kind']) => inDay.filter((e) => e.kind === k);
+  const sleep = events.filter((e) => e.kind === 'sleep' && e.end && e.end >= from && e.end < to && !/^napped/i.test(e.title) && minutesOf(e) >= 180);
+  const steps = of('steps').reduce((n, e) => n + (typeof e.value === 'number' ? e.value : 0), 0);
+  const workouts = of('workout');
+  const quests = of('quest');
+  // (Not the journal, and not the files read from the Player's GitHub repositories.)
+  const notes = inDay.filter((e) => e.kind === 'note' && !e.id.startsWith('arise:journal:') && !e.id.startsWith('other:github:doc:'));
+  const searches = of('search');
+  const bits: string[] = [];
+  if (sleep.length) bits.push(`slept ${duration(minutesOf(sleep.at(-1)!))}`);
+  if (workouts.length) bits.push(workouts.length === 1 ? `did ${workouts[0].source === 'arise' ? 'a workout' : `a workout (${clip(workouts[0].title.split(',')[0], 30)})`}` : `did ${workouts.length} workouts`);
+  if (quests.length) bits.push(`finished ${plural(quests.length, 'quest')}`);
+  if (steps >= 100) bits.push(`walked ${Math.round(steps).toLocaleString('en-GB')} steps`);
+  bits.push(...funOf(events, day));
+  if (notes.length) bits.push(`wrote ${plural(notes.length, 'note')}`);
+  if (searches.length && bits.length < 4) bits.push(`looked up ${plural(searches.length, 'thing')}`);
+  const I = voice === 'first' ? 'I' : 'you';
+  const my = voice === 'first' ? 'My' : 'Your';
+  const out: string[] = [];
+  if (bits.length) {
+    const body = `${I} ${list(bits.slice(0, 5), 5)}.`;
+    out.push(today ? `So far today, ${body}` : body[0].toUpperCase() + body.slice(1));
+  } else if (inDay.length || sleep.length) out.push(today ? 'A few things so far today.' : 'A quiet day, with a few things in the log.');
+  const aside = asideOf(events, day);
+  if (aside) out.push(aside);
   if (own?.energy) out.push(`${my} energy was ${own.energy} out of 5.`);
   if (own?.mood && own.mood >= 1 && own.mood <= 5) out.push(`${my} mood was ${CHECKIN.m.words[own.mood - 1].toLowerCase()}.`);
   return out.join(' ');
