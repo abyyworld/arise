@@ -96,8 +96,12 @@ export function questions(q: QInput): Question[] {
   }
 
   // Loose ends in their own notes, a day or more old: did it happen?
+  const now = q.now ?? Date.now();
   for (const l of q.loose || []) {
-    if ((q.now ?? Date.now()) - l.at < 86_400_000) continue;
+    if (now - l.at < 86_400_000) continue;
+    // On hold: asked again 2 weeks later.
+    const held = q.dismissed[`q:hold:${l.id}`];
+    if (typeof held === 'number' && now - held < 14 * 86_400_000) continue;
     add({
       id: `loose:${l.id}`,
       text: `You wrote "${short(l.text, 70)}". Did it happen?`,
@@ -105,6 +109,8 @@ export function questions(q: QInput): Question[] {
       choices: [
         { label: 'Done', act: 'q-loose-done' },
         { label: 'Make it a to-do', act: 'q-loose-todo', v: l.text },
+        { label: "It's ongoing", act: 'q-loose-habit', v: l.text },
+        { label: 'On hold', act: 'q-loose-hold', v: l.id },
         { label: 'Not a thing', act: 'q-skip' },
       ],
     });

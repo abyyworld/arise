@@ -9,6 +9,7 @@ import { questions, threeThings } from './lib/questions';
 import { looseEnds } from './lib/loose';
 import * as BRIEF from './brief';
 import * as VP from './lib/voice-profile';
+import * as G from './lib/goals';
 import * as REVIEW from './review';
 import { balanceText, later, leftOf, money, totals } from './lib/everyday';
 import { noteWithFile } from './life/quick-note';
@@ -548,6 +549,22 @@ function answer(act, v) {
       S.addTodo({ title: v });
       toast('Added to your to-dos.');
       break;
+    case 'q-loose-hold':
+      // Not put away: asked again in 2 weeks (lib/questions.ts).
+      S.dismissWarning(`q:hold:${v}`);
+      repaintAll();
+      toast("On hold. Arise asks again in 2 weeks.");
+      return true;
+    case 'q-loose-habit': {
+      // Something they keep doing: a weekly quest on their Habits goal (made if there isn't one).
+      const quest = { id: G.newId(), title: v, schedule: { kind: 'weekly', times: 1 }, created: S.todayKey() };
+      const habits = S.state.goals.find((g) => g.category === 'habits' && g.status === 'active');
+      const goal = habits
+        ? S.saveGoal({ ...habits, quests: [...habits.quests, quest] })
+        : S.saveGoal({ id: G.newId(), title: 'Habits', category: 'habits', why: '', by: '', created: S.todayKey(), status: 'active', quests: [quest], measures: [], milestones: [] });
+      toast(goal ? `Added to ${goal.title}, once a week. Change it in Goals.` : "That couldn't be added.");
+      break;
+    }
     case 'q-paid':
       S.settleDebt(v);
       toast('Marked as paid back.');
@@ -676,6 +693,8 @@ export function handleAction(act, el) {
     case 'q-skip':
     case 'q-loose-done':
     case 'q-loose-todo':
+    case 'q-loose-hold':
+    case 'q-loose-habit':
     case 'q-paid':
     case 'q-todo-day':
     case 'q-todo-drop':
