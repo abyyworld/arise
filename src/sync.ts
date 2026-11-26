@@ -65,7 +65,9 @@ const TIMEOUT = 45_000;
 // 16: People (who to keep in touch with, their dates) and your own money categories (moneyCats),
 // which 1.36 would drop.
 // 17: Your website's pages and look (site), which 1.37 would drop.
-export const SCHEMA = 17;
+// 18: part of a debt paid back (debts[].paid) and plans shared with people (events[].plan), which
+// 1.38 would drop.
+export const SCHEMA = 18;
 
 interface Meta {
   uid?: string;

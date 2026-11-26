@@ -129,6 +129,10 @@ Until then the passkey button stays hidden and the AI apps screen says "Needs th
 1. Run the one command in CLAUDE.md again. It redeploys the calendar helper (`worker/calendar`) with its new `POST /page` route for Keep a copy. Until then Keep a copy says it needs the helper.
 2. The browser extension is 1.1.0 (notifications, right-click save). People who loaded it by hand load the new copy once (Settings, Your life: browser, Download the extension); Chrome and Edge then ask once to allow notifications.
 
+## For 1.39: rules and the connector
+
+Run the one command in CLAUDE.md again. It deploys the connector 1.2.0 (AI apps' file switches) and `firestore.rules` (sealed answers to shared plans under `shares/{id}/replies`). Until then the file switches say "Needs the connector update", and answers to a shared plan can't come back.
+
 ## For 1.38: the visit counter and extension 1.2.0
 
 1. Run the one command in CLAUDE.md again: it deploys the visit counter (`worker/visits`, new) and fills its address. Until then the Visitors switch on Your website stays hidden.

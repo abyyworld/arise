@@ -231,6 +231,12 @@ The original weekly split (four workouts over six fixed weekdays, Thursday off) 
 - Morning brief: your day in a few lines, on Today and as a notification at the time you pick.
 - Invite people to an event: add who's coming, then send the invite file yourself.
 - Rules for each AI app (Me, AI apps): may just do, ask me first, never, and house rules.
+- Plan it with someone (Calendar): a private link to an event, with who's in, and updates when you change or cancel it.
+- The story of each day (Days) and of each month and year (Look back), written on your device.
+- File versions (up to 20), clearer names, previews, and Working on and Finished folders.
+- Life areas you can write in, with key items, labels and links; flags on facts (never send to an AI, check again, confirm, settle clashes).
+- What was sent to an AI (What Arise knows), how well Arise knows you, and at most 6 quick questions a day.
+- AI apps on the web: Read, Add, Read files and Save files, with one shared folder.
 - Your website (Me): write pages and posts and publish them to GitHub Pages in your own account, with an optional visit counter.
 - Gemini in your browser (Settings, AI coach; less private): your coach asks Gemini in your own browser tab through the Arise extension.
 - Your own database (Setup and connections; less private): a readable copy of what you pick in a Turso database you own (docs/OWN-DATABASE.md).
