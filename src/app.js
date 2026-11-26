@@ -2397,7 +2397,8 @@ document.addEventListener('click', async (e) => {
       if (YOU.handleAction(d.act, el)) break;
       if (HABITS.handleAction(d.act, el)) break;
       if (MONEY.handleAction(d.act, el)) break;
-      if (await SITEUI.handleAction(d.act, el)) break;
+      // (Only its own taps wait for it, so every other button acts straight away.)
+      if (d.act.startsWith('site-') && (await SITEUI.handleAction(d.act, el))) break;
       if (await LIFE.handleAction(d.act, el)) break;
       if (PAUSEUI.handleAction(d.act, el)) break;
       if (SKIPUI.handleAction(d.act, el)) break;
