@@ -132,7 +132,7 @@ function facts() {
     // Web reminders only where this browser can have them (or after Add to Home Screen).
     configured: { sync: SYNC.configured, reminders: WR.supported() || WR.needsHomeScreen() },
     signedIn: !!SYNC.status.user,
-    ai: { engine: e, label: e === 'private' ? 'Private AI' : e === 'device' ? 'The AI on this device' : e === 'local' ? "Your computer's AI" : e === 'free' ? 'Free AI' : e === 'own' ? 'Your own AI service' : '', private: AI.isPrivate() },
+    ai: { engine: e, label: e === 'private' ? 'Private AI' : e === 'device' ? 'The AI on this device' : e === 'local' ? "Your computer's AI" : e === 'free' ? 'Free AI' : e === 'own' ? 'Your own AI service' : e === 'tab' ? 'Gemini in your browser' : '', private: AI.isPrivate() },
     reminders: inIPhoneApp() || inAndroidApp() ? !!S.state.settings.notify : WR.isOn(),
     // (inIPhoneApp is true in any phone app: Android first, as phonePart does.)
     native: inAndroidApp() ? 'android' : inIPhoneApp() ? 'ios' : null,

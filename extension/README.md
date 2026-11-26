@@ -40,6 +40,6 @@ Get the zips: on your Mac, in a copy of the repo, `npm ci && npm run ext:build`.
 
 ## A new version
 
-Bump `version` in `extension/manifest.json`. A version that asks for new permissions (1.1.0 added notifications and contextMenus) makes Chrome and Edge ask each person to allow them once before it turns back on. Firefox gets it by itself with the next deploy. For Chrome and Edge, upload the new zips in their dashboards.
+Bump `version` in `extension/manifest.json`. A version that asks for new permissions (1.1.0 added notifications and contextMenus; 1.2.0 added scripting, which shows no warning, and gemini.google.com as an optional site, asked for only when someone turns on Gemini in your browser) makes Chrome and Edge ask each person to allow them once before it turns back on. Firefox gets it by itself with the next deploy. For Chrome and Edge, upload the new zips in their dashboards.
 
 The signing tool, web-ext, is locked with its dependencies in `scripts/amo/package-lock.json`. To move to a newer web-ext: change its version in `scripts/amo/package.json`, then `npm install --package-lock-only --ignore-scripts --prefix scripts/amo`.

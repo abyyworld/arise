@@ -10,6 +10,7 @@ import { browserName } from './lib/events';
 import { NS, type Push, parseRequest } from './lib/pairing';
 import * as R from './lib/recorder';
 import * as Rm from './lib/remind';
+import * as G from './lib/gemini';
 import { matchesPrefix } from './lib/url';
 
 const IDLE_SECONDS = 120; // no keys or mouse for 2 minutes: away (unless the tab plays sound)
@@ -164,6 +165,64 @@ async function openBanner() {
   bannerWindow = w?.id;
 }
 
+// ---------- Gemini in your browser (lib/gemini.ts)
+
+const GEMINI_TAB = 'gemini:tab'; // the tab it opened, in session storage
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const geminiEnv: G.GeminiEnv = {
+  local: area(api.storage.local),
+  now: () => Date.now(),
+  link: async () => R.getLink(env),
+  granted: () => api.permissions.contains({ origins: [G.ORIGIN] }),
+  revoke: async () => void (await api.permissions.remove({ origins: [G.ORIGIN] })),
+  openAllow,
+  run: askGemini,
+};
+
+// The tab this extension opened for Gemini, on a new chat (so the newest answer is the only
+// one), or a new tab in the background. Never a tab the person opened themselves.
+async function geminiTab(): Promise<number | null> {
+  const kept = (await api.storage.session.get([GEMINI_TAB]))[GEMINI_TAB];
+  if (typeof kept === 'number') {
+    const t = await api.tabs.get(kept).catch(() => null);
+    if (t && !t.incognito && (t.url || '').startsWith('https://gemini.google.com/')) {
+      await api.tabs.update(kept, { url: G.NEW_CHAT });
+      return kept;
+    }
+  }
+  const t = await api.tabs.create({ url: G.NEW_CHAT, active: false }).catch(() => null);
+  if (t?.id == null) return null;
+  await api.storage.session.set({ [GEMINI_TAB]: t.id });
+  return t.id;
+}
+
+async function askGemini(prompt: string, o: { json: boolean }): Promise<{ ok: true; text: string } | { ok: false; error: G.AskError }> {
+  const id = await geminiTab();
+  if (id == null) return { ok: false, error: 'tab' };
+  const until = Date.now() + G.LOAD_FOR;
+  await wait(500);
+  let tab = await api.tabs.get(id).catch(() => null);
+  while (tab && tab.status !== 'complete' && Date.now() < until) {
+    await wait(300);
+    tab = await api.tabs.get(id).catch(() => null);
+  }
+  if (!tab) return { ok: false, error: 'tab' };
+  // Sent to Google's sign-in page: not signed in to Gemini in this browser.
+  if (!(tab.url || '').startsWith('https://gemini.google.com/')) return { ok: false, error: 'no-box' };
+  try {
+    await api.scripting.executeScript({ target: { tabId: id }, files: ['gemini.js'] });
+  } catch {
+    return { ok: false, error: 'tab' };
+  }
+  return G.askOverPort(api.tabs.connect(id, { name: G.PORT }), prompt, o);
+}
+
+// The extension's own window that asks to allow gemini.google.com (a web page can't).
+async function openAllow() {
+  await api.windows.create({ url: api.runtime.getURL('allow.html'), type: 'popup', width: 420, height: 520, focused: true });
+}
+
 // ---------- "Save this page to Arise" on the menu a right click opens
 
 const SAVE_PAGE = 'arise-save-page';
@@ -250,6 +309,12 @@ api.runtime.onMessage.addListener((msg, sender, respond) => {
   // From Arise's page, through the content script: only from Arise's own pages.
   if (m.ns === NS) {
     const url = sender.tab?.url || sender.url || '';
+    // Gemini's questions can take minutes: they don't wait behind the recorder's work, nor it behind them.
+    const g = G.parseGeminiRequest(m.msg);
+    if (g && sender.tab && !sender.tab.incognito && matchesPrefix(url, ARISE)) {
+      G.pageRequest(geminiEnv, g, originOf(url)).then(respond, () => respond({ ok: false, error: 'failed' }));
+      return true;
+    }
     const req = parseRequest(m.msg);
     if (!req || !sender.tab || sender.tab.incognito || !matchesPrefix(url, ARISE)) {
       respond({ ok: false, error: 'not-arise' });

@@ -20,6 +20,9 @@
 // Claude goes through Anthropic's official JavaScript SDK (loaded only when used); the others are
 // plain HTTPS requests (in the iPhone app, through the phone itself for services that don't answer
 // web pages). Keys are stored on this device only (never synced or in backups).
+//   - tab: Gemini in a tab of this browser, signed in with the Player's own Google account, through
+//     the Arise extension (life/gemini-tab.ts). Less private: Google reads what's sent. Only once
+//     they pick it, and only for what they ask: work nobody asked for never goes there.
 
 import { EXERCISES } from './program.js';
 import * as S from './store';
@@ -89,6 +92,7 @@ export const ENGINES = {
   local: { name: Local.NAME, private: true },
   free: { name: 'Free AI', private: false },
   own: { name: 'Your AI keys (free or paid)', private: false },
+  tab: { name: 'Gemini in your browser', private: false },
 };
 
 // The free AI: gpt-oss-120b on Cloudflare Workers AI, at /free/v1 on the private AI's proxy. The
@@ -169,6 +173,7 @@ export function engine(o) {
   const priv = privateConfigured() && account.signedIn();
   const dev = Device.lastKnown() === 'available';
   const local = Local.ready();
+  if (pick === 'tab') return !o?.background && tabReady() ? 'tab' : null;
   if (pick === 'local') return local ? 'local' : null;
   if (pick === 'own') return usableKeys().length ? 'own' : null;
   if (pick === 'free') return priv && freeAgreed() ? 'free' : null;
@@ -180,7 +185,7 @@ export function engine(o) {
 export const ready = (o) => !!engine(o);
 // The private AI answers the Player, but on the free plan: work nobody asked for waits.
 export const rationed = () => engine() === 'private' && PLAN.onFree();
-export const isPrivate = () => !['own', 'free'].includes(engine());
+export const isPrivate = () => !['own', 'free', 'tab'].includes(engine());
 
 // Checks what this device can do. Call at start; it's quick and never asks for anything.
 const MIGRATED = 'arise-ai-v2';
@@ -206,6 +211,7 @@ export async function initAI() {
 function answerer() {
   const e = engine();
   if (e === 'local') return Local.NAME;
+  if (e === 'tab') return TAB_NAME;
   return e === 'device' ? 'The AI on this device' : e === 'private' ? PRIVATE_AI.name : e === 'free' ? FREE_AI.name : provider()?.name || 'Your AI service';
 }
 
@@ -216,6 +222,7 @@ export function engineLabel() {
   if (e === 'device') return 'the AI on this device';
   if (e === 'local') return Local.label();
   if (e === 'free') return `${FREE_AI.name} (on Cloudflare's servers)`;
+  if (e === 'tab') return 'Gemini in your browser (your Google account)';
   if (e === 'own' && usableKeys().length > 1) {
     const by = answeredBy();
     return `your AI keys, in your order${by ? ` (last answer: ${by})` : ''}`;
@@ -693,7 +700,7 @@ const weakError = () => new AIError('weak', WAITS);
 export function memoryStrength(o) {
   const e = engine(o);
   if (!e) return 'none';
-  if (e === 'device') return 'weak';
+  if (e === 'device' || e === 'tab') return 'weak'; // (Gemini in a tab never writes the memory: askTab)
   if (e === 'local') return Local.memoryStrength();
   if (e === 'private' || e === 'free') {
     const picked = cleanModel(S.state.settings[PICKED[e]]);
@@ -795,8 +802,9 @@ export function usageCost() {
 
 async function ask(raw) {
   const e = engine({ background: raw.background });
-  if (!e) throw new AIError('no-ai', raw.background && engine() ? PLAN_WAITS : 'Turn on the AI coach in Settings first.');
+  if (!e) throw new AIError('no-ai', raw.background && engine() ? (engine() === 'tab' ? TAB_WAITS : PLAN_WAITS) : 'Turn on the AI coach in Settings first.');
   if (e === 'own') return askKeys(raw);
+  if (e === 'tab') return askTab(raw);
   // The Player's computer: it reads the context itself, the whole picture when it fits.
   if (e === 'local') return Local.ask(raw, { system: (compact) => (compact ? SYSTEM_CORE() : SYSTEM_NOW()), fail: (code, msg) => new AIError(code, msg) });
   // The on-device model has a small context, so it gets the short version of the Player's data.
@@ -1162,6 +1170,48 @@ async function askDevice({ context, messages, schema, onText, signal, bare }) {
     if (err?.name === 'QuotaExceededError') throw new AIError('too-long', 'That was too much for the AI on this device. In a chat, tap New chat to start fresh; or use the private AI (Settings, AI coach).');
     throw new AIError('device', `The AI on this device couldn't answer${err?.message ? `: ${err.message}` : '.'}`);
   }
+}
+
+// --- Gemini in your browser (life/gemini-tab.ts registers itself here)
+//
+// `tab.ready()`: the extension is linked here, it's on and gemini.google.com is allowed.
+// `tab.prompt({ system, context, messages, note })`: the whole request as one message, { text,
+// fits }. `tab.ask(text, { json, signal })`: Gemini's answer, as text. It reads the same context
+// as the free AI and your own keys (life/policy.ts), and never writes the memory.
+
+const TAB_NAME = 'Gemini in your browser';
+export const TAB_WAITS = 'Gemini in your browser only answers when you ask. What Arise does by itself waits for another AI.';
+let tab = null;
+export function useTab(t) {
+  tab = t;
+}
+function tabReady() {
+  try {
+    return !!tab?.ready();
+  } catch {
+    return false;
+  }
+}
+
+async function askTab(raw) {
+  if (!tabReady()) throw new AIError('no-ai', 'Turn on Gemini in your browser in Settings, AI coach first.');
+  if (raw.strong) throw weakError();
+  let made = null;
+  // The whole picture when it fits in one message, the short version when it doesn't.
+  for (const compact of [false, true]) {
+    const context = typeof raw.context === 'function' ? raw.context(compact, 'tab') : raw.context;
+    const messages = typeof raw.messages === 'function' ? raw.messages('tab') : raw.messages;
+    made = tab.prompt({ system: raw.bare ? '' : compact ? SYSTEM_CORE() : SYSTEM_NOW(), context: raw.bare ? '' : context || '', messages, note: raw.schema ? schemaNote(raw.schema) : '' });
+    if (made.fits || typeof raw.context !== 'function') break;
+  }
+  const text = await tab.ask(made.text, { json: !!raw.schema, signal: raw.signal });
+  raw.onText?.(plain(text));
+  return { text: plain(text).trim(), json: raw.schema ? parseJSON(text, { name: 'Gemini' }) : undefined };
+}
+
+// The Try button in Settings: the smallest question. Returns the answer.
+export async function testTab() {
+  return (await askTab({ bare: true, messages: [{ role: 'user', content: 'Reply with exactly: System online.' }] })).text;
 }
 
 // --- plain HTTPS services (Gemini and the OpenAI format)

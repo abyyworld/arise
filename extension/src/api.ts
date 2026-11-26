@@ -26,6 +26,15 @@ export interface Sender {
   origin?: string;
   tab?: Tab;
 }
+// A long-lived connection (to the content script on a Gemini tab: lib/gemini.ts).
+export interface Port {
+  name: string;
+  sender?: Sender;
+  postMessage(msg: unknown): void;
+  disconnect(): void;
+  onMessage: Evt<(msg: unknown) => void>;
+  onDisconnect: Evt<() => void>;
+}
 interface Area {
   get(keys: string[] | null): Promise<Record<string, unknown>>;
   set(items: Record<string, unknown>): Promise<void>;
@@ -44,6 +53,7 @@ export interface Api {
     onMessage: Evt<(msg: unknown, sender: Sender, respond: (r: unknown) => void) => boolean | void>;
     onInstalled: Evt<(d: { reason: string }) => void>;
     onStartup: Evt<() => void>;
+    onConnect: Evt<(port: Port) => void>;
   };
   storage: { local: Area; session: Area };
   history: {
@@ -54,8 +64,11 @@ export interface Api {
   tabs: {
     query(q: { url?: string[]; active?: boolean; lastFocusedWindow?: boolean; windowType?: string }): Promise<Tab[]>;
     sendMessage(tabId: number, msg: unknown): Promise<unknown>;
-    create(p: { url: string }): Promise<Tab>;
+    create(p: { url: string; active?: boolean }): Promise<Tab>;
     reload(tabId: number): Promise<void>;
+    get(tabId: number): Promise<Tab & { status?: string }>;
+    update(tabId: number, p: { url: string }): Promise<Tab>;
+    connect(tabId: number, p: { name: string }): Port;
     onActivated: Evt<(info: { tabId: number; windowId: number }) => void>;
     onUpdated: Evt<(tabId: number, change: { url?: string; status?: string; audible?: boolean }, tab: Tab) => void>;
   };
@@ -93,6 +106,15 @@ export interface Api {
     create(p: { id: string; title: string; contexts: string[] }, done?: () => void): void;
     removeAll(): Promise<void>;
     onClicked: Evt<(info: { menuItemId: string | number; pageUrl?: string; linkUrl?: string; selectionText?: string }, tab?: Tab) => void>;
+  };
+  // Gemini in your browser (lib/gemini.ts): the one optional site, asked for in allow.html.
+  permissions: {
+    contains(p: { origins: string[] }): Promise<boolean>;
+    request(p: { origins: string[] }): Promise<boolean>;
+    remove(p: { origins: string[] }): Promise<boolean>;
+  };
+  scripting: {
+    executeScript(p: { target: { tabId: number }; files: string[] }): Promise<unknown[]>;
   };
   action: {
     setBadgeText(p: { text: string }): Promise<void>;
