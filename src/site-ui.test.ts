@@ -100,7 +100,7 @@ describe('Your website', { timeout: 20000 }, () => {
     // The tab bar keeps Me lit.
     expect($('#tabs [aria-current="page"]')?.dataset.v).toBe('progress');
     // Plain words: no long dashes anywhere on the screen.
-    expect($('#app')!.textContent).not.toMatch(/[–—]/);
+    expect($('#app')!.textContent).not.toMatch(/[\u2013\u2014]/);
   });
 
   it('shows a live preview while they type, escaped, and saves when they finish', async () => {

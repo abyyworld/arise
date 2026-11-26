@@ -443,7 +443,7 @@ describe('the setup screen', () => {
     expect(text).toContain('Fine-grained tokens');
     expect(text).toContain('Contents to Read and write');
     expect(text).toContain("GitHub isn't meant for keeping files");
-    expect(text).not.toMatch(/—/);
+    expect(text).not.toMatch(/\u2014/);
 
     hub.canMake = true;
     (document.querySelector('#ghToken') as HTMLInputElement).value = TOKEN;
