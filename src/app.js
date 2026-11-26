@@ -68,6 +68,7 @@ import * as WORLD from './life/world-ui.js';
 import * as PEOPLE from './people-ui.js';
 import { initPeople, nudges as peopleNudges } from './people';
 import * as MONEY from './life/money-ui.js';
+import * as SITEUI from './site-ui.js';
 import * as HABITS from './habits-ui.js';
 import { initHabits } from './life/habits';
 import { initMoney } from './life/money';
@@ -161,6 +162,7 @@ const VIEWS = {
   [WORLD.VIEW]: () => WORLD.renderWorld(app),
   [PEOPLE.VIEW]: () => PEOPLE.renderPeople(app),
   [MONEY.VIEW]: () => MONEY.renderMoney(app),
+  [SITEUI.VIEW]: () => SITEUI.renderSite(app),
   [IMPORT.VIEW]: () => IMPORT.renderImport(app, { store: loadLifeStore, back: importBack }),
 };
 
@@ -188,7 +190,7 @@ function render() {
   if (applyLook()) buildNav();
   document.body.dataset.view = view;
   // Screens without a tab of their own light up the one they open from.
-  const tab = (view === 'plan' || view === 'training' || view === 'goals') && !TABS.isShown('goals') ? 'progress' : view === 'coach' && !TABS.isShown('coach') ? 'progress' : view === 'plan' || view === 'training' ? 'goals' : view === WORLD.VIEW || view === PEOPLE.VIEW || view === MONEY.VIEW ? 'progress' : view === 'knows' || view === HUB.VIEW || view === PLACES.VIEW || view === LINKS.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
+  const tab = (view === 'plan' || view === 'training' || view === 'goals') && !TABS.isShown('goals') ? 'progress' : view === 'coach' && !TABS.isShown('coach') ? 'progress' : view === 'plan' || view === 'training' ? 'goals' : view === WORLD.VIEW || view === PEOPLE.VIEW || view === MONEY.VIEW || view === SITEUI.VIEW ? 'progress' : view === 'knows' || view === HUB.VIEW || view === PLACES.VIEW || view === LINKS.VIEW ? 'days' : view === IMPORT.VIEW ? (importBack === HUB.VIEW ? 'days' : 'settings') : view === 'study' || view === 'quiz' ? 'today' : view;
   for (const b of document.querySelectorAll('#tabs [data-v]')) {
     b.classList.toggle('on', b.dataset.v === tab);
     if (b.dataset.v === tab) b.setAttribute('aria-current', 'page');
@@ -1377,6 +1379,7 @@ function renderProgress() {
         ${PEOPLE.entryCard()}
         ${WORLD.entryCard()}
         ${MONEY.entryCard()}
+        ${SITEUI.entryCard()}
         ${TABS.moreCard()}
         ${sys ? '' : gameLine()}
       </div>
@@ -2389,6 +2392,7 @@ document.addEventListener('click', async (e) => {
       if (YOU.handleAction(d.act, el)) break;
       if (HABITS.handleAction(d.act, el)) break;
       if (MONEY.handleAction(d.act, el)) break;
+      if (await SITEUI.handleAction(d.act, el)) break;
       if (await LIFE.handleAction(d.act, el)) break;
       if (PAUSEUI.handleAction(d.act, el)) break;
       if (SKIPUI.handleAction(d.act, el)) break;
@@ -2419,6 +2423,7 @@ async function eraseDevice(signedIn) {
   if (WR.isOn()) await WR.turnOff(); // like the iPhone app's, the reminders stop
   await CONNECT.forgetAll(); // linked accounts' sign-ins go too (the reset started it: this waits until it's done)
   await GHB.forget(); // the GitHub backup's key and backup password (its backups stay on GitHub)
+  await SITEUI.forgetDevice(); // Your website's GitHub key and its visit counter's read key (the website stays up)
   await SENSE.forget(); // the iPhone stops noting places, and every source is off again
   if (!N.isNative) await BROWSER.forgetAll().catch(() => {}); // linked browsers' keys go too
   forgetAIKey('');

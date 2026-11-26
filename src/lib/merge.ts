@@ -16,6 +16,7 @@ import { mergeTodos } from './todos';
 import { mergeDebts, mergeGroceries } from './everyday';
 import { mergePlaceNames } from './place-names';
 import { mergePeople } from './people';
+import { mergeSite } from './site';
 import { mergeMoneyCats } from './money';
 import { mergeEvents } from './events';
 import { mergeDecisions, mergeDismissed } from './decisions';
@@ -250,5 +251,6 @@ export function merge(local: CloudCopy, localAt: number, remote: CloudCopy, remo
     placeNames: mergePlaceNames(local.placeNames, remote.placeNames, now),
     people: mergePeople(local.people, remote.people, now),
     moneyCats: mergeMoneyCats(local.moneyCats, remote.moneyCats, now),
+    site: mergeSite(local.site, remote.site, now),
   };
 }

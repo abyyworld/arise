@@ -26,6 +26,7 @@ import { cleanOwnStorage, type OwnStorage } from './own-storage';
 import { cleanPlaceNames, type PlaceNames } from './place-names';
 import { cleanPeople, type People } from './people';
 import { cleanMoneyCats, type MoneyCats } from './money';
+import { cleanSite, type Site } from './site';
 import { CHAT_MAX, FIRST, cleanChatNames, isChatId, type ChatMsg } from './chats';
 
 export { DATE, isDate } from './clean';
@@ -492,6 +493,7 @@ export interface State {
   placeNames: PlaceNames; // their names for places, by a rounded spot (lib/place-names.ts)
   people: People; // who to keep in touch with, their dates, who to hide (lib/people.ts)
   moneyCats: MoneyCats; // their own categories for merchants on the Money screen (lib/money.ts)
+  site: Site; // Your website: its pages and look (lib/site.ts)
   stamps: Stamps;
   updatedAt?: number;
 }
@@ -538,6 +540,7 @@ export function cleanState(raw: unknown, defaults: Settings): State {
     placeNames: cleanPlaceNames(d.placeNames),
     people: cleanPeople(d.people),
     moneyCats: cleanMoneyCats(d.moneyCats),
+    site: cleanSite(d.site),
     stamps: cleanStamps(d.stamps),
   };
   if (time(d.updatedAt)) state.updatedAt = time(d.updatedAt);

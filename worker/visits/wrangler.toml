@@ -1,0 +1,37 @@
+# Arise's visit counter for Your website: counts page opens per site, page and day, and nothing
+# about who. See README.md.
+name = "arise-visits"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# Nothing about requests is kept: no request logs, no traces.
+[observability]
+enabled = false
+
+[vars]
+# Where Arise itself runs, for making a site id and reading the counts back. (The published
+# websites can be anywhere, so counting a visit is open to any address.)
+ALLOWED_ORIGINS = "https://abyyworld.github.io,http://localhost:5173,capacitor://localhost,https://localhost"
+MAX_SITES = "10000"
+
+# Per site, never per visitor: 300 page opens a minute for one site is plenty, and keeps one site
+# from using up Cloudflare's free writes for everyone.
+[[ratelimits]]
+name = "PER_SITE"
+namespace_id = "1008"
+simple = { limit = 300, period = 60 }
+
+# New sites, for everyone together.
+[[ratelimits]]
+name = "NEW_SITES"
+namespace_id = "1009"
+simple = { limit = 20, period = 60 }
+
+# Every site's counts, in one Durable Object with its own SQLite database. Nothing to create first.
+[[durable_objects.bindings]]
+name = "VISITS"
+class_name = "Visits"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Visits"]
