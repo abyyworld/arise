@@ -14,6 +14,12 @@
 //   folders: listFolders, makeFolder, renameFolder, moveFolder, linkFolder (to a goal: a
 //            project), deleteFolder (only an empty one); moveFiles(ids, folder)
 //   findCopies()         groups of files with exactly the same bytes; keepOne(id) trashes the rest
+//   versions: putFile(data, { versionOf }) or a file with the same name in the same folder
+//            ({ sameName }) keeps the old one as a version (files-versions.ts); versionsOf(id),
+//            restoreVersion(id), deleteVersion(id). Only current versions are listed, unless asked.
+//   renameFile(id, name), keepName(id); setUpkeep(id, text): how to keep it up to date
+//   setFolderState(id, 'w' | 'f'): working on it, or finished; finishFiles(ids) moves files to
+//            the finished folder next to them (made the first time)
 //   setSynced(id, on)    "only on this device" or back to syncing
 //   usage()              how much is kept here and in the cloud
 //   onFilesChange(fn)    after anything changes, here or from another device
@@ -28,13 +34,17 @@ import { dayKey } from './dates';
 import { newFileId, partCount, splitBytes, joinBytes } from './files-seal';
 import * as LOCAL from './files-store';
 import * as SYNC from './files-sync';
-import { copyGroups, dirOf, expired, foldersIn, isWithin, type Folders } from './files-tree';
+import { copyGroups, dirOf, expired, FINISHED_NAME, finishedFolderIn, foldersIn, inFinished, isWithin, type FolderState, type Folders } from './files-tree';
+import { bundleOf, currentOf, currentOnly, groupOf, olderOf, overCap } from './files-versions';
+import { extOf, unhelpful } from './files-names';
+import { fileName, upkeepText } from '../lib/validate';
 
 export type { StoredFile as FileInfo } from './files-store';
 export { SYNC_FILE_MAX, SYNC_TOTAL_MAX } from './files-sync';
 export { MAX_FILE_BYTES };
 export { TRASH_DAYS } from './files-tree';
 export type { Folders } from './files-tree';
+export { MAX_VERSIONS } from './files-versions';
 
 export interface PutOptions {
   name?: string;
@@ -44,12 +54,16 @@ export interface PutOptions {
   note?: string; // the id of a note in the life log it goes with
   dir?: string; // the folder it goes in (default: the top)
   sync?: boolean; // false: only on this device (default: syncs with the account)
+  versionOf?: string; // a new version of this file: it takes the file's place, and the file is kept as a version
+  // A file with the same name in the same folder becomes a version of it (the file manager does
+  // this). Not for photos and videos with camera names (IMG_1234.jpg, image.jpg): those repeat.
+  sameName?: boolean;
   shrink?: boolean; // a photo is saved smaller (at most SHRINK_TO pixels across) when that saves space (default: on)
 }
 
 export class FilesError extends Error {
   constructor(
-    readonly code: 'too-big' | 'empty' | 'unavailable' | 'not-here' | 'no-name' | 'no-folder' | 'not-empty' | 'loop',
+    readonly code: 'too-big' | 'empty' | 'unavailable' | 'not-here' | 'no-name' | 'no-folder' | 'not-empty' | 'loop' | 'same' | 'no-file',
     message: string,
   ) {
     super(message);
@@ -162,13 +176,35 @@ export async function putFile(data: Blob | ArrayBuffer | Uint8Array, opts: PutOp
   if (bytes.length > MAX_FILE_BYTES) throw new FilesError('too-big', `That file is too big to keep (the most is ${Math.round(MAX_FILE_BYTES / 1048576)} MB).`);
   const at = opts.at ?? Date.now();
   const hash = await sha256Hex(bytes);
-  const dir = opts.dir && (await LOCAL.readTree()).dirs[opts.dir] ? opts.dir : undefined;
-  const meta = cleanFileMeta({ id: newFileId(), name, type, size: bytes.length, at, day: opts.day || dayKey(at), note: opts.note, w, h, thumb, sync: opts.sync !== false, hash, dir, moved: dir ? Date.now() : undefined } satisfies Partial<FileMeta>);
+  let dir = opts.dir && (await LOCAL.readTree()).dirs[opts.dir] ? opts.dir : undefined;
+  // The file it's a new version of, if any.
+  const all = opts.versionOf || opts.sameName ? await LOCAL.allStored() : [];
+  let prev: LOCAL.StoredFile | null = null;
+  if (opts.versionOf) {
+    prev = currentOf(all, opts.versionOf);
+    if (!prev || prev.bin) throw new FilesError('no-file', "That file isn't here any more.");
+  } else if (opts.sameName && !(/^(image|video)\//.test(type) && unhelpful(name))) {
+    const want = name.toLowerCase();
+    prev = currentOnly(all).find((f) => !f.bin && (f.dir || undefined) === dir && f.name.toLowerCase() === want) || null;
+  }
+  const now = Date.now();
+  let more: Partial<FileMeta> = {};
+  if (prev) {
+    if (prev.hash === hash) throw new FilesError('same', `That's the same as the current version of ${prev.name}.`);
+    dir = prev.dir;
+    // It keeps the file's name, unless it's another kind of file (a PDF for a Word file).
+    if (extOf(name) === extOf(prev.name)) name = prev.name;
+    more = { vg: groupOf(prev), cur: now, upkeep: prev.upkeep, moved: now, edited: now };
+  }
+  const sync = opts.sync ?? (prev ? prev.sync : true);
+  const meta = cleanFileMeta({ id: newFileId(), name, type, size: bytes.length, at, day: opts.day || dayKey(at), note: opts.note, w, h, thumb, sync, hash, dir, moved: dir ? now : undefined, ...more } satisfies Partial<FileMeta>);
   if (!meta) throw new FilesError('empty', "That file couldn't be kept.");
   const stored: LOCAL.StoredFile = { ...meta, here: true, up: false };
   await LOCAL.saveFile(stored, splitBytes(bytes));
+  // More than MAX_VERSIONS older versions: the oldest go to the trash.
+  if (prev) for (const f of overCap([...all, stored], stored.id)) await LOCAL.patchFile(f.id, { bin: now, moved: now });
   changed();
-  if (stored.sync) SYNC.queue();
+  if (stored.sync || prev) SYNC.queue();
   return stored;
 }
 
@@ -197,9 +233,13 @@ export async function getFile(id: string): Promise<{ info: LOCAL.StoredFile; blo
   return { info, blob: new Blob([bytes], { type: info.type }) };
 }
 
-// Files in the trash only with `trash: true`; `trash: 'all'` lists both.
-export async function listFiles(filter: { day?: string; note?: string; trash?: boolean | 'all' } = {}): Promise<LOCAL.StoredFile[]> {
-  const all = (await LOCAL.allStored(filter.day)).filter((f) => filter.trash === 'all' || !!f.bin === !!filter.trash);
+// Files in the trash only with `trash: true`; `trash: 'all'` lists both. Out of the trash, only
+// each file's current version, unless `versions: true` (in the trash, and with 'all', every one).
+export async function listFiles(filter: { day?: string; note?: string; trash?: boolean | 'all'; versions?: boolean } = {}): Promise<LOCAL.StoredFile[]> {
+  const hide = !filter.trash && !filter.versions;
+  let all = await LOCAL.allStored(hide ? undefined : filter.day);
+  if (hide) all = currentOnly(all).filter((f) => !filter.day || f.day === filter.day);
+  else all = all.filter((f) => filter.trash === 'all' || !!f.bin === !!filter.trash);
   return filter.note ? all.filter((f) => f.note === filter.note) : all;
 }
 
@@ -299,37 +339,150 @@ export async function deleteFolder(id: string): Promise<void> {
 
 // ---------- moving, and the trash
 
-async function patchAll(ids: readonly string[], fn: (f: LOCAL.StoredFile, now: number) => LOCAL.FilePatch | null): Promise<number> {
+// The ids it changed.
+async function patchIds(ids: readonly string[], fn: (f: LOCAL.StoredFile, now: number) => LOCAL.FilePatch | null): Promise<string[]> {
   const now = Date.now();
-  let n = 0;
+  const done: string[] = [];
   for (const id of new Set(ids)) {
     const f = await LOCAL.getStored(id);
     const p = f && fn(f, now);
     if (!p) continue;
     await LOCAL.patchFile(id, p);
-    n++;
+    done.push(id);
   }
-  if (n) {
+  if (done.length) {
     changed();
     SYNC.queue();
   }
+  return done;
+}
+
+// These files, and the older versions of each that's a current one (they go where it goes).
+async function withVersions(ids: readonly string[]): Promise<string[]> {
+  const all = await LOCAL.allStored();
+  const out = new Set<string>();
+  for (const id of ids) {
+    out.add(id);
+    for (const f of olderOf(all, id)) out.add(f.id);
+  }
+  return [...out];
+}
+// How many of the ones asked for changed (their versions aren't counted).
+const counted = (done: readonly string[], asked: readonly string[]) => done.filter((id) => asked.includes(id)).length;
+
+// Into a folder (none: to the top), with their older versions.
+export async function moveFiles(ids: readonly string[], dir?: string): Promise<number> {
+  if (dir && !(await LOCAL.readTree()).dirs[dir]) throw new FilesError('no-folder', "That folder isn't here any more.");
+  const done = await patchIds(await withVersions(ids), (f, now) => (f.bin || (f.dir || undefined) === (dir || undefined) ? null : { dir: dir || undefined, moved: now }));
+  return counted(done, ids);
+}
+
+// To the trash on every device, with their older versions. They stay TRASH_DAYS days, and can be
+// put back until then.
+export async function trashFiles(ids: readonly string[]): Promise<number> {
+  return counted(await patchIds(await withVersions(ids), (f, now) => (f.bin ? null : { bin: now, moved: now })), ids);
+}
+export const trashFile = async (id: string) => (await trashFiles([id])) > 0;
+
+// Back from the trash, to their folder (or the top, when it's gone), with what went there with them.
+export async function restoreFiles(ids: readonly string[]): Promise<number> {
+  const [t, all] = await Promise.all([LOCAL.readTree(), LOCAL.allStored()]);
+  const every = ids.flatMap((id) => bundleOf(all, id).map((f) => f.id));
+  return counted(await patchIds(every, (f, now) => (f.bin ? { bin: undefined, moved: now, dir: dirOf(t.dirs, f) } : null)), ids);
+}
+
+// From the trash for good, with what went there with it. Says how many files went.
+export async function deleteForGood(id: string): Promise<number> {
+  let n = 0;
+  for (const f of bundleOf(await LOCAL.allStored(), id)) if (await deleteFile(f.id)) n++;
   return n;
 }
 
-// Into a folder (none: to the top).
-export async function moveFiles(ids: readonly string[], dir?: string): Promise<number> {
-  if (dir && !(await LOCAL.readTree()).dirs[dir]) throw new FilesError('no-folder', "That folder isn't here any more.");
-  return patchAll(ids, (f, now) => (f.bin || (f.dir || undefined) === (dir || undefined) ? null : { dir: dir || undefined, moved: now }));
+// ---------- versions (files-versions.ts)
+
+// A file's older versions, newest first (none when it isn't the current one).
+export const versionsOf = async (id: string): Promise<LOCAL.StoredFile[]> => olderOf(await LOCAL.allStored(), id);
+
+// The current version of the file this one is a version of (itself when it's the current one).
+export const currentVersion = async (id: string): Promise<LOCAL.StoredFile | null> => currentOf(await LOCAL.allStored(), id);
+
+// An older version becomes the current one, in the current one's folder, with its name and note.
+// The current one becomes a version.
+export async function restoreVersion(id: string): Promise<LOCAL.StoredFile | null> {
+  const all = await LOCAL.allStored();
+  const v = all.find((f) => f.id === id);
+  const cur = currentOf(all, id);
+  if (!v || v.bin || !cur) throw new FilesError('no-file', "That version isn't here any more.");
+  if (cur.id === id) return v;
+  const now = Date.now();
+  const patch: LOCAL.FilePatch = { cur: now, moved: now, dir: cur.dir, upkeep: cur.upkeep, edited: now };
+  if (cur.name !== v.name && extOf(cur.name) === extOf(v.name)) Object.assign(patch, { name: cur.name, renamed: now });
+  const out = await LOCAL.patchFile(id, patch);
+  changed();
+  SYNC.queue();
+  return out;
 }
 
-// To the trash on every device. They stay TRASH_DAYS days, and can be put back until then.
-export const trashFiles = (ids: readonly string[]) => patchAll(ids, (f, now) => (f.bin ? null : { bin: now, moved: now }));
-export const trashFile = async (id: string) => (await trashFiles([id])) > 0;
+// An older version, to the trash on its own (put back, it's a version again).
+export async function deleteVersion(id: string): Promise<boolean> {
+  const cur = currentOf(await LOCAL.allStored(), id);
+  if (!cur || cur.id === id) return false;
+  return (await patchIds([id], (f, now) => (f.bin ? null : { bin: now, moved: now }))).length > 0;
+}
 
-// Back from the trash, to their folder (or the top, when it's gone).
-export async function restoreFiles(ids: readonly string[]): Promise<number> {
+// ---------- a file's name, and how to keep it up to date
+
+export async function renameFile(id: string, name: string): Promise<void> {
+  const n = fileName(name);
+  if (!n) throw new FilesError('no-name', 'Give it a name.');
+  await patchIds([id], (_f, now) => ({ name: n, renamed: now, edited: now }));
+}
+// "Keep" on a suggested name: the name stays, and nothing is suggested for it again.
+export async function keepName(id: string): Promise<void> {
+  await patchIds([id], (f, now) => (f.renamed ? null : { renamed: now, edited: now }));
+}
+
+// A short note on how to keep a file up to date ("Update the CV after each new job"). Empty: none.
+export async function setUpkeep(id: string, text: string): Promise<void> {
+  const u = upkeepText(text) || undefined;
+  await patchIds([id], (f, now) => ((f.upkeep || undefined) === u ? null : { upkeep: u, edited: now }));
+}
+
+// ---------- working on, and finished
+
+export async function setFolderState(id: string, state?: FolderState): Promise<void> {
+  await editFolders((t, now) => {
+    const d = { ...mustHave(t, id), e: now };
+    if (state) d.s = state;
+    else delete d.s;
+    t.dirs[id] = d;
+  });
+}
+
+// Into the finished folder next to each (made the first time, called Finished). Says how many moved.
+export async function finishFiles(ids: readonly string[]): Promise<number> {
+  const all = await LOCAL.allStored();
   const t = await LOCAL.readTree();
-  return patchAll(ids, (f, now) => (f.bin ? { bin: undefined, moved: now, dir: dirOf(t.dirs, f) } : null));
+  const by = new Map<string, string[]>();
+  for (const id of ids) {
+    const f = all.find((x) => x.id === id);
+    const d = f && dirOf(t.dirs, f);
+    if (!f || f.bin || inFinished(t.dirs, d)) continue;
+    by.set(d || '', [...(by.get(d || '') || []), id]);
+  }
+  let n = 0;
+  for (const [d, list] of by) {
+    let to = finishedFolderIn((await LOCAL.readTree()).dirs, d || undefined);
+    if (!to) {
+      const made = newFileId();
+      await editFolders((tt, now) => {
+        tt.dirs[made] = { name: FINISHED_NAME, e: now, s: 'f', ...(d && tt.dirs[d] ? { p: d } : {}) };
+      });
+      to = made;
+    }
+    n += await moveFiles(list, to);
+  }
+  return n;
 }
 
 // Everything in the trash, for good. Says how many.

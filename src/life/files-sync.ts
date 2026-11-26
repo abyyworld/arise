@@ -10,6 +10,12 @@
 //                 from before the tree ignore it, so they still list every file (one in the trash
 //                 shows as a plain file there). An index they write back comes without it; the
 //                 next device with the tree puts back what it knows (the change made last wins).
+//                 Each file's place also carries the name the Player gave it, its note on how to
+//                 keep it up to date, and which file it's a version of (files-versions.ts). Each
+//                 version is a file of its own in the index, so every app lists all of them; apps
+//                 from 1.35 to 1.38 keep the tree but drop these and the time they changed, so
+//                 what this device knows stays (files-tree.ts takeFrom). The index's schema is
+//                 unchanged.
 //   file#meta     a file's details and small preview, sealed: what another device shows at once
 //   file#0..n-1   its bytes, in sealed parts of 512 KB: fetched only when it's opened there
 //
@@ -28,7 +34,7 @@
 import type { Sealed } from '../lib/crypto';
 import { cleanFileMeta, cleanFilesIndex, cleanFilesTree, type FilePlaceRec, type FileSpot, type FilesIndex, type FilesTree } from '../lib/validate';
 import * as GH from './files-github';
-import { canon, expired, fieldsOf, mergeFolders, placeOf, sameFolders } from './files-tree';
+import { canon, expired, mergeFolders, placeOf, sameFolders, takeFrom } from './files-tree';
 import { filesCloud, onSynced, queue as queueLife, type FilesCloud } from './cloud';
 import type { LifeKeys } from './seal';
 import { fileDocIds, indexDocId, metaDocId, openFilesIndex, openMeta, openPart, PART_BYTES, partCount, partDocId, sealFilesIndex, sealMeta, sealPart } from './files-seal';
@@ -242,7 +248,17 @@ async function readIndex(d: SyncDeps, id: string): Promise<{ tag: string; idx: F
 }
 
 // A file's place from the tree, as its own fields (only the ones set).
-const placeFields = (p: FilePlaceRec | undefined) => ({ ...(p?.d ? { dir: p.d } : {}), ...(p?.t ? { bin: p.t } : {}), ...(p?.m ? { moved: p.m } : {}), ...(p?.h ? { hash: p.h } : {}) });
+const placeFields = (p: FilePlaceRec | undefined) => ({
+  ...(p?.d ? { dir: p.d } : {}),
+  ...(p?.t ? { bin: p.t } : {}),
+  ...(p?.m ? { moved: p.m } : {}),
+  ...(p?.h ? { hash: p.h } : {}),
+  ...(p?.k ? { edited: p.k } : {}),
+  ...(p?.k && p.n ? { name: p.n, renamed: p.k } : {}),
+  ...(p?.k && p.u ? { upkeep: p.u } : {}),
+  ...(p?.k && p.v ? { vg: p.v } : {}),
+  ...(p?.k && p.c ? { cur: p.c } : {}),
+});
 
 // Pulls what changed elsewhere and pushes what changed here. Says whether anything changed here.
 export async function syncFiles(d: SyncDeps): Promise<boolean> {
@@ -308,7 +324,7 @@ export async function syncFiles(d: SyncDeps): Promise<boolean> {
     for (const [id, p] of Object.entries(tree.files)) {
       const f = here.get(id);
       if (!f || !idx.files[id]) continue;
-      const patch: LOCAL.FilePatch = (p.m || 0) > (f.moved || 0) ? fieldsOf(p) : {};
+      const patch: LOCAL.FilePatch = takeFrom(p, f);
       if (p.h && !f.hash) patch.hash = p.h;
       if (!Object.keys(patch).length) continue;
       const nf = await LOCAL.patchFile(id, patch);
@@ -333,7 +349,7 @@ export async function syncFiles(d: SyncDeps): Promise<boolean> {
         meta = null;
       }
       if (!meta || meta.id !== id || partCount(meta.size) !== info.n) continue;
-      const { dir: _d, bin: _b, moved: _m, hash: _h, ...plain } = meta;
+      const { dir: _d, bin: _b, moved: _m, hash: _h, renamed: _r, upkeep: _k, vg: _v, cur: _c, edited: _e, ...plain } = meta;
       await LOCAL.saveFile({ ...plain, ...placeFields(tree.files[id]), sync: true, here: false, up: true });
       changedHere = true;
     }
@@ -377,7 +393,8 @@ export async function syncFiles(d: SyncDeps): Promise<boolean> {
           const parts = await LOCAL.readParts(f.id, n);
           if (!parts) continue;
           // (Where it sits goes in the index's tree, not here: it changes.)
-          const { thumb, here: _h, up: _u, where: _w, dir: _d, bin: _b, moved: _m, hash: _x, ...rest } = f;
+          // (Nor its name given here, its note or which versions it's one of: they change too.)
+          const { thumb, here: _h, up: _u, where: _w, dir: _d, bin: _b, moved: _m, hash: _x, renamed: _r, upkeep: _k, vg: _v, cur: _c, edited: _e, ...rest } = f;
           const metaText = JSON.stringify({ ...rest, sync: true, ...(gh ? { where: 'gh' } : own ? { where: 'own' } : {}), ...(thumb ? { thumb: b64(thumb) } : {}) });
           const docs: { id: string; s: Sealed }[] = [];
           for (let i = 0; i < n; i++) docs.push({ id: await partDocId(d.keys, f.id, i), s: await sealPart(d.keys, d.uid, f.id, i, n, parts[i]) });

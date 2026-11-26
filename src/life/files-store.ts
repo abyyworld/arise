@@ -109,9 +109,9 @@ export async function saveFile(f: StoredFile, parts?: readonly Uint8Array[]): Pr
   await done(tx);
 }
 
-// Only the details (here, up, sync, where it sits, its SHA-256): never the bytes. A field set to
-// undefined goes.
-export type FilePatch = Partial<Pick<StoredFile, 'here' | 'up' | 'sync' | 'dir' | 'bin' | 'moved' | 'hash'>>;
+// Only the details (here, up, sync, where it sits, its SHA-256, its name, its note on keeping it
+// up to date, which versions it's one of): never the bytes. A field set to undefined goes.
+export type FilePatch = Partial<Pick<StoredFile, 'here' | 'up' | 'sync' | 'dir' | 'bin' | 'moved' | 'hash' | 'name' | 'renamed' | 'upkeep' | 'vg' | 'cur' | 'edited'>>;
 export async function patchFile(id: string, patch: FilePatch): Promise<StoredFile | null> {
   const db = await openFilesDB();
   const tx = db.transaction('files', 'readwrite');
