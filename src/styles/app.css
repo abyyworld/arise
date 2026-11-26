@@ -1144,6 +1144,9 @@ body.locked { overflow: hidden; }
 .fact-text .i { color: var(--gold); }
 .fact .muted.small { margin: 0; }
 .fact-acts { display: flex; flex-wrap: wrap; gap: 0 18px; }
+.sent-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font-size: 12px; margin: 8px 0 0; }
+.ky-weeks { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.ky-weeks li { display: flex; justify-content: space-between; gap: 12px; }
 .danger-link { color: var(--danger); }
 .src-list { list-style: none; margin: 0 0 4px; padding: 0; display: grid; }
 .src-list li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }

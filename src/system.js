@@ -16,6 +16,7 @@ import * as PLAN from './plan';
 import { handlePlanAction, planRowHTML, upgradeFor } from './plan-ui.js';
 import * as LOCAL from './local-ai-ui.js'; // "Your computer's AI" in Settings, AI coach
 import * as GTAB from './gemini-tab-ui.js'; // "Gemini in your browser" in Settings, AI coach
+import * as SENTUI from './sent-ui.js'; // "What was sent to an AI", from Settings, AI coach too
 import { esc, icon, md, toast, openSheet, closeSheet, setBackgroundInert } from './ui.js';
 import * as CH from './lib/chats';
 import { isNative } from './native.js';
@@ -1607,6 +1608,7 @@ export function settingsPanels() {
               ? 'Your profile, life check-in, check-ins, plan, workouts and weigh-ins are used to coach you, privately: nobody else can read them.'
               : 'Until the AI is on, the app works fully without it.'
       }</p>
+      <div class="row">${SENTUI.settingsLink()}</div>
     </section>
     <section class="panel">
       <div class="panel-title">${icon('target')}<span>Your goals</span></div>
@@ -1641,6 +1643,7 @@ export async function handleAction(act, el) {
   if (handlePlanAction(act)) return true;
   if (act.startsWith('local-')) return LOCAL.handleAction(act, el);
   if (act.startsWith('gtab-')) return GTAB.handleAction(act);
+  if (act.startsWith('sent-')) return SENTUI.handleAction(act, el);
   switch (act) {
     case 'ai-engine': {
       const v = el.dataset.v;

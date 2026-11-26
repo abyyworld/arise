@@ -5,7 +5,7 @@
 import * as S from './store';
 import * as AI from './ai.js';
 import { classify, asKind } from './lib/capture';
-import { questions, threeThings } from './lib/questions';
+import { questions, questionsLeft, threeThings } from './lib/questions';
 import { looseEnds } from './lib/loose';
 import * as BRIEF from './brief';
 import * as VP from './lib/voice-profile';
@@ -456,6 +456,7 @@ function questionInput(now = new Date()) {
     checks: factCache.checks,
     clashes: factCache.clashes,
     now: now.getTime(),
+    dayStart: S.parseKey(today).getTime(),
   };
 }
 
@@ -480,6 +481,8 @@ async function answerFact(act, v) {
   await refreshFacts();
 }
 const FACT_TOASTS = { 'q-fact-ok': 'Good. Arise keeps it.', 'q-fact-old': 'Kept as no longer true.', 'q-fact-right': "Thanks. The other one is gone, and Arise won't learn it again.", 'q-fact-both': "Got it. Arise won't ask about these two again." };
+// How many quick ones are left today, counting the one on screen (at most 6 a day: lib/questions.ts).
+export const questionsLeftToday = () => questionsLeft(S.state.dismissed, S.parseKey(S.todayKey()).getTime());
 
 // Loose ends in the last 2 weeks of their own notes (lib/loose.ts), read from the life log now
 // and then: on opening, and after a note is added here.
@@ -506,6 +509,7 @@ export async function refreshLoose(now = Date.now()) {
 export function questionCard() {
   const q = questions(questionInput())[0];
   if (!q) return '<div id="askCard"></div>';
+  const more = questionsLeftToday() - 1;
   return `<div id="askCard"><section class="panel ask" data-q="${esc(q.id)}">
     <div class="panel-title">${icon('chat')}<span>A quick one</span><button class="icon-btn small ask-x" data-act="q-skip" aria-label="Not now">${icon('close')}</button></div>
     <p class="ask-text">${esc(q.text)}</p>
@@ -515,6 +519,7 @@ export function questionCard() {
         ? `<form data-form="q-write" data-act="${esc(q.write.act)}"><label class="sr-only" for="askIn">${esc(q.text)}</label><textarea id="askIn" class="log-text" rows="3" maxlength="400" placeholder="${esc(q.write.placeholder)}"></textarea>${q.write.act === 'q-know' ? `<label class="btn ghost small capture-file">${icon('note')} <span id="askFileName">Or a photo</span><input id="askFile" type="file" accept="image/*" hidden></label>` : ''}<div class="row"><button class="btn small primary" type="submit">Save</button><button class="btn small ghost" type="button" data-act="q-skip">Not now</button></div></form>`
         : `<div class="row wrap">${q.choices.map((c, i) => `<button class="btn small${i === 0 ? ' primary' : ''}" data-act="${esc(c.act)}"${c.v ? ` data-v="${esc(c.v)}"` : ''}>${esc(c.label)}</button>`).join('')}</div>`
     }
+    <p class="muted small ask-left">${more > 0 ? `Up to ${more} more today.` : 'Last one for today.'}</p>
   </section></div>`;
 }
 

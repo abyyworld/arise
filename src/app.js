@@ -18,6 +18,7 @@ import { isStudyHash } from './lib/study';
 import { isPlanHash } from './lib/plans';
 import * as PLANUI from './plans-ui.js';
 import * as AI from './ai.js';
+import { forgetSent } from './ai-log'; // what was sent to an AI, on this device
 import * as LOCK from './app-lock.js';
 import * as IMPORT from './life/import-ui.js';
 import { loadLifeStore } from './life/store-port';
@@ -2438,6 +2439,7 @@ async function eraseDevice(signedIn) {
   if (!N.isNative) await BROWSER.forgetAll().catch(() => {}); // linked browsers' keys go too
   forgetAIKey('');
   AI.forgetConsent(); // the next person is asked again
+  forgetSent(); // and the list of what was sent to an AI
   PLAN.forgetPlan();
   await eraseLifeLog().catch(() => {}); // the life log and what Arise learned from it
   forgetLifePrefs();
