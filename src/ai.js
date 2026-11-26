@@ -2462,6 +2462,56 @@ export async function writeMyWay(notes, kind = 'message', { to = '', signal } = 
   return out;
 }
 
+// ---------- Ideas to write about (site-ui.js, Your website)
+
+const IDEAS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ideas'],
+  properties: {
+    ideas: {
+      type: 'array',
+      description: '3 to 5 ideas.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title', 'why'],
+        properties: {
+          title: { type: 'string', description: 'A working title for the post, at most 10 words.' },
+          why: { type: 'string', description: 'One sentence: what the post would be about, from what you know of them.' },
+        },
+      },
+    },
+  },
+};
+
+// 3 to 5 ideas for posts on their website, from their goals, projects and notes, as far as this AI
+// may read them (withNotes, like Help me decide). Nothing is saved or published here: the screen
+// starts a draft only when they pick one. `tier`: the most private part it was made from.
+export async function postIdeas({ signal } = {}) {
+  const { context, tier } = await withNotes('projects I am working on, things I learned or made, my goals');
+  const { json } = await ask({
+    context,
+    effort: 'medium',
+    maxTokens: 4000,
+    schema: IDEAS_SCHEMA,
+    signal,
+    messages: [
+      {
+        role: 'user',
+        content: `Suggest 3 to 5 ideas for posts on my personal website.\n\nRules:\n- Each comes from something real you know about me: a goal, a project, something I learned, made or changed. Name it.\n- Things I could share in public. Leave out health, money, sleep, mood and other people's names.\n- Specific titles, not general advice ("What 30 days of morning runs taught me", not "The benefits of exercise").\n- Plain words, short sentences, no em dashes.`,
+      },
+    ],
+  });
+  const ideas = (Array.isArray(json?.ideas) ? json.ideas : [])
+    .map((x) => ({ title: plain(x?.title || '').replace(/\s+/g, ' ').trim().slice(0, 120), why: plain(x?.why || '').replace(/\s+/g, ' ').trim().slice(0, 300) }))
+    .filter((x) => x.title)
+    .slice(0, 5);
+  if (ideas.length < 2) throw new AIError('format', `${answerer()} sent an unexpected answer. Try again.`);
+  const t = tier();
+  return { ideas, tier: t === 2 || t === 3 ? t : 1 };
+}
+
 // ---------- personalised reminder texts
 
 const NUDGE_SCHEMA = {
