@@ -16,6 +16,7 @@ import { cleanPauses, type Pause } from './pause';
 import { cleanBy } from '../life/strength';
 import { ABOUT_DEFAULT, cleanChoice, cleanRules, LINK_DEFAULT, type MeChoice, type MeRules } from './me';
 import { ASK_WANTS, cleanEntry, type AskWant, type FeedEntry } from './feed';
+import type { SavedFile } from './me-files';
 import { cleanLife, cleanLifeBefore, isArea, type AreaId } from './life-check';
 import { cleanStudy, type Study } from './study';
 import { cleanTodos, type Todos } from './todos';
@@ -972,8 +973,18 @@ export interface MeLink {
 // for good without touching the link. `tok` reads back what the app did (only this device has
 // it; the page holds `fh`, its SHA-256). `off`: its page was emptied (it ended). `fed`: the last
 // entry taken from the connector.
+// What the app may do there, each its own switch: read about the Player (unless `read: false`),
+// add notes and to-dos (`notes`), read the files in the folder `dir` they share with it (`fread`)
+// and save files there (`fwrite`). `parts`: the bigger shared files sent as sealed parts, by file
+// id: which upload, how many parts, and the file's SHA-256, so a file is sent again only when it
+// changes (lib/me-files.ts).
 export interface LinkWeb {
   notes: boolean;
+  read?: false;
+  dir?: string;
+  fread?: true;
+  fwrite?: true;
+  parts?: Record<string, SharedParts>;
   until?: number;
   id: string;
   key: string;
@@ -988,6 +999,20 @@ function cleanLinkWeb(raw: unknown): LinkWeb | undefined {
   const w = obj(raw);
   if (typeof w.id !== 'string' || !LINK_ID.test(w.id) || typeof w.key !== 'string' || !LINK_KEY.test(w.key) || typeof w.tok !== 'string' || !LINK_KEY.test(w.tok) || typeof w.fh !== 'string' || !/^[0-9a-f]{64}$/.test(w.fh)) return undefined;
   const out: LinkWeb = { notes: w.notes === true, id: w.id, key: w.key, tok: w.tok, fh: w.fh };
+  if (w.read === false) out.read = false;
+  if (typeof w.dir === 'string' && LINK_ID.test(w.dir)) {
+    out.dir = w.dir;
+    if (w.fread === true) out.fread = true;
+    if (w.fwrite === true) out.fwrite = true;
+  }
+  const parts = Object.entries(obj(w.parts))
+    .slice(0, 100)
+    .flatMap(([id, p]): [string, SharedParts][] => {
+      const x = obj(p);
+      const ids = arr(x.ids).filter((i): i is string => typeof i === 'string' && LINK_ID.test(i));
+      return LINK_ID.test(id) && typeof x.v === 'string' && /^[A-Za-z0-9_-]{8,22}$/.test(x.v) && Number.isSafeInteger(x.n) && (x.n as number) >= 1 && (x.n as number) <= 200 && ids.length === x.n && typeof x.h === 'string' && HEX_64.test(x.h) ? [[id, { v: x.v, n: x.n as number, h: x.h, ids }]] : [];
+    });
+  if (parts.length) out.parts = Object.fromEntries(parts);
   if (time(w.until)) out.until = time(w.until);
   const sig = oneLine(w.sig, 40);
   if (sig) out.sig = sig;
@@ -997,6 +1022,13 @@ function cleanLinkWeb(raw: unknown): LinkWeb | undefined {
   return out;
 }
 
+export interface SharedParts {
+  v: string;
+  n: number;
+  h: string;
+  ids: string[]; // the parts' pages, to turn off once they're not needed
+}
+const HEX_64 = /^[0-9a-f]{64}$/;
 const LINK_ID = /^[A-Za-z0-9_-]{22}$/;
 const LINK_KEY = /^[A-Za-z0-9_-]{43}$/;
 const UID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -1051,24 +1083,30 @@ export interface MeAsk {
   text: string;
   day?: string;
   client?: string;
+  file?: SavedFile; // a file it asked to save, kept here until the Player says yes or no
 }
 export const MAX_ASKS = 100;
+export const MAX_FILE_ASKS = 5;
 export function cleanMeAsks(raw: unknown): MeAsk[] {
   const seen = new Set<string>();
+  let files = 0;
   return arr(raw)
     .slice(-MAX_ASKS)
     .flatMap((x) => {
       const a = obj(x);
       if (typeof a.link !== 'string' || !LINK_ID.test(a.link) || typeof a.web !== 'string' || !LINK_ID.test(a.web)) return [];
       if (typeof a.n !== 'number' || !Number.isSafeInteger(a.n) || a.n < 1 || !time(a.at) || !ASK_WANTS.includes(a.want as AskWant)) return [];
-      const c = cleanEntry({ at: a.at, tool: 'ask', ok: true, want: a.want, note: a.text, day: a.day, client: a.client });
+      const c = cleanEntry({ at: a.at, tool: 'ask', ok: true, want: a.want, note: a.text, day: a.day, client: a.client, file: a.file });
       if (!c?.note) return [];
+      // A file waits here with its bytes, so only a few at once.
+      if (c.want === 'save_file' && (!c.file || !('data' in c.file) || ++files > MAX_FILE_ASKS)) return [];
       const k = `${a.web}/${a.n}/${a.at}`;
       if (seen.has(k)) return [];
       seen.add(k);
       const out: MeAsk = { link: a.link, web: a.web, n: a.n, at: c.at, want: c.want!, text: c.note };
       if (c.day) out.day = c.day;
       if (c.client) out.client = c.client;
+      if (c.file && 'data' in c.file) out.file = c.file;
       return [out];
     });
 }
@@ -1089,7 +1127,8 @@ export function cleanOffLater(raw: unknown): OffLater[] {
     by.delete(o.id);
     by.set(o.id, owner);
   }
-  return [...by].slice(-200).map(([id, owner]) => ({ id, owner }));
+  // (Room for every link's pages and the parts of their shared files: lib/me-files.ts.)
+  return [...by].slice(-1000).map(([id, owner]) => ({ id, owner }));
 }
 
 // ---------- photos and files (life/files.ts), and search by meaning (life/embed/)

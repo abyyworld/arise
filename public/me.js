@@ -14,7 +14,7 @@ export const FORMAT = 'arise.me/v1';
 
 // Arise's cloud. These aren't secrets: the database rules decide who may read what, and a page
 // opens only with the key in its link.
-const CLOUD = { projectId: 'arise-a7349', apiKey: 'AIzaSyDV_tfFWhiEzkQMb9Fg6x1pSuNHq_J-bxg' };
+export const CLOUD = { projectId: 'arise-a7349', apiKey: 'AIzaSyDV_tfFWhiEzkQMb9Fg6x1pSuNHq_J-bxg' };
 
 // err.code: 'bad-link' (not a whole me link), 'off' (turned off in Arise, or replaced by a new
 // link), 'network' (couldn't reach the cloud: try again later), 'bad-data' (it doesn't open).
