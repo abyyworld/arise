@@ -39,6 +39,7 @@ function fakeEnv(limits = { link: true, ip: true }) {
           const storage: StorageLike = {
             get: async <T,>(k: string) => structuredClone(data.get(k)) as T | undefined,
             put: async (k, v) => void data.set(k, structuredClone(v)),
+            delete: async (k) => data.delete(k),
             deleteAll: async () => data.clear(),
             setAlarm: async (t) => void (o.alarm = t),
           };
@@ -91,8 +92,8 @@ beforeEach(() => {
 describe('the web connector', () => {
   it('says it is there, for Arise to check', async () => {
     const res = await handle(new Request('https://x/health', { headers: { origin: 'https://abyyworld.github.io' } }), fakeEnv(), deps);
-    // From 1.1.0 it says it keeps to the Player's rules, so Arise knows it needs no update.
-    expect(await res.json()).toMatchObject({ ok: true, name: 'arise-connector', version: '1.1.0', features: ['rules'] });
+    // From 1.1.0 it says it keeps to the Player's rules, and from 1.2.0 that it serves files, so Arise knows it needs no update.
+    expect(await res.json()).toMatchObject({ ok: true, name: 'arise-connector', version: '1.2.0', features: ['rules', 'files'] });
     expect(res.headers.get('access-control-allow-origin')).toBe('https://abyyworld.github.io');
     const other = await handle(new Request('https://x/health', { headers: { origin: 'https://evil.example' } }), fakeEnv(), deps);
     expect(other.headers.get('access-control-allow-origin')).toBeNull();

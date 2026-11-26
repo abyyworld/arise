@@ -38,7 +38,7 @@ function connector() {
         if (!feeds.has(name)) {
           const m = new Map<string, unknown>();
           data.set(name, m);
-          const storage: StorageLike = { get: async <T,>(k: string) => structuredClone(m.get(k)) as T, put: async (k, v) => void m.set(k, structuredClone(v)), deleteAll: async () => m.clear(), setAlarm: async () => {} };
+          const storage: StorageLike = { get: async <T,>(k: string) => structuredClone(m.get(k)) as T, put: async (k, v) => void m.set(k, structuredClone(v)), delete: async (k) => m.delete(k), deleteAll: async () => m.clear(), setAlarm: async () => {} };
           feeds.set(name, new Feed({ storage }));
         }
         return { fetch: (input: string, init?: RequestInit) => feeds.get(name)!.fetch(new Request(input, init)) };

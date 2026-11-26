@@ -13,7 +13,8 @@ import { ABOUT_SECTIONS, SECTIONS, SECTION_LABELS, TIER_LABELS, TIER_TEXT, ABOUT
 import { SITE_URL } from '../lib/pages';
 import { meHTML, exactHTML } from '../me-html';
 import { esc, icon, openSheet, closeSheet, toast } from '../ui.js';
-import { TOOL_WORDS } from '../lib/feed';
+import { TOOL_WORDS, WANT_WORDS } from '../lib/feed';
+import { FILE_MAX, SAVE_MAX } from '../lib/me-files';
 import { hasLifeStore } from './store-port';
 
 const $ = (sel, root = globalThis.document) => root?.querySelector(sel) ?? null;
@@ -28,7 +29,7 @@ const WEB_HOW = 'https://github.com/abyyworld/arise/blob/main/mcp/README.md#clau
 export const WEB_WHY = [
   "Claude, ChatGPT and Gemini on the web can't open your link themselves. So this app gets an address of its own, and Arise's connector, a small server Arise runs on Cloudflare, opens it for a moment each time the app asks, and hands the app what it needs.",
   'While it does, that server and Cloudflare could read what this app gets. And the AI company (like Anthropic, OpenAI or Google) gets what its app reads, as with anything you tell it.',
-  "The connector keeps none of it. It keeps only a log of what the app did, and any notes it adds, sealed so only your Arise can read them, until your Arise picks them up.",
+  "The connector keeps none of it. It keeps only a log of what the app did, and any notes or files it adds, sealed so only your Arise can read them, until your Arise picks them up.",
   'Everything else in Arise stays end-to-end encrypted. You can turn this off any time, and the address stops working for good.',
 ];
 const LESS = '<span class="tag less">Less private</span>';
@@ -164,7 +165,24 @@ function webLine(l) {
   if (!l.web) return '';
   const last = ME.feedOf(l.id).at(-1);
   const ended = !ME.webNow(l);
-  return `<p class="muted small">${ended ? `On the web${l.web.until ? ` until ${esc(whenDay(l.web.until))}` : ''}, now ended.` : `On the web${l.web.until ? ` until ${esc(whenDay(l.web.until))}` : ''}${l.web.notes ? ', may add notes and to-dos' : ''}.`}${last ? ` Last used ${esc(when(last.at))}.` : ''}</p>`;
+  const w = l.web;
+  const may = [w.read === false ? "doesn't read about you" : '', w.notes ? 'may add notes and to-dos' : '', w.fread ? 'may read your shared files' : '', w.fwrite ? 'may save files' : ''].filter(Boolean);
+  return `<p class="muted small">${ended ? `On the web${w.until ? ` until ${esc(whenDay(w.until))}` : ''}, now ended.` : `On the web${w.until ? ` until ${esc(whenDay(w.until))}` : ''}${may.length ? `, ${may.join(', ')}` : ''}.`}${last ? ` Last used ${esc(when(last.at))}.` : ''}</p>`;
+}
+
+// What an app on the web may do, in a sentence.
+function mayText(w) {
+  const can = [w.read !== false ? 'read what you picked' : '', w.notes ? 'add notes and to-dos' : '', w.fread ? 'read the files in your shared folder' : '', w.fwrite ? (w.fread ? 'save files there' : 'save files in your shared folder') : ''].filter(Boolean);
+  if (!can.length) return 'It may do nothing yet. Turn on what it may do below.';
+  if (can.length === 1 && w.read !== false) return 'It only reads.';
+  return `It may ${can.length > 1 ? `${can.slice(0, -1).join(', ')} and ${can.at(-1)}` : can[0]}.`;
+}
+
+// One line of the access log, in plain words: "Claude read your goals", "ChatGPT saved a file: “list.md”".
+function logLine(e, app) {
+  const what = e.tool === 'ask' ? `asked to ${WANT_WORDS[e.want] || 'add something'}` : TOOL_WORDS[e.tool];
+  const words = e.file?.name || e.note || '';
+  return `<span class="muted">${esc(when(e.at))}</span> ${esc(e.client || app)} ${esc(what)}${e.ok ? '' : ' (refused)'}${words ? `: “${esc(words.length > 120 ? `${words.slice(0, 119)}…` : words)}”` : ''}`;
 }
 
 // =====================================================================
@@ -174,6 +192,7 @@ function webLine(l) {
 const RULE_LABELS = {
   note: 'Add a note to your day',
   todo: 'Add a to-do',
+  file: 'Save a file in your shared folder',
   health: 'Read anything about your health',
   money: 'Read anything about your money',
 };
@@ -196,7 +215,7 @@ function asksHTML(l) {
   return `<ul class="me-asks">${list
     .map(
       (a) => `<li class="me-ask">
-      <p class="small"><b>${esc(a.client || l.app)} wants to:</b> ${a.want === 'add_todo' ? 'add a to-do' : 'add a note'} “${esc(short(a.text))}”${a.day ? ` for ${esc(dayWords(a.day))}` : ''}</p>
+      <p class="small"><b>${esc(a.client || l.app)} wants to:</b> ${WANT_WORDS[a.want]} “${esc(short(a.text))}”${a.day ? ` for ${esc(dayWords(a.day))}` : ''}</p>
       <div class="fact-acts">
         <button class="link" data-act="me-ask-allow" data-k="${esc(ME.askKey(a))}">Allow</button>
         <button class="link danger-link" data-act="me-ask-no" data-k="${esc(ME.askKey(a))}">Don't</button>
@@ -228,12 +247,12 @@ function rulesEditHTML(l, r) {
         return `<button class="${on ? 'on' : ''}" data-act="me-rule" data-a="${a}" data-v="${v}" aria-pressed="${on}">${t}</button>`;
       })
       .join('')}</div>`;
-  const adds = !!l.web && !l.web.off && l.web.notes;
+  const adds = !!l.web && !l.web.off && (l.web.notes || l.web.fwrite);
   return `<p class="label">Rules for this app</p>
     <p class="small">Pick what ${esc(l.app)} may just do, must ask you about first, or may never do. Arise and its connector keep to these.</p>
     <p class="label">Adding things</p>
     ${RULE_ADDS.map((a) => seg(a, RULE_CHOICES)).join('')}
-    <p class="muted small">${adds ? '<b>Ask me first:</b> Arise shows you what it wants to add, and adds it only when you tap Allow.' : 'It can only add things on the web, once you let it add notes and to-dos there.'}</p>
+    <p class="muted small">${adds ? '<b>Ask me first:</b> Arise shows you what it wants to add, and adds it only when you tap Allow.' : 'It can only add things on the web, once you let it add notes and to-dos, or save files, there.'}</p>
     <p class="label">Reading</p>
     ${RULE_TOPICS.map((a) => seg(a, [RULE_CHOICES[0], RULE_CHOICES[2]])).join('')}
     <p class="muted small"><b>Never</b> leaves out facts, goals, quests and days about it.</p>
@@ -412,20 +431,38 @@ function sheetHTML() {
     </div>`;
 }
 
-// Whether the app may add notes, and for how long it's on.
+// What the app may do, a switch for each, and for how long it's on.
+const NEEDS_FILES_UPDATE = "Needs the connector update. Until it's there, apps on the web can't read or save files.";
+const kb = (n) => `${Math.round(n / 1024)} KB`;
+function switchRow(p, on, title, small, disabled = false) {
+  return `<button class="toggle-row" data-act="me-web-perm" data-p="${p}" aria-pressed="${on}" ${disabled ? 'disabled' : ''}><span><b>${esc(title)}</b><small>${esc(small)}</small></span><span class="switch ${on ? 'on' : ''}"></span></button>`;
+}
 function webPicksHTML(w) {
-  // Notes go into the life log: a build without one only offers reading.
-  const notes = hasLifeStore()
-    ? `<p class="label">May it add notes and to-dos?</p>
-    <div class="seg" role="group" aria-label="May it add notes">${[
-      [false, 'No, only read'],
-      [true, 'Yes'],
-    ]
-      .map(([v, t]) => `<button class="${w.notes === v ? 'on' : ''}" data-act="me-web-notes" data-v="${v ? 1 : 0}" aria-pressed="${w.notes === v}">${t}</button>`)
-      .join('')}</div>
-    <p class="muted small">${w.notes ? 'When you ask it to ("log that I ran 5 km", "remind me to call mum on Friday"), it can add a note to your day or a to-do to your list, marked with its name. It can never change or delete anything.' : 'It only reads what you picked above.'}</p>`
-    : '';
-  return `${notes}
+  // Notes and files go into the life log and Photos and files: a build without them only reads.
+  const life = hasLifeStore();
+  const files = ME.connectorDoesFiles() === true;
+  const folders = sheet?.folders || [];
+  const dir = folders.find((f) => f.id === w.dir);
+  const folderPick = !life
+    ? ''
+    : folders.length
+      ? `<label class="field"><span class="k">Shared folder</span><select id="meWebDir" ${files ? '' : 'disabled'}>
+          <option value="" ${dir ? '' : 'selected'}>Pick a folder</option>
+          ${folders.map((f) => `<option value="${esc(f.id)}" ${f.id === w.dir ? 'selected' : ''}>${esc(f.label)}</option>`).join('')}
+        </select></label>`
+      : `<p class="muted small">${sheet?.folders ? 'You have no folders yet.' : 'Reading your folders…'}</p>`;
+  return `<p class="label">What it may do</p>
+    ${switchRow('read', w.read !== false, 'Read', 'What you picked above: your name, goals, facts and days.')}
+    ${life ? switchRow('notes', !!w.notes, 'Add', 'A note to your day or a to-do on your list, when you ask it to. Marked with its name. It never changes or deletes anything.') : ''}
+    ${
+      life
+        ? `${switchRow('fread', !!w.fread && !!dir, 'Read files', `Only the files in the one folder you pick below, up to ${kb(FILE_MAX)} each. Nothing else of Photos and files.`, !files || !dir)}
+    ${switchRow('fwrite', !!w.fwrite && !!dir, 'Save files', `A file into that folder, up to ${kb(SAVE_MAX)}, when you ask it to. Your rules apply.`, !files || !dir)}
+    ${files ? '' : `<p class="error small">${esc(NEEDS_FILES_UPDATE)}</p>`}
+    ${folderPick}
+    ${folders.length || !files ? '' : '<button class="btn ghost small" data-act="me-web-mkdir">Make a folder for it</button>'}`
+        : ''
+    }
     <p class="label">For how long</p>
     <div class="seg" role="group" aria-label="For how long">${ENDS.map(([d, t]) => `<button class="${w.days === d ? 'on' : ''}" data-act="me-web-days" data-d="${d}" aria-pressed="${w.days === d}">${t}</button>`).join('')}</div>`;
 }
@@ -448,7 +485,7 @@ function webHTML(l, user, busy) {
   const days = l.web.until ? null : 0;
   return `<div class="me-web">
     <p class="label">On the web ${LESS}</p>
-    <p class="small">${live ? `On${l.web.until ? ` until ${esc(whenDay(l.web.until))}` : ', with no end date'}. ${l.web.notes ? 'It may add notes and to-dos.' : 'It only reads.'}` : `Ended${l.web.until ? ` on ${esc(whenDay(l.web.until))}` : ''}, and its address no longer works. Pick for how long below to turn it on again, with a new address.`}</p>
+    <p class="small">${live ? `On${l.web.until ? ` until ${esc(whenDay(l.web.until))}` : ', with no end date'}. ${mayText(l.web)}` : `Ended${l.web.until ? ` on ${esc(whenDay(l.web.until))}` : ''}, and its address no longer works. Pick for how long below to turn it on again, with a new address.`}</p>
     ${reach === false ? '<p class="error small">The connector isn\'t answering right now, so AI apps on the web can\'t reach this yet. It works as soon as it does.</p>' : ''}
     <label class="field"><span class="k">Connector address</span><input id="meWebIn" type="text" readonly value="${esc(ME.connectorAddress(l))}"></label>
     <div class="row"><button class="btn primary small" data-act="me-web-copy">Copy address</button></div>
@@ -458,15 +495,9 @@ function webHTML(l, user, busy) {
       <li><b>Gemini and other apps</b>: anywhere that takes an MCP server address.</li>
     </ul>
     <p class="muted small">Keep the address private, like a password. <a href="${WEB_HOW}" target="_blank" rel="noopener">More help ${icon('ext')}</a></p>
-    ${user ? webPicksHTML({ notes: l.web.notes, days: sheet.webDays ?? days }) : ''}
+    ${user ? webPicksHTML({ ...l.web, days: sheet.webDays ?? days }) : ''}
     <p class="label">What it did</p>
-    ${
-      log.length
-        ? `<ul class="fact-list me-web-log">${log
-            .map((e) => `<li class="small"><span class="muted">${esc(when(e.at))}</span> ${esc(e.client || l.app)} ${esc(e.tool === 'ask' ? `asked to add ${e.want === 'add_todo' ? 'a to-do' : 'a note'}` : TOOL_WORDS[e.tool])}${e.ok ? '' : ' (refused)'}${e.note ? `: “${esc(e.note.length > 120 ? `${e.note.slice(0, 119)}…` : e.note)}”` : ''}</li>`)
-            .join('')}</ul>`
-        : '<p class="muted small">Nothing yet.</p>'
-    }
+    ${log.length ? `<ul class="fact-list me-web-log">${log.map((e) => `<li class="small">${logLine(e, l.app)}</li>`).join('')}</ul>` : '<p class="muted small">Nothing yet.</p>'}
     <div class="row">
       <button class="link" data-act="me-web-check">Check now</button>
       ${user ? `<button class="link danger-link" data-act="me-web-off" ${busy}>Turn off on the web</button>` : ''}
@@ -499,8 +530,46 @@ function openApp(id, mode = 'view') {
   if (l.web) {
     void ME.checkConnector().then(repaintSheet);
     void ME.pullFeeds({ force: true });
+    loadFolders();
   }
 }
+
+// The folders in Photos and files, for picking the one an app on the web shares.
+function loadFolders() {
+  if (!hasLifeStore()) return;
+  const mine = sheet;
+  Promise.all([import('./files'), import('./files-tree')])
+    .then(async ([F, T]) => {
+      const tree = await F.listFolders();
+      if (sheet !== mine) return;
+      mine.folders = T.folderChoices(tree.dirs).map(({ id, label }) => ({ id, label }));
+      if (!mine.busy) repaintSheet();
+    })
+    .catch(() => {});
+}
+
+// A switch changed: on the sheet before the web is on, or straight away once it is.
+async function setPerm(p, on) {
+  const l = sheet && ME.links().find((x) => x.id === sheet.id);
+  if (!l) return;
+  const key = p === 'notes' ? 'notes' : p;
+  if (sheet.mode === 'web') {
+    sheet.web = { ...sheet.web, [key]: on };
+    repaintSheet();
+    return;
+  }
+  if (!l.web) return;
+  await busy(async (s) => {
+    await ME.setWeb(s.id, { notes: l.web.notes && hasLifeStore(), ...(l.web.until ? { until: l.web.until } : {}), [key]: on });
+    toast(PERM_SAID[p][on ? 1 : 0](l.app));
+  });
+}
+const PERM_SAID = {
+  read: [(a) => `${a} can't read about you now.`, (a) => `${a} may read what you picked.`],
+  notes: [(a) => `${a} can't add notes or to-dos now.`, (a) => `${a} may add notes and to-dos now.`],
+  fread: [(a) => `${a} can't read your files now.`, (a) => `${a} may read the files in that folder now.`],
+  fwrite: [(a) => `${a} can't save files now.`, (a) => `${a} may save files in that folder now.`],
+};
 
 ME.onFeed(() => {
   repaintApps();
@@ -693,21 +762,30 @@ export async function handleAction(act, el) {
       sheet.mode = 'web';
       sheet.web = { notes: false, days: 30 };
       repaintSheet();
+      loadFolders();
+      void ME.checkConnector().then(repaintSheet);
       return true;
-    case 'me-web-notes': {
-      if (!sheet) return true;
-      const notes = d.v === '1';
-      if (sheet.mode === 'web') {
-        sheet.web = { ...sheet.web, notes };
-        repaintSheet();
-        return true;
-      }
+    case 'me-web-perm': {
+      if (!sheet || !['read', 'notes', 'fread', 'fwrite'].includes(d.p)) return true;
       const l = ME.links().find((x) => x.id === sheet.id);
-      if (!l?.web) return true;
-      await busy(async (s) => {
-        await ME.setWeb(s.id, { ...l.web, notes });
-        toast(notes ? `${l.app} may add notes and to-dos now.` : `${l.app} only reads now.`);
-      });
+      const w = sheet.mode === 'web' ? sheet.web : l?.web;
+      if (!w) return true;
+      const on = d.p === 'read' ? w.read === false : !w[d.p];
+      await setPerm(d.p, on);
+      return true;
+    }
+    case 'me-web-mkdir': {
+      const l = sheet && ME.links().find((x) => x.id === sheet.id);
+      if (!l) return true;
+      try {
+        const F = await import('./files');
+        const id = await F.makeFolder(`For ${l.app}`);
+        await setDir(id);
+        loadFolders();
+        toast(`Made the folder "For ${l.app}". Put the files ${l.app} may read in it.`);
+      } catch (err) {
+        toast(ME.problem(err));
+      }
       return true;
     }
     case 'me-web-days': {
@@ -731,7 +809,13 @@ export async function handleAction(act, el) {
     case 'me-web-on':
       await busy(async (s) => {
         const until = untilFor(s.web.days);
-        await ME.setWeb(s.id, { notes: s.web.notes && hasLifeStore(), ...(until ? { until } : {}) });
+        const files = ME.connectorDoesFiles() === true && hasLifeStore() && s.web.dir;
+        await ME.setWeb(s.id, {
+          notes: s.web.notes && hasLifeStore(),
+          ...(until ? { until } : {}),
+          read: s.web.read !== false,
+          ...(files ? { dir: s.web.dir, fread: !!s.web.fread, fwrite: !!s.web.fwrite } : {}),
+        });
         s.mode = 'view';
         s.webDays = s.web.days;
         toast('On for the web. Copy the address into the app.');
@@ -780,6 +864,27 @@ export async function handleAction(act, el) {
       return false;
   }
 }
+
+// The shared folder: on the sheet before the web is on, or straight away once it is. A new folder
+// starts with nothing shared from it until the Player turns the file switches on.
+async function setDir(dir) {
+  const l = sheet && ME.links().find((x) => x.id === sheet.id);
+  if (!l) return;
+  if (sheet.mode === 'web') {
+    sheet.web = { ...sheet.web, dir };
+    repaintSheet();
+    return;
+  }
+  if (!l.web) return;
+  await busy(async (s) => {
+    await ME.setWeb(s.id, { notes: l.web.notes && hasLifeStore(), ...(l.web.until ? { until: l.web.until } : {}), dir, ...(dir ? {} : { fread: false, fwrite: false }) });
+    toast(dir ? `Shared folder set for ${l.app}.` : `${l.app} has no shared folder now.`);
+  });
+}
+
+globalThis.document?.addEventListener('change', (e) => {
+  if (e.target?.id === 'meWebDir') void setDir(e.target.value || '');
+});
 
 // Typing in the About me text keeps it as typed, until what goes in changes.
 globalThis.document?.addEventListener('input', (e) => {

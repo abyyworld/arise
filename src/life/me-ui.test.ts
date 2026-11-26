@@ -212,7 +212,11 @@ describe('Connected apps', () => {
     click('.sheet-body [data-act="me-web-explain"]');
     expect(text('.sheet-body')).toContain("So this app gets an address of its own, and Arise's connector, a small server Arise runs on Cloudflare, opens it for a moment");
     expect(text('.sheet-body')).toContain('that server and Cloudflare could read what this app gets');
-    expect(text('.sheet-body [data-act="me-web-notes"][aria-pressed="true"]')).toBe('No, only read');
+    // A switch for each thing it may do: only reading is on to start with, and the file switches
+    // wait for a connector that serves files.
+    const perms = () => [...document.querySelectorAll<HTMLButtonElement>('.sheet-body [data-act="me-web-perm"]')].map((b) => `${b.dataset.p} ${b.getAttribute('aria-pressed')}${b.disabled ? ' disabled' : ''}`);
+    expect(perms()).toEqual(['read true', 'notes false', 'fread false disabled', 'fwrite false disabled']);
+    expect(text('.sheet-body')).toContain("Needs the connector update. Until it's there, apps on the web can't read or save files.");
     expect(text('.sheet-body [data-act="me-web-days"][aria-pressed="true"]')).toBe('A month');
     expect(ME.links()[0].web).toBeUndefined(); // nothing changes until Turn it on
     click('.sheet-body [data-act="me-web-days"][data-d="7"]');
@@ -283,7 +287,7 @@ describe('Connected apps', () => {
     expect(text('.sheet-body .me-rules')).toContain('No rules yet. It may do all you let it.');
     click('.sheet-body [data-act="me-rules-edit"]');
     expect(text('.sheet-body')).toContain('Pick what Claude may just do, must ask you about first, or may never do.');
-    expect([...document.querySelectorAll('.sheet-body [data-act="me-rule"][aria-pressed="true"]')].map((b) => b.textContent)).toEqual(['May just do', 'May just do', 'May just do', 'May just do']);
+    expect([...document.querySelectorAll('.sheet-body [data-act="me-rule"][aria-pressed="true"]')].map((b) => b.textContent)).toEqual(['May just do', 'May just do', 'May just do', 'May just do', 'May just do']);
     click('.sheet-body [data-act="me-rule"][data-a="todo"][data-v="ask"]');
     click('.sheet-body [data-act="me-rule"][data-a="note"][data-v="never"]');
     click('.sheet-body [data-act="me-rule"][data-a="health"][data-v="never"]');

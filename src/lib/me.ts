@@ -14,6 +14,7 @@
 // Only small modules: the page that shows a me link (share-view.ts) loads this, and none of the app.
 import { linkKey, open, seal, type Sealed } from './crypto';
 import { MAX_CT, newShareRef } from './share';
+import { cleanMeFiles, fileName, type MeFile } from './me-files';
 import type { LifeTier } from '../life/types';
 
 export const FORMAT = 'arise.me/v1';
@@ -124,20 +125,40 @@ export interface MePayload {
   days?: MeDay[];
   web?: MeWeb;
   rules?: MeRules;
+  files?: MeFile[]; // the folder the Player shares with an AI app on the web (lib/me-files.ts)
   updated: number;
 }
 // Only on an app's web page: its own page and key, separate from its link, made when the Player
 // turned the web connector on for that app (worker/connector). The connector answers for it only
 // then, until `until` if there is one, and takes notes from the app only if `notes`. `feed` is the
 // SHA-256 (hex) of the token only the Player's Arise has, which reads back what the app did.
+// `read: false`: it may not read about them (the page then holds nothing about them either).
+// `files`: whether it may read the files in the folder they share with it, and save files there.
+// A page without these says what it said before they came.
 export interface MeWeb {
   notes: boolean;
+  read?: false;
   until?: number;
   feed?: string;
+  files?: MeWebFiles;
 }
+export interface MeWebFiles {
+  read: boolean;
+  write: boolean;
+  folder: string; // the shared folder's name
+}
+const webFiles = (v: unknown): MeWebFiles | undefined => {
+  const f = v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
+  if (!f || (f.read !== true && f.write !== true)) return undefined;
+  return { read: f.read === true, write: f.write === true, folder: fileName(f.folder) || 'Shared' };
+};
+const webOut = (w: Partial<MeWeb> & Record<string, unknown>): MeWeb => {
+  const files = webFiles(w.files);
+  return { notes: w.notes === true, ...(w.read === false ? { read: false as const } : {}), ...(isTime(w.until) ? { until: w.until } : {}), ...(typeof w.feed === 'string' && HEX64.test(w.feed) ? { feed: w.feed } : {}), ...(files ? { files } : {}) };
+};
 const HEX64 = /^[0-9a-f]{64}$/;
 // Everything a payload may hold. Nothing else is ever sent (me.test.ts checks it).
-export const PAYLOAD_FIELDS = ['format', 'name', 'about', 'facts', 'goals', 'today', 'days', 'web', 'rules', 'updated'] as const;
+export const PAYLOAD_FIELDS = ['format', 'name', 'about', 'facts', 'goals', 'today', 'days', 'web', 'rules', 'files', 'updated'] as const;
 
 // ---------- the Player's rules for one app
 
@@ -147,7 +168,7 @@ export const PAYLOAD_FIELDS = ['format', 'name', 'about', 'facts', 'goals', 'tod
 // a "never" tool isn't offered at all, an "ask first" one sends a request Arise shows the Player.
 // House rules are their own words, handed to the AI app with every answer.
 export const RULE_TOPICS = ['health', 'money'] as const;
-export const RULE_ADDS = ['note', 'todo'] as const;
+export const RULE_ADDS = ['note', 'todo', 'file'] as const;
 export type RuleTopic = (typeof RULE_TOPICS)[number];
 export type RuleAdd = (typeof RULE_ADDS)[number];
 export type RuleAction = RuleTopic | RuleAdd;
@@ -162,6 +183,7 @@ export const RULE_WORDS: Record<RuleAction, string> = {
   money: 'read anything about my money',
   note: 'add a note',
   todo: 'add a to-do',
+  file: 'save a file',
 };
 // A few house rules to start from.
 export const HOUSE_PICKS = ["Don't mention my exams unless I ask.", 'Keep answers short.', "Don't give me medical advice.", 'Speak to me in a friendly, calm way.'];
@@ -322,7 +344,8 @@ function withoutTopics(src: MeSource, topics: RuleTopic[]): MeSource {
   };
 }
 
-export function buildMe(all: MeSource, c: MeChoice, now = Date.now(), web: MeWeb | null = null, rulesIn?: MeRules): MePayload {
+// `files`: the shared folder's files, only on an AI app's web page that may read them.
+export function buildMe(all: MeSource, c: MeChoice, now = Date.now(), web: MeWeb | null = null, rulesIn?: MeRules, files: MeFile[] | null = null): MePayload {
   const rules = cleanRules(rulesIn);
   const src = withoutTopics(all, (rules?.never || []).filter((a): a is RuleTopic => RULE_TOPICS.includes(a as RuleTopic)));
   const has = (s: Section) => c.sections.includes(s);
@@ -344,8 +367,9 @@ export function buildMe(all: MeSource, c: MeChoice, now = Date.now(), web: MeWeb
             .map((d) => ({ day: d.day, text: firstPerson(d.text) })),
         }
       : {}),
-    ...(web ? { web: { notes: web.notes === true, ...(web.until ? { until: web.until } : {}), ...(web.feed && HEX64.test(web.feed) ? { feed: web.feed } : {}) } } : {}),
+    ...(web ? { web: webOut(web as MeWeb & Record<string, unknown>) } : {}),
     ...(rules ? { rules } : {}),
+    ...(web?.files?.read && files ? { files } : {}),
     updated: now,
   };
 }
@@ -395,7 +419,8 @@ export function cleanMe(raw: unknown): MePayload | null {
   const t = r.today && typeof r.today === 'object' ? (r.today as Record<string, unknown>) : null;
   if (t && isDay(t.day)) out.today = { day: t.day, quests: items(t.quests, 50).flatMap((q) => (line(q.title, 120) ? [{ title: line(q.title, 120), done: q.done === true }] : [])) };
   const w = r.web && typeof r.web === 'object' ? (r.web as Record<string, unknown>) : null;
-  if (w) out.web = { notes: w.notes === true, ...(isTime(w.until) ? { until: w.until } : {}), ...(typeof w.feed === 'string' && HEX64.test(w.feed) ? { feed: w.feed } : {}) };
+  if (w) out.web = webOut(w);
+  if (out.web?.files?.read && Array.isArray(r.files)) out.files = cleanMeFiles(r.files);
   const rules = cleanRules(r.rules);
   if (rules) out.rules = rules;
   if (Array.isArray(r.days)) out.days = items(r.days, 31).flatMap((d) => (isDay(d.day) && lines(d.text, 1500) ? [{ day: d.day, text: lines(d.text, 1500) }] : []));
