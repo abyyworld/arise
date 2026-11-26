@@ -1500,6 +1500,16 @@ export function addDebt(input: { who: string; amount: number; cur?: string; dir:
   return d;
 }
 
+// Part of a debt paid back: what's left stays owed; all of it settles it.
+export function payDebt(id: string, amount: number) {
+  const d = state.debts[id];
+  if (!d || d.gone || d.settled || !(amount > 0)) return;
+  const paid = Math.round(((d.paid || 0) + amount) * 100) / 100;
+  if (paid >= d.amount) return settleDebt(id);
+  state.debts = EV2.cleanDebts({ ...state.debts, [id]: { ...d, paid, at: Date.now() } });
+  save();
+}
+
 export function settleDebt(id: string, settled = true) {
   const d = state.debts[id];
   if (!d || d.gone) return;

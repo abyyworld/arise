@@ -17,6 +17,7 @@ export interface Debt {
   what?: string; // what it was for
   due?: string; // YYYY-MM-DD
   settled?: number; // when it was paid back
+  paid?: number; // paid back so far, when only part of it was (since SCHEMA 18)
   created: number;
   at: number;
   gone?: true;
@@ -64,6 +65,7 @@ export function cleanDebt(raw: unknown): Debt | null {
   if (what) out.what = what;
   if (typeof r.due === 'string' && DAY.test(r.due)) out.due = r.due;
   if (isTime(r.settled)) out.settled = r.settled;
+  if (typeof r.paid === 'number' && Number.isFinite(r.paid) && r.paid > 0 && r.paid < amount) out.paid = Math.round(r.paid * 100) / 100;
   return out;
 }
 
@@ -149,12 +151,24 @@ export interface Balance {
   due?: string; // the soonest due day among them
 }
 const keyOf = (who: string) => who.toLowerCase();
+// What's still owed on one debt, after any part paid back.
+export const leftOf = (x: Debt) => Math.round((x.amount - (x.paid || 0)) * 100) / 100;
+
+// Due more than 3 days from now, with nothing late: folded away on Today until the day before.
+export const later = (b: Balance, today: string) => {
+  if (!b.due) return false;
+  const [y, m, d] = today.split('-').map(Number);
+  const soon = new Date(Date.UTC(y, m - 1, d + 3)).toISOString().slice(0, 10);
+  return b.due > soon;
+};
+
 export function balances(d: Debts): Balance[] {
   const by = new Map<string, Balance>();
   for (const x of openDebts(d)) {
     const k = `${keyOf(x.who)}|${x.cur}`;
     const b = by.get(k) || { who: x.who, cur: x.cur, net: 0, items: [] };
-    b.net = Math.round((b.net + (x.dir === 'owed' ? x.amount : -x.amount)) * 100) / 100;
+    const left = leftOf(x);
+    b.net = Math.round((b.net + (x.dir === 'owed' ? left : -left)) * 100) / 100;
     b.items.push(x);
     if (x.due && (!b.due || x.due < b.due)) b.due = x.due;
     by.set(k, b);

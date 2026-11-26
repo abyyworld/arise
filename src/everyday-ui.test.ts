@@ -244,6 +244,45 @@ describe('the weekly review', () => {
   });
 });
 
+describe('part paid and undo', () => {
+  it('takes part of a debt back, then all of it', async () => {
+    const { S } = await boot({ settings: { bestTime: 'morning' } });
+    const d = S.addDebt({ who: 'Sam', amount: 20, cur: 'GBP', dir: 'owed' })!;
+    (await import('./everyday-ui.js')).repaint();
+    await tap('[data-act="money-person"]');
+    await tap('[data-act="debt-part"]');
+    (document.querySelector(`#part-${d.id}`) as HTMLInputElement).value = '5';
+    await submit(`[data-form="debt-part"][data-id="${d.id}"]`);
+    expect(S.state.debts[d.id].paid).toBe(5);
+    expect(text('.person-sheet')).toContain('Sam owes you £15');
+    expect(text('#everydayCard')).toContain('Sam owes you £15');
+    await tap('[data-act="debt-part"]');
+    (document.querySelector(`#part-${d.id}`) as HTMLInputElement).value = '15';
+    await submit(`[data-form="debt-part"][data-id="${d.id}"]`);
+    expect(S.state.debts[d.id].settled).toBeTruthy();
+  });
+
+  it('undoes what the box saved, and puts the words back', async () => {
+    const { S } = await boot({ settings: { bestTime: 'morning' } });
+    await write('buy milk and eggs');
+    await submit('[data-form="capture"]');
+    expect(S.groceriesList()).toHaveLength(2);
+    await tap('#toast .toast-undo');
+    expect(S.groceriesList()).toHaveLength(0);
+    expect(($('#captureIn') as HTMLTextAreaElement).value).toBe('buy milk and eggs');
+  });
+
+  it('moves a to-do whose time has passed today to the next free hour', async () => {
+    const { S } = await boot({ settings: { bestTime: 'morning' } }); // 10:00
+    S.addTodo({ title: 'Lab meeting', day: '2026-11-24', time: '11:00' });
+    await write('call mum today at 9');
+    await submit('[data-form="capture"]');
+    const t = Object.values(S.state.todos).find((x) => x.title === 'Call mum')!;
+    expect([t.day, t.time]).toEqual(['2026-11-24', '12:00']);
+    expect(text('#toast')).toContain('That time had passed');
+  });
+});
+
 describe('Write it my way', () => {
   it('writes from rough notes on Coach, keeps the sample of how you write, and copies the result', async () => {
     const { S, AI } = await boot({}, 'coach');

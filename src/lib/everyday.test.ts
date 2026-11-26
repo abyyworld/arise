@@ -101,3 +101,16 @@ describe('the box on Today', () => {
     expect(asKind(classify('Had lunch', now), 'todo', now)).toMatchObject({ kind: 'todo', title: 'Had lunch' });
   });
 });
+
+describe('part paid and due later', () => {
+  it('keeps what is still owed after part of it came back, and folds far-off days', () => {
+    const d = E.cleanDebts({ a: { id: 'a', who: 'Sam', amount: 20, cur: 'GBP', dir: 'owed', paid: 7.5, due: '2026-12-10', at: T } }, T);
+    expect(E.leftOf(d.a)).toBe(12.5);
+    const b = E.balances(d);
+    expect(E.balanceText(b[0])).toBe('Sam owes you £12.50');
+    expect(E.later(b[0], '2026-11-25')).toBe(true);
+    expect(E.later(b[0], '2026-12-07')).toBe(false); // 3 days before
+    // Nonsense paid amounts are dropped.
+    expect(E.cleanDebt({ id: 'a', who: 'Sam', amount: 20, paid: 25, at: T })!.paid).toBeUndefined();
+  });
+});

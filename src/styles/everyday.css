@@ -59,3 +59,9 @@
 .focus-what { display: grid; min-width: 0; overflow-wrap: anywhere; }
 .ahead-start { justify-self: start; margin-top: 2px; }
 @media (max-width: 420px) { .focus-row { grid-template-columns: auto 1fr; } }
+
+/* Undo in a message (ui.js toast). */
+.toast-undo { pointer-events: auto; margin-left: 8px; background: none; border: 0; color: var(--sys); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 0; }
+.money-later summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; margin-top: 6px; }
+.debt-part { display: flex; gap: 6px; margin-top: 4px; }
+.debt-part input { width: 7em; }

@@ -6,7 +6,7 @@
 import * as S from './store';
 import * as B from './lib/brief';
 import { logEvents } from './ahead';
-import { money } from './lib/everyday';
+import { leftOf, money } from './lib/everyday';
 
 const DAY_MS = 86_400_000;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -31,7 +31,7 @@ export function inputFor(k: string): B.BriefInput {
   deadlines.sort((a, b) => a.due.localeCompare(b.due));
   const owe = Object.values(st.debts)
     .filter((d) => !d.gone && !d.settled && d.dir === 'owe' && d.due && d.due <= k)
-    .map((d) => ({ text: `pay ${d.who} back ${money(d.amount, d.cur)}`, due: d.due! }));
+    .map((d) => ({ text: `pay ${d.who} back ${money(leftOf(d), d.cur)}`, due: d.due! }));
   return {
     day: k,
     events,

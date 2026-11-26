@@ -9,7 +9,7 @@ import { questions, threeThings } from './lib/questions';
 import { looseEnds } from './lib/loose';
 import * as BRIEF from './brief';
 import * as REVIEW from './review';
-import { balanceText, money, totals } from './lib/everyday';
+import { balanceText, later, leftOf, money, totals } from './lib/everyday';
 import { noteWithFile } from './life/quick-note';
 import { hasLifeStore, lifeStore } from './life/store-port';
 import { esc, icon, openSheet, closeSheet, toast } from './ui.js';
@@ -115,16 +115,31 @@ function repaintTodos() {
   if (el) el.outerHTML = todoCard();
 }
 
+// The next whole hour today with nothing on the calendar or the to-do list, before 22:00. '' if none.
+function nextFreeSlot(now = new Date()) {
+  const k = S.todayKey();
+  const busy = new Set(Object.values(S.state.todos).filter((t) => !t.gone && !t.done && t.day === k && t.time).map((t) => t.time.slice(0, 2)));
+  const from = new Date(now);
+  from.setMinutes(0, 0, 0);
+  for (let h = now.getHours() + 1; h < 22; h++) {
+    const start = new Date(from).setHours(h);
+    if (busy.has(String(h).padStart(2, '0'))) continue;
+    if (S.eventsBetween(start, start + 3_600_000).some((o) => !o.allDay)) continue;
+    return `${String(h).padStart(2, '0')}:00`;
+  }
+  return '';
+}
+
 let saving = false;
 async function saveNote(text, file) {
   if (!hasLifeStore()) {
     toast('Notes go in the life log, which this version of Arise does not have.');
-    return false;
+    return '';
   }
   const event = await noteWithFile({ text, at: Date.now() }, file);
-  if (!event) return false;
+  if (!event) return '';
   const n = await (await lifeStore()).addEvents([event]);
-  return n > 0;
+  return n > 0 ? event.id : '';
 }
 
 async function capture() {
@@ -138,23 +153,56 @@ async function capture() {
   }
   saving = true;
   try {
+    const undoWith = (fn) => () => {
+      fn();
+      const box = $('#captureIn');
+      if (box && c?.text) {
+        box.value = c.text;
+        preview();
+      }
+    };
     if (file || c.kind === 'note') {
-      if (!(await saveNote(c?.text || '', file))) throw new Error("That couldn't be saved.");
-      toast('Added to your day.');
+      const id = await saveNote(c?.text || '', file);
+      if (!id) throw new Error("That couldn't be saved.");
+      toast('Added to your day.', undoWith(() => void lifeStore().then((L) => L.removeIds?.([id]))));
       void refreshLoose();
     } else if (c.kind === 'todo') {
-      if (!S.addTodo({ title: c.title, day: c.day, time: c.time })) throw new Error("That couldn't be added.");
+      let { day, time } = c;
+      let moved = '';
+      if (day && time && day === S.todayKey()) {
+        const [h, m] = time.split(':').map(Number);
+        const at = new Date();
+        at.setHours(h, m, 0, 0);
+        if (at.getTime() < Date.now()) {
+          time = nextFreeSlot();
+          moved = time ? ` That time had passed, so it's at ${time}, your next free hour.` : '';
+          if (!time) day = S.addDays(day, 1);
+        }
+      }
+      const t = S.addTodo({ title: c.title, day, time });
+      if (!t) throw new Error("That couldn't be added.");
       repaintTodos();
-      toast(`Added to your to-dos${c.day ? ` for ${dayText(c.day).toLowerCase() === 'today' ? 'today' : dayText(c.day)}` : ''}.`);
+      toast(`Added to your to-dos${day ? ` for ${dayText(day).toLowerCase() === 'today' ? 'today' : dayText(day)}` : ''}.${moved}`, undoWith(() => {
+        S.removeTodo(t.id);
+        repaintTodos();
+      }));
     } else if (c.kind === 'grocery') {
+      const before = new Set(S.groceriesList().filter((g) => !g.got).map((g) => g.id));
       const n = S.addGroceries(c.items);
+      const added = S.groceriesList().filter((g) => !g.got && !before.has(g.id)).map((g) => g.id);
       setTab('groceries');
-      toast(n ? `Added ${n === 1 ? c.items[0].name : `${n} things`} to groceries.` : 'Already on the list.');
+      toast(n ? `Added ${n === 1 ? c.items[0].name : `${n} things`} to groceries.` : 'Already on the list.', added.length ? undoWith(() => {
+        S.removeGroceries(added);
+        repaint();
+      }) : undefined);
     } else if (c.kind === 'debt') {
       if (c.who && c.amount) {
-        S.addDebt({ who: c.who, amount: c.amount, cur: c.cur, dir: c.dir, what: c.what, due: c.day });
+        const d = S.addDebt({ who: c.who, amount: c.amount, cur: c.cur, dir: c.dir, what: c.what, due: c.day });
         setTab('money');
-        toast('Saved.');
+        toast('Saved.', d ? undoWith(() => {
+          S.removeDebt(d.id);
+          repaint();
+        }) : undefined);
       } else {
         debtSheet({ text: c.text });
         clear();
@@ -189,15 +237,18 @@ function moneyPane() {
   return `${sum.length ? `<p class="muted small">In all: ${esc(sum.join('; '))}.</p>` : ''}
     ${
       list.length
-        ? `<ul class="qlist money-list">${list
-            .map((b) => {
+        ? (() => {
+            const row = (b) => {
               const late = b.due && b.due < today;
               return `<li><button class="money-row ${b.net > 0 ? 'in' : 'out'}" data-act="money-person" data-v="${esc(b.who)}" data-cur="${esc(b.cur)}">
               <span class="money-who">${esc(balanceText(b))}</span>
               <span class="qmeta${late ? ' late' : ''}">${esc([b.items.length > 1 ? `${b.items.length} things` : b.items[0].what || '', b.due ? `${late ? 'Was due' : 'Due'} ${dayText(b.due, today)}` : ''].filter(Boolean).join(' · '))}</span>
             </button></li>`;
-            })
-            .join('')}</ul>`
+            };
+            const now = list.filter((b) => !later(b, today));
+            const after = list.filter((b) => later(b, today));
+            return `${now.length ? `<ul class="qlist money-list">${now.map(row).join('')}</ul>` : ''}${after.length ? `<details class="money-later"><summary>Due later (${after.length})</summary><ul class="qlist money-list">${after.map(row).join('')}</ul></details>` : ''}`;
+          })()
         : '<p class="muted small">No one owes anyone. Write "Sam owes me 10 for lunch" in the box above, or add it here.</p>'
     }
     <div class="row"><button class="btn small" data-act="money-add">${icon('up')} Add</button></div>`;
@@ -287,13 +338,15 @@ function personSheet(who, cur) {
       .map(
         (x) => `<li class="qrow">
       <button class="qcheck" data-act="debt-settle" data-id="${esc(x.id)}" aria-label="Paid back: ${esc(x.what || money(x.amount, x.cur))}">${icon('check')}</button>
-      <span class="qbody"><span class="qtitle">${esc(`${x.dir === 'owed' ? `${b.who} owes you` : `You owe ${b.who}`} ${money(x.amount, x.cur)}`)}</span>
+      <span class="qbody"><span class="qtitle">${esc(`${x.dir === 'owed' ? `${b.who} owes you` : `You owe ${b.who}`} ${money(leftOf(x), x.cur)}`)}${x.paid ? ` <small class="muted">${esc(`of ${money(x.amount, x.cur)}, ${money(x.paid, x.cur)} paid`)}</small>` : ''}</span>
       <span class="qmeta">${esc([x.what, x.due ? `${x.due < today ? 'Was due' : 'Due'} ${dayText(x.due, today)}` : '', `Added ${new Date(x.created).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`].filter(Boolean).join(' · '))}</span></span>
+      <button class="btn small ghost" data-act="debt-part" data-id="${esc(x.id)}">Part paid</button>
       <button class="icon-btn small" data-act="debt-del" data-id="${esc(x.id)}" aria-label="Delete">${icon('close')}</button>
-    </li>`,
+    </li>
+    <li class="debt-part-row" data-for="${esc(x.id)}" hidden><form class="debt-part" data-form="debt-part" data-id="${esc(x.id)}"><label class="sr-only" for="part-${esc(x.id)}">How much was paid back</label><input id="part-${esc(x.id)}" type="number" inputmode="decimal" min="0" step="0.01" placeholder="How much"><button class="btn small primary" type="submit">Save</button></form></li>`,
       )
       .join('')}</ul>
-    <p class="muted small">Tick one when it's paid back.</p>
+    <p class="muted small">Tick one when it's paid back, or say how much came back so far.</p>
     <div class="row">
       <button class="btn primary small" data-act="debt-settle-all">All paid back</button>
       <button class="btn small" data-act="money-add" data-v="${esc(b.who)}">Add more</button>
@@ -393,7 +446,7 @@ function questionInput(now = new Date()) {
     goals: S.activeGoals().map((g) => ({ id: g.id, title: g.title, quests: g.quests.filter((q) => !q.archived).length, lastTick: lastTick(g), created: g.created })),
     owed: Object.values(st.debts)
       .filter((d) => !d.gone && !d.settled && d.dir === 'owed')
-      .map((d) => ({ id: d.id, who: d.who, text: `${money(d.amount, d.cur)}${d.what ? ` for ${d.what}` : ''}`, due: d.due })),
+      .map((d) => ({ id: d.id, who: d.who, text: `${money(leftOf(d), d.cur)}${d.what ? ` for ${d.what}` : ''}`, due: d.due })),
     bestTime: st.settings.bestTime,
     weekBig: Object.values(st.todos).filter((t) => !t.gone && !t.done && t.big && (!t.day || t.day <= sunday)).length,
     dismissed: st.dismissed,
@@ -665,6 +718,14 @@ export function handleAction(act, el) {
         b.setAttribute('aria-pressed', String(b === el));
       });
       return true;
+    case 'debt-part': {
+      const row = $(`.debt-part-row[data-for="${id}"]`);
+      if (row) {
+        row.hidden = !row.hidden;
+        row.querySelector('input')?.focus();
+      }
+      return true;
+    }
     case 'debt-settle':
     case 'debt-del': {
       const d = S.state.debts[id];
@@ -723,6 +784,24 @@ globalThis.document?.addEventListener('submit', (e) => {
   } else if (form === 'grocery-add') {
     e.preventDefault();
     addGroceries();
+  } else if (form === 'debt-part') {
+    e.preventDefault();
+    const id = e.target.dataset.id;
+    const d = S.state.debts[id];
+    const amount = Number(e.target.querySelector('input')?.value);
+    if (!d || !(amount > 0)) {
+      toast('Say how much came back.');
+      return;
+    }
+    S.payDebt(id, amount);
+    repaint();
+    if (S.state.debts[id]?.settled) {
+      closeSheet();
+      toast('All paid back now.');
+    } else {
+      personSheet(d.who, d.cur);
+      toast(`Saved. ${money(leftOf(S.state.debts[id]), d.cur)} still to go.`);
+    }
   } else if (form === 'debt-save') {
     e.preventDefault();
     saveDebt();
