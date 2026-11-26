@@ -61,6 +61,8 @@ import * as TOP from './life/top-sites.js';
 import * as FILES from './files-folder.js';
 import * as GHB from './github-backup';
 import * as GHB_UI from './github-backup-ui.js';
+import * as ODB from './own-db';
+import * as ODB_UI from './own-db-ui.js';
 import { initInsight } from './life/insight';
 import * as PLACES from './life/map-ui.js';
 import * as LINKS from './life/links-ui.js';
@@ -1833,6 +1835,7 @@ function renderSettings() {
           ${FILES.state().error ? `<p class="error small">${esc(FILES.state().error)}</p>` : ''}
           <div class="row"><button class="btn primary" data-act="export">Save backup</button><button class="btn ghost" data-act="import">Load backup</button></div>
         </section>
+        ${ODB_UI.panel()}
         <section class="panel">
           <div class="panel-title"><span>Your history</span></div>
           <p>Bring in years of your life from Google, Spotify, Netflix, Apple Health, WhatsApp and other chat apps, or your bank. Arise reads the file on this device. Nothing is uploaded.</p>
@@ -2419,6 +2422,7 @@ async function eraseDevice(signedIn) {
   if (WR.isOn()) await WR.turnOff(); // like the iPhone app's, the reminders stop
   await CONNECT.forgetAll(); // linked accounts' sign-ins go too (the reset started it: this waits until it's done)
   await GHB.forget(); // the GitHub backup's key and backup password (its backups stay on GitHub)
+  ODB.forget(); // your own database's connection (what's in it stays there)
   await SENSE.forget(); // the iPhone stops noting places, and every source is off again
   if (!N.isNative) await BROWSER.forgetAll().catch(() => {}); // linked browsers' keys go too
   forgetAIKey('');
@@ -2678,6 +2682,7 @@ WR.initWebReminders();
 ATMO.initAtmosphere();
 FILES.initFiles();
 GHB.initGitHubBackup();
+ODB.initOwnDb();
 // The atmosphere menu closes with a tap anywhere else, or Escape.
 document.addEventListener('click', (e) => {
   if (!atmoOpen || e.target?.closest?.('.hero-tools')) return;

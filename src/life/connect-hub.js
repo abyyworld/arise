@@ -32,6 +32,7 @@ import * as SYS from '../system.js';
 import * as APPLOCK from '../app-lock.js';
 import * as FILES from '../files-folder.js';
 import * as GHB_UI from '../github-backup-ui.js';
+import * as ODB_UI from '../own-db-ui.js';
 import * as MYFILES from './files-ui.js';
 import { toast } from '../ui.js';
 import * as HEALTH from '../health-ui.js';
@@ -255,6 +256,7 @@ export async function handleAction(act, el, { go } = {}) {
     return true;
   }
   if (await GHB_UI.handleAction(act)) return true;
+  if (await ODB_UI.handleAction(act, el)) return true;
   if (act.startsWith('files-')) {
     try {
       if (act === 'files-pick' && (await FILES.pick())) toast('Done. Arise backs up to that folder from now on.');
@@ -356,7 +358,7 @@ function connectHTML(s) {
   if (s === 'review') return `${setupPanel()}${HEALTH.panel()}`;
   return `<div class="cols hub">
       <div class="col">${phonePart()}${CONNECT.settingsPanel('Accounts')}</div>
-      <div class="col">${computerPart()}${historyPart()}${filesPart()}${MYFILES.hubPanel()}${GHB_UI.panel()}${appsPart()}</div>
+      <div class="col">${computerPart()}${historyPart()}${filesPart()}${MYFILES.hubPanel()}${GHB_UI.panel()}${ODB_UI.panel()}${appsPart()}</div>
     </div>`;
 }
 
