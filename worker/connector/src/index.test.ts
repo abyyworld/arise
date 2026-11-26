@@ -2,7 +2,8 @@
 // Player has the web on for it; the sealed log and notes Arise reads back.
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { Feed, forgetPages, handle, MAX_NOTES, type Env, type StorageLike } from './index';
+import { Feed, forgetPages, handle, MAX_FILES, MAX_NOTES, type Env, type StorageLike } from './index';
+import { filesKey, newUpload, PART_BYTES, partCount, partId, sealPart } from '../../../src/lib/me-files';
 import { cloud, resetCloud, restFetch } from '../../../src/test/fake-firebase';
 import * as ME from '../../../src/lib/me';
 import { newShareRef, SHARE_OFF } from '../../../src/lib/share';
@@ -277,6 +278,94 @@ describe('the web connector', () => {
     await env.objects.get(ref.id)!.feed.alarm();
     // Only the count stays, so numbers never start again at 1.
     expect([...env.objects.get(ref.id)!.data]).toEqual([['n', MAX_NOTES + 1]]);
+  });
+
+  it('opens a shared file only with Read files on: from the page, or from its sealed parts in the cloud', async () => {
+    const env = fakeEnv();
+    const ref = await newShareRef();
+    const token = newFeedToken();
+    const big = new Uint8Array(PART_BYTES * 2 + 100).map((_, i) => i % 256);
+    const v = newUpload();
+    const key = await filesKey(ref.id, ref.key);
+    const n = partCount(big.length);
+    for (let i = 0; i < n; i++) {
+      const s = await sealPart(key, ref.id, 'b'.repeat(22), v, i, n, big.subarray(i * PART_BYTES, (i + 1) * PART_BYTES));
+      cloud.docs.set(`shares/${await partId(ref.id, ref.key, 'b'.repeat(22), v, i)}`, { owner: 'uid1', iv: s.iv, ct: s.ct, v: 1, updated: 1 });
+    }
+    const files = [
+      { id: 'a'.repeat(22), name: 'list.txt', type: 'text/plain', size: 5, at: 1, data: btoa('Milk.') },
+      { id: 'b'.repeat(22), name: 'data.bin', type: 'application/octet-stream', size: big.length, at: 2, p: { v, n } },
+    ];
+    const put = async (web: object) => {
+      const { sealed } = await ME.sealMe(ref, { ...BASE, web: { notes: false, feed: await tokenHash(token), ...web }, files } as ME.MePayload);
+      cloud.docs.set(`shares/${ref.id}`, { owner: 'uid1', iv: sealed.iv, ct: sealed.ct, v: 1, updated: BASE.updated });
+      forgetPages();
+    };
+    await put({ files: { read: true, write: false, folder: 'Shared' } });
+    expect((await call(env, at(ref), 'read_file', { id: 'a'.repeat(22) })).content![1].text).toBe('Milk.');
+    const got = (await call(env, at(ref), 'read_file', { id: 'b'.repeat(22) })) as unknown as { content: { resource: { blob: string } }[] };
+    expect(Uint8Array.from(atob(got.content[1].resource.blob), (x) => x.charCodeAt(0))).toEqual(big);
+    // A part swapped for another: it doesn't open, and the app is told to wait for Arise.
+    const p0 = `shares/${await partId(ref.id, ref.key, 'b'.repeat(22), v, 0)}`;
+    const p1 = `shares/${await partId(ref.id, ref.key, 'b'.repeat(22), v, 1)}`;
+    const first = cloud.docs.get(p0)!;
+    cloud.docs.set(p0, cloud.docs.get(p1)!);
+    const swapped = await call(env, at(ref), 'read_file', { id: 'b'.repeat(22) });
+    expect(swapped.isError).toBe(true);
+    expect(swapped.content![0].text).toContain("doesn't open");
+    // A part turned off: gone.
+    cloud.docs.set(p0, SHARE_OFF);
+    expect((await call(env, at(ref), 'read_file', { id: 'b'.repeat(22) })).content![0].text).toContain("isn't there any more");
+    cloud.docs.set(p0, first);
+    // Read files off: no tool, nothing read, whatever the page still lists.
+    await put({});
+    expect(await toolNames(env, at(ref))).not.toContain('read_file');
+    expect((await call(env, at(ref), 'read_file', { id: 'a'.repeat(22) })).isError).toBe(true);
+    // The log names each tool, refused or not.
+    const { open } = await readFeed(env, { ...ref, token });
+    expect(open.map((e) => `${e!.tool} ${e!.ok}`)).toEqual(['read_file true', 'read_file true', 'read_file false', 'read_file false', 'read_file false']);
+  });
+
+  it('takes a saved file only with Save files on, sealed in the log and kept on its own until Arise takes it', async () => {
+    const env = fakeEnv();
+    const ref = await fakeLink({ ...BASE, web: { notes: false, files: { read: false, write: true, folder: 'Shared' } } } as ME.MePayload);
+    // (A file is far bigger than a note: the connector takes it whole.)
+    const text = 'Plan. '.repeat(20_000);
+    expect(text.length).toBeGreaterThan(64 * 1024);
+    const ok = await call(env, at(ref), 'save_file', { name: 'plan.md', content: text });
+    expect(ok.isError).toBeUndefined();
+    expect((await call(env, at(ref), 'save_file', { name: 'big.txt', content: 'x'.repeat(256 * 1024 + 1) })).isError).toBe(true);
+    const o = env.objects.get(ref.id)!;
+    // Kept apart from the list, and only as ciphertext.
+    const list = o.data.get('e') as { n: number; ct: string; file?: boolean }[];
+    expect(list.map((e) => [e.n, e.file, e.ct])).toEqual([
+      [1, true, ''],
+      [2, undefined, expect.any(String)],
+    ]);
+    expect(String(o.data.get('f1')).length).toBeGreaterThan(100_000);
+    expect(JSON.stringify([...o.data.values()])).not.toContain('Plan.');
+    const { entries, open, token } = await readFeed(env, ref);
+    expect(open[0]).toMatchObject({ tool: 'save_file', ok: true, client: 'Claude', file: { name: 'plan.md', type: 'text/markdown', data: btoa(text) } });
+    expect(open[1]).toMatchObject({ tool: 'save_file', ok: false });
+    expect(open[1]).not.toHaveProperty('file');
+    await handle(new Request(`https://x/feed/${ref.id}/done`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ upTo: entries.at(-1)!.n }) }), env, deps);
+    expect(o.data.has('f1')).toBe(false);
+    // At most 10 waiting.
+    for (let i = 0; i < MAX_FILES; i++) expect((await call(env, at(ref), 'save_file', { name: `f${i}.txt`, content: 'x' })).isError).toBeUndefined();
+    const full = await call(env, at(ref), 'save_file', { name: 'one-more.txt', content: 'x' });
+    expect(full.content![0].text).toContain('files waiting');
+    // Read only: no saving.
+    const reader = await fakeLink({ ...BASE, web: { notes: true, files: { read: true, write: false, folder: 'Shared' } } } as ME.MePayload);
+    expect(await toolNames(env, at(reader))).not.toContain('save_file');
+    expect((await call(env, at(reader), 'save_file', { name: 'a.txt', content: 'x' })).isError).toBe(true);
+  });
+
+  it('asks first for a file when their rules say so, with the file sealed in the request', async () => {
+    const env = fakeEnv();
+    const ref = await fakeLink({ ...BASE, web: { notes: false, files: { read: false, write: true, folder: 'Shared' } }, rules: { ask: ['file'], never: [], house: '' } } as ME.MePayload);
+    expect((await call(env, at(ref), 'save_file', { name: 'idea.txt', content: 'Paint the shed' })).content![0].text).toContain("isn't saved yet");
+    const { open } = await readFeed(env, ref);
+    expect(open).toMatchObject([{ tool: 'ask', want: 'save_file', note: 'idea.txt', file: { name: 'idea.txt', type: 'text/plain', data: btoa('Paint the shed') } }]);
   });
 
   it("keeps to the Player's rules: never isn't offered, ask first becomes a sealed request, house rules go with every answer", async () => {

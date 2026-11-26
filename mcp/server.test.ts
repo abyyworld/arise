@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createServer, NAME } from './server.mjs';
-import { TOPIC_SIGNS, TOPIC_WORDS } from './core.mjs';
+import { FILE_MAX, fileName, SAVE_MAX, TOPIC_SIGNS, TOPIC_WORDS, typeFor } from './core.mjs';
 import { readMe } from '../public/me.js';
 import { cloud, resetCloud, restFetch } from '../src/test/fake-firebase';
 import * as ME from '../src/lib/me';
@@ -215,6 +215,108 @@ describe('the MCP server', () => {
     expect(found.content![1].text).toContain('- Be brief.');
     // Without a way to ask, an ask-first tool isn't offered at all.
     expect((await rpc(web(null), 'tools/list'))!.result!.tools!.map((t) => t.name)).not.toContain('add_todo');
+  });
+
+  it('on the web, offers each of the four switches only when it is on, and files only from the shared folder', async () => {
+    const files = [
+      { id: 'a'.repeat(22), name: 'list.md', type: 'text/markdown', size: 5, at: Date.UTC(2026, 9, 1), data: btoa('Milk.') },
+      { id: 'b'.repeat(22), name: 'dog.png', type: 'image/png', size: 4, at: Date.UTC(2026, 9, 2), p: { v: 'v'.repeat(12), n: 1 } },
+      { id: 'c'.repeat(22), name: 'scan.pdf', type: 'application/pdf', size: 3, at: Date.UTC(2026, 9, 3), p: { v: 'w'.repeat(12), n: 1 } },
+      { id: 'd'.repeat(22), name: 'film.mov', type: 'video/quicktime', size: 5_000_000, at: Date.UTC(2026, 9, 4), big: true },
+    ];
+    const bytes: Record<string, Uint8Array> = { ['b'.repeat(22)]: new Uint8Array([137, 80, 78, 71]), ['c'.repeat(22)]: new Uint8Array([37, 80, 68]) };
+    const saved: object[] = [];
+    const asked: object[] = [];
+    const web = async (w: object, rules?: object, withAsk = true) => {
+      const link = (await fakeLink({ ...PAYLOAD, web: { notes: false, ...w }, files, ...(rules ? { rules } : {}) } as ME.MePayload)).link;
+      return createServer({
+        link,
+        web: true,
+        read: (l: string) => readMe(l, { fetch: restFetch as typeof fetch, projectId: 'p', apiKey: 'k' }),
+        addNote: async () => {},
+        addTodo: async () => {},
+        readFile: async (f: { id: string; data?: string }) => (f.data ? Uint8Array.from(atob(f.data), (x) => x.charCodeAt(0)) : bytes[f.id]),
+        saveFile: async (f: object) => void saved.push(f),
+        ...(withAsk ? { askFirst: async (tool: string, text: string, _day: string, _me: unknown, file?: object) => void asked.push({ tool, text, file }) } : {}),
+      });
+    };
+    const names = async (s: ReturnType<typeof server>) => (await rpc(s, 'tools/list'))!.result!.tools!.map((t) => t.name);
+    type Result = { content: { type: string; text?: string; data?: string; mimeType?: string; resource?: { blob: string; mimeType: string } }[]; isError?: boolean };
+    const use = async (s: ReturnType<typeof server>, name: string, args: object = {}) => (await rpc(s, 'tools/call', { name, arguments: args }))!.result! as unknown as Result;
+
+    // All off but reading: as before.
+    expect(await names(await web({}))).toEqual(['about_me', 'my_goals', 'recent_days', 'search', 'fetch']);
+    // Read off: nothing about them, by any tool.
+    const blind = await web({ read: false, notes: true });
+    expect(await names(blind)).toEqual(['add_note', 'add_todo']);
+    for (const name of ['about_me', 'my_goals', 'search', 'fetch']) expect((await use(blind, name, { query: '', id: 'about' })).isError, name).toBe(true);
+    expect(String((await rpc(blind, 'initialize', {}))!.result!.instructions)).toContain('They chose not to let you read about them.');
+
+    // Read files: list and read, nothing more.
+    const reader = await web({ files: { read: true, write: false, folder: 'For Claude' } });
+    expect(await names(reader)).toEqual(['about_me', 'my_goals', 'recent_days', 'search', 'fetch', 'list_files', 'read_file']);
+    const list = (await use(reader, 'list_files')).content[0].text!;
+    expect(list).toContain('Files in their folder "For Claude":');
+    expect(list).toContain(`- list.md (id ${'a'.repeat(22)}; text/markdown; 5 bytes; added 2026-10-01)`);
+    expect(list).toContain('film.mov');
+    expect(list).toContain('too big to read here');
+    expect((await use(reader, 'read_file', { id: 'a'.repeat(22) })).content[1]).toEqual({ type: 'text', text: 'Milk.' });
+    expect((await use(reader, 'read_file', { id: 'b'.repeat(22) })).content[1]).toEqual({ type: 'image', data: btoa(String.fromCharCode(137, 80, 78, 71)), mimeType: 'image/png' });
+    expect((await use(reader, 'read_file', { id: 'c'.repeat(22) })).content[1]).toEqual({ type: 'resource', resource: { uri: `arise-file:///${'c'.repeat(22)}`, mimeType: 'application/pdf', blob: btoa('%PD') } });
+    const huge = await use(reader, 'read_file', { id: 'd'.repeat(22) });
+    expect(huge.isError).toBe(true);
+    expect(huge.content[0].text).toContain('too big to read here');
+    expect((await use(reader, 'read_file', { id: 'e'.repeat(22) })).isError).toBe(true);
+    expect((await use(reader, 'save_file', { name: 'x.txt', content: 'x' })).content[0].text).toContain("They haven't let this app save files.");
+
+    // Save files: save, nothing to read.
+    const writer = await web({ files: { read: false, write: true, folder: 'For Claude' } });
+    expect(await names(writer)).toEqual(['about_me', 'my_goals', 'recent_days', 'search', 'fetch', 'save_file']);
+    expect((await use(writer, 'list_files')).content[0].text).toContain("They haven't let this app read their files.");
+    expect((await use(writer, 'save_file', { name: 'plan.md', content: '# Plan' })).content[0].text).toContain('Saved as plan.md in their folder "For Claude"');
+    expect((await use(writer, 'save_file', { name: 'dot.png', content: btoa('PNG!'), encoding: 'base64' })).isError).toBeUndefined();
+    expect((await use(writer, 'save_file', { name: 'a/b\\c.txt', content: 'x', type: 'Text/Plain' })).isError).toBeUndefined();
+    expect(saved).toEqual([
+      { name: 'plan.md', type: 'text/markdown', data: btoa('# Plan') },
+      { name: 'dot.png', type: 'image/png', data: btoa('PNG!') },
+      { name: 'a b c.txt', type: 'text/plain', data: btoa('x') },
+    ]);
+    // Too big, empty, nameless or not base64: refused, and nothing saved.
+    expect((await use(writer, 'save_file', { name: 'big.txt', content: 'x'.repeat(SAVE_MAX + 1) })).content[0].text).toContain('too big: the most is 256 KB');
+    expect((await use(writer, 'save_file', { name: 'big.bin', content: btoa('x'.repeat(SAVE_MAX + 1)), encoding: 'base64' })).isError).toBe(true);
+    expect((await use(writer, 'save_file', { name: 'e.txt', content: '' })).isError).toBe(true);
+    expect((await use(writer, 'save_file', { name: ' / ', content: 'x' })).isError).toBe(true);
+    expect((await use(writer, 'save_file', { name: 'b.bin', content: 'not base64!', encoding: 'base64' })).isError).toBe(true);
+    expect(saved).toHaveLength(3);
+
+    // Their rules apply on top: ask first sends a request with the file, never takes the tool away.
+    const asking = await web({ files: { read: false, write: true, folder: 'For Claude' } }, { ask: ['file'], never: [], house: '' });
+    const tools = (await rpc(asking, 'tools/list'))!.result!.tools! as unknown as { name: string; description: string }[];
+    expect(tools.at(-1)).toMatchObject({ name: 'save_file', description: expect.stringContaining('the file is saved only if they say yes there') });
+    expect((await use(asking, 'save_file', { name: 'idea.txt', content: 'Paint the shed' })).content[0].text).toContain("Sent to them to allow. idea.txt isn't saved yet");
+    expect(asked).toEqual([{ tool: 'save_file', text: 'idea.txt', file: { name: 'idea.txt', type: 'text/plain', data: btoa('Paint the shed') } }]);
+    expect(await names(await web({ files: { read: false, write: true, folder: 'F' } }, { ask: ['file'], never: [], house: '' }, false))).not.toContain('save_file');
+    const never = await web({ files: { read: false, write: true, folder: 'F' } }, { ask: [], never: ['file'], house: '' });
+    expect(await names(never)).not.toContain('save_file');
+    const refused = await use(never, 'save_file', { name: 'x.txt', content: 'x' });
+    expect(refused.content[0].text).toContain('Their rules say you may never save files.');
+    expect(refused.content[0].text).toContain('Their rules in Arise say this app may never save files.');
+    expect(saved).toHaveLength(3);
+
+    // A desktop app (stdio) never gets files, whatever the page says.
+    const desk = server((await fakeLink({ ...PAYLOAD, web: { notes: true, files: { read: true, write: true, folder: 'F' } }, files } as ME.MePayload)).link);
+    expect(await names(desk)).toEqual(['about_me', 'my_goals', 'recent_days']);
+    expect((await use(desk, 'list_files')).content[0].text).toContain("There's no tool called list_files.");
+  });
+
+  it('keeps to the same file limits as the app', async () => {
+    const app = await import('../src/lib/me-files');
+    expect(FILE_MAX).toBe(app.FILE_MAX);
+    expect(SAVE_MAX).toBe(app.SAVE_MAX);
+    for (const [name, given, text] of [['a.md', '', true], ['a.PNG', undefined, false], ['a', 'image/webp', false], ['a', 'nonsense', true], ['a.xyz', '', false]] as const) {
+      expect(typeFor(name, given, text), name).toBe(app.typeFor(name, given, text));
+    }
+    for (const n of ['a/b.txt', ' x\ny ', 'é'.repeat(200)]) expect(fileName(n)).toBe(app.fileName(n));
   });
 
   it('holds back the same topics as the app', async () => {

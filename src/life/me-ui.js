@@ -433,7 +433,7 @@ function sheetHTML() {
 
 // What the app may do, a switch for each, and for how long it's on.
 const NEEDS_FILES_UPDATE = "Needs the connector update. Until it's there, apps on the web can't read or save files.";
-const kb = (n) => `${Math.round(n / 1024)} KB`;
+const kb = (n) => (n >= 1048576 ? `${Math.round(n / 1048576)} MB` : `${Math.round(n / 1024)} KB`);
 function switchRow(p, on, title, small, disabled = false) {
   return `<button class="toggle-row" data-act="me-web-perm" data-p="${p}" aria-pressed="${on}" ${disabled ? 'disabled' : ''}><span><b>${esc(title)}</b><small>${esc(small)}</small></span><span class="switch ${on ? 'on' : ''}"></span></button>`;
 }
@@ -456,7 +456,7 @@ function webPicksHTML(w) {
     ${life ? switchRow('notes', !!w.notes, 'Add', 'A note to your day or a to-do on your list, when you ask it to. Marked with its name. It never changes or deletes anything.') : ''}
     ${
       life
-        ? `${switchRow('fread', !!w.fread && !!dir, 'Read files', `Only the files in the one folder you pick below, up to ${kb(FILE_MAX)} each. Nothing else of Photos and files.`, !files || !dir)}
+        ? `${switchRow('fread', !!w.fread && !!dir, 'Read files', `Only the files in the one folder you pick below, up to ${kb(FILE_MAX)} each, sealed for this app. Nothing else of Photos and files.`, !files || !dir)}
     ${switchRow('fwrite', !!w.fwrite && !!dir, 'Save files', `A file into that folder, up to ${kb(SAVE_MAX)}, when you ask it to. Your rules apply.`, !files || !dir)}
     ${files ? '' : `<p class="error small">${esc(NEEDS_FILES_UPDATE)}</p>`}
     ${folderPick}
