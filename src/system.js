@@ -886,6 +886,14 @@ const HOW = {
   text: "Ask me how I'm really doing this week.\nLook at what Arise saw in my week, as far as you may read it: my sleep, movement and focus, the people I was in touch with, my screens and my life log. Say in one or two short sentences what you noticed, kindly and without judging. Then ask me one gentle, open question about how I really am, not about my goals. No advice yet and no pep talk: just ask, and listen to my answer.",
 };
 
+// More ways in, each a new chat: where they stand, the one thing, their values, what they avoid.
+const MIRROR = [
+  { label: 'Where do I really stand?', text: 'Tell me honestly where I stand right now, from what Arise saw in the last few weeks as far as you may read it: what is going well, what is slipping, and what I keep saying but not doing. Short, kind, specific, no pep talk.' },
+  { label: 'The one thing', text: 'If I changed one thing this week, what should it be? Pick one, from what Arise saw and my goals, say why in two sentences, and say how I would know it worked.' },
+  { label: 'Am I living by my values?', values: true, text: 'Here are my values. For each one, say in one line whether my last few weeks fit it, with one real example from what Arise saw, and where they clash. Be honest and kind.' },
+  { label: 'What am I avoiding?', text: 'What do you think I am avoiding? Look for things I keep putting off, people I have gone quiet on and goals I have stopped touching, as far as you may read them. Ask me one question about it instead of telling me what to do.' },
+];
+
 // `chat`: the chat the answer on its way is for.
 let chatState = { busy: false, controller: null, text: '', chat: '' };
 // The chat open on the Coach screen (lib/chats.ts): on this device only. Until one is picked, the
@@ -972,7 +980,7 @@ export function renderCoach(root) {
       <div class="col">
         <section class="panel">
           <div class="panel-title"><span>Quick actions</span></div>
-          <div class="quick"><button class="quick-btn how" data-act="ai-how" ${hasKey && !chatState.busy ? '' : 'disabled'}>Ask how I'm doing <span class="tag">new chat</span></button>${QUICK.map((q, i) => `<button class="quick-btn" data-act="ai-quick" data-i="${i}" ${hasKey && !chatState.busy ? '' : 'disabled'}>${esc(q.label)}${q.full ? ' <span class="tag">all data</span>' : ''}</button>`).join('')}
+          <div class="quick"><button class="quick-btn how" data-act="ai-how" ${hasKey && !chatState.busy ? '' : 'disabled'}>Ask how I'm doing <span class="tag">new chat</span></button>${MIRROR.map((m, i) => `<button class="quick-btn how" data-act="ai-mirror" data-i="${i}" ${hasKey && !chatState.busy ? '' : 'disabled'}>${esc(m.label)} <span class="tag">new chat</span></button>`).join('')}${QUICK.map((q, i) => `<button class="quick-btn" data-act="ai-quick" data-i="${i}" ${hasKey && !chatState.busy ? '' : 'disabled'}>${esc(q.label)}${q.full ? ' <span class="tag">all data</span>' : ''}</button>`).join('')}
             ${S.workoutsOn() ? '<button class="quick-btn" data-act="nav" data-v="plan">Personalise my workout plan →</button>' : ''}
           </div>
         </section>
@@ -1688,6 +1696,19 @@ export async function handleAction(act, el) {
       closeSheet();
       sendChat(HOW.text, { recallAs: HOW.recall });
       return true;
+    case 'ai-mirror': {
+      const m = MIRROR[Number(el?.dataset.i)];
+      if (!m || chatState.busy) return true;
+      const values = S.state.profile?.life?.values || [];
+      if (m.values && !values.length) {
+        toast('Pick your values first, in your life check-in on Me.');
+        return true;
+      }
+      openChat = CH.newChatId();
+      closeSheet();
+      sendChat(m.values ? `${m.text}\nMy values: ${values.join(', ')}.` : m.text, { recallAs: 'the last 4 weeks' });
+      return true;
+    }
     case 'ai-chats':
       openSheet(chatsSheet());
       return true;
