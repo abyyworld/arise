@@ -485,7 +485,7 @@ export function questionCard() {
     ${q.hint ? `<p class="muted small">${esc(q.hint)}</p>` : ''}
     ${
       q.write
-        ? `<form data-form="q-write" data-act="${esc(q.write.act)}"><label class="sr-only" for="askIn">${esc(q.text)}</label><textarea id="askIn" class="log-text" rows="3" maxlength="400" placeholder="${esc(q.write.placeholder)}"></textarea><div class="row"><button class="btn small primary" type="submit">Save</button><button class="btn small ghost" type="button" data-act="q-skip">Not now</button></div></form>`
+        ? `<form data-form="q-write" data-act="${esc(q.write.act)}"><label class="sr-only" for="askIn">${esc(q.text)}</label><textarea id="askIn" class="log-text" rows="3" maxlength="400" placeholder="${esc(q.write.placeholder)}"></textarea>${q.write.act === 'q-know' ? `<label class="btn ghost small capture-file">${icon('note')} <span id="askFileName">Or a photo</span><input id="askFile" type="file" accept="image/*" hidden></label>` : ''}<div class="row"><button class="btn small primary" type="submit">Save</button><button class="btn small ghost" type="button" data-act="q-skip">Not now</button></div></form>`
         : `<div class="row wrap">${q.choices.map((c, i) => `<button class="btn small${i === 0 ? ' primary' : ''}" data-act="${esc(c.act)}"${c.v ? ` data-v="${esc(c.v)}"` : ''}>${esc(c.label)}</button>`).join('')}</div>`
     }
   </section></div>`;
@@ -509,11 +509,12 @@ function answered() {
 async function answerKnow() {
   const text = ($('#askIn')?.value || '').trim();
   const q = $('#askCard .ask-text')?.textContent || '';
-  if (!text) {
-    toast('Write a few words, or tap Not now.');
+  const photo = $('#askFile')?.files?.[0] || null;
+  if (!text && !photo) {
+    toast('Write a few words or add a photo, or tap Not now.');
     return;
   }
-  if (!(await saveNote(text ? `${q}\n${text}` : '', null))) {
+  if (!(await saveNote(`${q}\n${text}`.trim(), photo))) {
     toast("That couldn't be saved.");
     return;
   }
@@ -855,6 +856,11 @@ globalThis.document?.addEventListener('input', (e) => {
   }
 });
 globalThis.document?.addEventListener('change', (e) => {
+  if (e.target?.id === 'askFile') {
+    const name = $('#askFileName');
+    if (name) name.textContent = e.target.files?.[0]?.name || 'Or a photo';
+    return;
+  }
   if (e.target?.id === 'captureFile') {
     const f = e.target.files?.[0];
     const name = $('#captureFileName');
