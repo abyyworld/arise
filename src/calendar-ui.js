@@ -21,6 +21,7 @@ import * as N from './native.js';
 import { allowed as webAlerts } from './todo-alerts.js';
 import { addForm, dayText, onTodoChange, row as todoRow } from './todos-ui.js';
 import { esc, icon, openSheet, closeSheet, toast } from './ui.js';
+import * as PLANUI from './plans-ui.js';
 import './styles/calendar.css';
 
 export const VIEW = 'calendar';
@@ -170,8 +171,10 @@ const whenText = (i) => (i.allDay ? (i.lastDay !== i.day ? `Until ${dayText(i.la
 // One item as a button that opens it.
 function itemButton(i, { cls = 'cal-item', showWhen = true } = {}) {
   const act = i.src === 'own' ? `data-act="cal-ev" data-id="${esc(i.id)}" data-key="${esc(i.key)}"` : i.src === 'todo' ? `data-act="todo-edit" data-id="${esc(i.id)}"` : `data-act="cal-linked" data-id="${esc(i.id)}"`;
-  const label = `${i.title}, ${whenText(i)}${i.src === 'todo' ? ', to-do' : ''}${i.done ? ', done' : ''}`;
-  return `<button class="${cls} c-${esc(i.color)}${i.done ? ' done' : ''}" ${act} aria-label="${esc(label)}">${showWhen ? `<span class="cal-when">${esc(i.allDay ? 'All day' : clock(i.start))}</span> ` : ''}<span class="cal-what">${esc(i.title)}</span></button>`;
+  const own = i.src === 'own' ? S.state.events[i.id] : null;
+  const off = PLANUI.tagOf(own); // a plan with someone, called off
+  const label = `${i.title}, ${whenText(i)}${i.src === 'todo' ? ', to-do' : ''}${i.done ? ', done' : ''}${off ? `, ${off.toLowerCase()}` : PLANUI.isShared(own) ? ', shared' : ''}`;
+  return `<button class="${cls} c-${esc(i.color)}${i.done ? ' done' : ''}${off ? ' cancelled' : ''}" ${act} aria-label="${esc(label)}">${showWhen ? `<span class="cal-when">${esc(i.allDay ? 'All day' : clock(i.start))}</span> ` : ''}<span class="cal-what">${esc(i.title)}</span></button>`;
 }
 
 function toolbar() {
@@ -365,6 +368,7 @@ function footHTML() {
     <div class="row wrap">
       <button class="btn small ghost" data-act="cal-import">${icon('up')} Import a calendar file</button>
       <button class="btn small ghost" data-act="cal-export">${icon('share')} Export your events</button>
+      <button class="btn small ghost" data-act="plan-paste">${icon('link')} Open a plan link</button>
     </div>
     <input type="file" id="calImport" accept=".ics,text/calendar" hidden>
     <p class="muted small">A calendar file (.ics) from Google, Outlook or Apple comes in as events of your own. Export gives your events as one file for any calendar app.</p>
@@ -389,6 +393,7 @@ export function renderCalendar(root) {
   scrolled = '';
   afterPaint();
   void loadLinked(); // again each time: new events may have come in since
+  PLANUI.refresh(); // answers to your plans, and changes to others' (plans-ui.js)
 }
 
 function afterPaint() {
@@ -518,6 +523,7 @@ function sheetHTML() {
       <fieldset class="ev-remind"><legend class="k">Remind me</legend>${choices.map((m) => `<label class="check"><input type="checkbox" name="evRemind" value="${m}" ${d.remind.includes(m) ? 'checked' : ''}> ${esc(EV.remindLabel(m))}</label>`).join('')}</fieldset>
       <p class="muted small">${esc(remindHelp())} A whole-day event's reminders count from 9:00 that day.</p>`
       }
+      ${id ? PLANUI.planSection(e) : ''}
       <p class="muted small">${esc(PRIVATE)}${e?.from ? ` Added by ${esc(e.from)}.` : ''}</p>
       <div class="row wrap">
         <button class="btn primary small" type="submit">Save</button>
@@ -620,6 +626,7 @@ function save() {
   closeSheet();
   repaint();
   toast('Saved.');
+  if (id) PLANUI.afterChange(id); // shared with someone: "Tell them?"
 }
 
 function remove() {
@@ -630,12 +637,14 @@ function remove() {
   if (scope === 'one') S.skipEventTime(id, key);
   else {
     if (!confirm(e.repeat ? `Delete "${e.title}", every time?` : `Delete "${e.title}"?`)) return;
+    PLANUI.beforeRemove(e); // shared with someone: "Tell them?"
     S.removeEvent(id);
   }
   sheet = null;
   closeSheet();
   repaint();
   toast(scope === 'one' ? 'Deleted this time.' : `Deleted "${e.title}".`);
+  if (scope === 'one') PLANUI.afterChange(id);
 }
 
 // An event from another calendar: what it is, and where to change it.
@@ -797,13 +806,9 @@ export function handleAction(act, el) {
     case 'cal-new':
       openEditor({ scope: 'all', draft: newDraft(d.d, d.h != null ? Number(d.h) : undefined) });
       return true;
-    case 'cal-ev': {
-      const e = S.state.events[d.id];
-      if (!e || e.gone) return true;
-      const scope = e.repeat ? 'one' : 'all';
-      openEditor({ id: e.id, key: d.key || e.start, scope, draft: draftOf(e, d.key || e.start, scope) });
+    case 'cal-ev':
+      openEvent(d.id, d.key);
       return true;
-    }
     case 'ev-scope': {
       if (!sheet?.id || sheet.scope === d.v) return true;
       const e = S.state.events[sheet.id];
@@ -842,9 +847,20 @@ export function handleAction(act, el) {
       return true;
     }
     default:
-      return false;
+      return PLANUI.handleAction(act, el);
   }
 }
+
+// One of your events, in its sheet (one time of a repeat: `key`, or the first).
+export function openEvent(id, key) {
+  const e = S.state.events[id];
+  if (!e || e.gone) return;
+  const scope = e.repeat ? 'one' : 'all';
+  openEditor({ id: e.id, key: key || e.start, scope, draft: draftOf(e, key || e.start, scope) });
+  PLANUI.opened(e.id);
+}
+PLANUI.setOpenEvent(openEvent);
+PLANUI.setAfter(() => repaint());
 
 // The form: Return saves; switches show and hide what goes with them.
 globalThis.document?.addEventListener('submit', (e) => {

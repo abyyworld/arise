@@ -256,6 +256,27 @@ const sharePage = (d: Doc) =>
   Number.isInteger(d.updated);
 const shareOff = (d: Doc) => only(d, ['v', 'off']) && d.v === 1 && d.off === true;
 const SHARE = /^shares\/([^/]+)$/;
+// An answer to a plan (lib/plans.ts): shares/{id}/replies/{rid}, sealed, nothing else. Anyone may
+// write one, signed in or not, while the page is up; only the page's account deletes it.
+const REPLY = /^shares\/([^/]+)\/replies\/([^/]+)$/;
+const planReply = (d: Doc) =>
+  only(d, ['v', 'iv', 'ct', 'updated']) &&
+  has(d, ['v', 'iv', 'ct', 'updated']) &&
+  d.v === 1 &&
+  typeof d.iv === 'string' &&
+  /^[A-Za-z0-9+/]{16}$/.test(d.iv) &&
+  typeof d.ct === 'string' &&
+  (d.ct as string).length >= 1 &&
+  str(d.ct, 2000) &&
+  /^[A-Za-z0-9+/]+={0,2}$/.test(d.ct as string) &&
+  Number.isInteger(d.updated);
+function canWriteReply(path: string, d: Doc | null, u: FakeUser | null | undefined) {
+  const m = REPLY.exec(path);
+  if (!m) return null;
+  const page = cloud.docs.get(`shares/${m[1]}`);
+  if (d === null) return !!u && !!page && page.owner === u.uid;
+  return /^[A-Za-z0-9_-]{22}$/.test(m[2]) && planReply(d) && !!page && page.off !== true;
+}
 
 // The life log's sealed packs (life/cloud.ts): users/{uid}/life/{id}, where id is 'key', 'index'
 // or 43 characters of base64url, and each is { v: 1, iv, ct, updated } and nothing else.
@@ -279,7 +300,7 @@ const lifePath = (u: FakeUser, path: string) => {
 
 // `u`: who asks (a request without sign-in, like the REST call below, passes null).
 function canRead(path: string, u: FakeUser | null | undefined = auth?.currentUser) {
-  if (path.startsWith('recovery/') || SHARE.test(path)) return true;
+  if (path.startsWith('recovery/') || SHARE.test(path) || REPLY.test(path)) return true;
   return !!u && (path.startsWith(`users/${u.uid}/arise/`) || !!lifePath(u, path));
 }
 // Listing a folder: only your own. Nobody can list the recovery records, and the shares only
@@ -287,11 +308,13 @@ function canRead(path: string, u: FakeUser | null | undefined = auth?.currentUse
 function canList(path: string, filters: Filter[]) {
   const u = auth?.currentUser;
   if (path === 'shares') return !!u && filters.some(([f, op, v]) => f === 'owner' && op === '==' && v === u.uid);
+  if (/^shares\/[^/]+\/replies$/.test(path)) return true;
   return !!u && (path === `users/${u.uid}/arise` || path === `users/${u.uid}/life`);
 }
 
-function canWrite(path: string, d: Doc | null) {
-  const u = auth?.currentUser;
+function canWrite(path: string, d: Doc | null, u: FakeUser | null | undefined = auth?.currentUser) {
+  const reply = canWriteReply(path, d, u);
+  if (reply !== null) return reply;
   if (!u) return false;
   if (path.startsWith(`users/${u.uid}/life/`)) return !!lifePath(u, path) && (d === null || lifePack(d));
   const share = SHARE.exec(path);
@@ -351,17 +374,39 @@ export async function getDocs(ref: { path: string; filters: Filter[] }) {
 // Firestore's REST API for one document, as a browser that isn't signed in calls it (a friend
 // opening a shared goal: lib/share.ts), under the same rules. Answers like the real one: the
 // fields as typed values, 404 for a document that isn't there, 403 when the rules say no.
-export async function restFetch(url: string | URL | Request): Promise<Response> {
+export async function restFetch(url: string | URL | Request, init: RequestInit = {}): Promise<Response> {
   const m = /^https:\/\/firestore\.googleapis\.com\/v1\/projects\/[^/]+\/databases\/\(default\)\/documents\/([^?]+)/.exec(String(url));
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   if (!m) return json(400, { error: { code: 400, status: 'INVALID_ARGUMENT' } });
   const path = decodeURIComponent(m[1]);
   if (cloud.hook) await cloud.hook('rest', path);
+  const typed = (x: unknown) => (typeof x === 'string' ? { stringValue: x } : Number.isInteger(x) ? { integerValue: String(x) } : typeof x === 'boolean' ? { booleanValue: x } : { nullValue: null });
+  const fieldsOf = (v: Doc) => Object.fromEntries(Object.entries(v).map(([k, x]) => [k, typed(x)]));
+  const method = (init.method || 'GET').toUpperCase();
+  // Writing one document (create or replace), as someone who isn't signed in: an answer to a plan.
+  if (method === 'PATCH') {
+    let fields: Record<string, { stringValue?: string; integerValue?: string; booleanValue?: boolean }> = {};
+    try {
+      fields = JSON.parse(String(init.body || '{}')).fields || {};
+    } catch {
+      return json(400, { error: { code: 400, status: 'INVALID_ARGUMENT' } });
+    }
+    const d: Doc = Object.fromEntries(Object.entries(fields).map(([k, f]) => [k, 'stringValue' in f ? f.stringValue : 'integerValue' in f ? Number(f.integerValue) : 'booleanValue' in f ? f.booleanValue : null]));
+    if (!canWrite(path, d, null)) return json(403, { error: { code: 403, status: 'PERMISSION_DENIED' } });
+    cloud.docs.set(path, d);
+    return json(200, { name: `projects/p/databases/(default)/documents/${path}`, fields: fieldsOf(d) });
+  }
+  if (method !== 'GET') return json(400, { error: { code: 400, status: 'INVALID_ARGUMENT' } });
+  // A folder: the documents right in it (the answers to a plan).
+  if (path.split('/').length % 2 === 1) {
+    if (!/^shares\/[^/]+\/replies$/.test(path)) return json(403, { error: { code: 403, status: 'PERMISSION_DENIED' } });
+    const docs = [...cloud.docs].filter(([p]) => p.startsWith(`${path}/`) && !p.slice(path.length + 1).includes('/'));
+    return json(200, docs.length ? { documents: docs.map(([p, v]) => ({ name: `projects/p/databases/(default)/documents/${p}`, fields: fieldsOf(v) })) } : {});
+  }
   if (!canRead(path, null)) return json(403, { error: { code: 403, status: 'PERMISSION_DENIED' } });
   const v = cloud.docs.get(path);
   if (!v) return json(404, { error: { code: 404, status: 'NOT_FOUND' } });
-  const typed = (x: unknown) => (typeof x === 'string' ? { stringValue: x } : Number.isInteger(x) ? { integerValue: String(x) } : typeof x === 'boolean' ? { booleanValue: x } : { nullValue: null });
-  return json(200, { name: `projects/p/databases/(default)/documents/${path}`, fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, typed(x)])) });
+  return json(200, { name: `projects/p/databases/(default)/documents/${path}`, fields: fieldsOf(v) });
 }
 
 export function writeBatch() {
